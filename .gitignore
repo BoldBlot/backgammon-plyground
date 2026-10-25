@@ -1,0 +1,20 @@
+# Build output
+.gradle/
+build/
+app/build/
+app/.cxx/
+.kotlin/
+*.apk
+*.aab
+!app/release/*.apk
+
+# Local configuration / secrets
+local.properties
+keystore/
+*.jks
+*.keystore
+signing.properties
+
+# Released APKs
+/dist/
+

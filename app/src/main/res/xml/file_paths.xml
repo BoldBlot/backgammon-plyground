@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Exported .mat files and error reports are written to the cache and shared through FileProvider. -->
+<paths>
+    <cache-path name="exports" path="exports/" />
+    <cache-path name="reports" path="reports/" />
+</paths>

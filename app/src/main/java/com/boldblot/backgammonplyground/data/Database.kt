@@ -1,0 +1,219 @@
+package com.boldblot.backgammonplyground.data
+
+import android.content.Context
+import androidx.room.ColumnInfo
+import androidx.room.Dao
+import androidx.room.Database
+import androidx.room.Entity
+import androidx.room.Index
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.PrimaryKey
+import androidx.room.Query
+import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.room.Transaction
+import androidx.room.Update
+import androidx.room.Upsert
+
+object MatchStatus {
+    const val IN_PROGRESS = 0
+    const val FINISHED = 1
+    const val ABANDONED = 2
+}
+
+/** One match, or one money session (length 0). */
+@Entity(tableName = "matches")
+data class MatchEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val startedAt: Long,
+    val finishedAt: Long? = null,
+    val length: Int,
+    val cpuLevel: String,
+    val useCube: Boolean,
+    val jacoby: Boolean,
+    val crawford: Boolean,
+    val humanScore: Int = 0,
+    val cpuScore: Int = 0,
+    /** 0 = human, 1 = computer, null while unfinished (or a money session). */
+    val winner: Int? = null,
+    val status: Int = MatchStatus.IN_PROGRESS,
+    val games: Int = 0,
+    /** Rating before/after the match (matches only). */
+    val eloBefore: Double? = null,
+    val eloAfter: Double? = null,
+    /** JSON of PerformanceTotals for the human and the computer. */
+    val humanPerformance: String? = null,
+    val cpuPerformance: String? = null,
+    /** False if the player excluded this match from statistics (and the rating). Schema 3. */
+    @ColumnInfo(defaultValue = "1") val inStats: Boolean = true,
+    /** True once the move-by-move records of its games were deleted (results kept). Schema 3. */
+    @ColumnInfo(defaultValue = "0") val recordsCleared: Boolean = false,
+)
+
+/** A finished game, with its full record for review and its summary for statistics. */
+@Entity(
+    tableName = "games",
+    indices = [Index("matchId")],
+)
+data class GameEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val matchId: Long,
+    val number: Int,
+    val finishedAt: Long,
+    val winner: Int,
+    val winType: String,
+    val points: Int,
+    /** JSON of GameSummary. */
+    val summary: String,
+    /** JSON of the final GameState (decisions with analysis). */
+    val record: String,
+    /** Score before this game and match length, for display. */
+    val scoreBeforeHuman: Int,
+    val scoreBeforeCpu: Int,
+)
+
+/** The match in progress, so it can be resumed after the app is closed. */
+@Entity(tableName = "current_match")
+data class CurrentMatchEntity(
+    @PrimaryKey val slot: Int = 0,
+    val json: String,
+)
+
+/**
+ * One of the human's blunders, saved for study until the player removes it. Kept when its
+ * match is deleted; one row per decision (matchId, gameNumber, decisionIndex).
+ */
+@Entity(
+    tableName = "blunders",
+    indices = [Index(value = ["matchId", "gameNumber", "decisionIndex"], unique = true)],
+)
+data class BlunderEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val matchId: Long,
+    val gameNumber: Int,
+    /** Index into the game's decisions. */
+    val decisionIndex: Int,
+    val playedAt: Long,
+    val matchLength: Int,
+    val cpuLevel: String,
+    /** Error after the 1-point-match factor. */
+    val error: Float,
+    /** JSON of the DecisionRecord. */
+    val record: String,
+)
+
+@Dao
+interface MatchDao {
+    @Insert
+    suspend fun insertMatch(m: MatchEntity): Long
+
+    @Upsert
+    suspend fun upsertMatch(m: MatchEntity)
+
+    @Query("SELECT * FROM matches WHERE id = :id")
+    suspend fun match(id: Long): MatchEntity?
+
+    @Query("SELECT * FROM matches WHERE (status != ${MatchStatus.IN_PROGRESS} OR games > 0) AND recordsCleared = 0 ORDER BY startedAt DESC")
+    suspend fun history(): List<MatchEntity>
+
+    /** Finished matches (not money sessions) that count for the rating, oldest first. */
+    @Query("SELECT * FROM matches WHERE status = ${MatchStatus.FINISHED} AND length > 0 AND inStats = 1 ORDER BY finishedAt ASC")
+    suspend fun ratedMatchesChronological(): List<MatchEntity>
+
+    @Query("SELECT * FROM matches WHERE status = ${MatchStatus.FINISHED} AND length > 0 ORDER BY finishedAt ASC")
+    suspend fun finishedMatchesChronological(): List<MatchEntity>
+
+    @Query("UPDATE matches SET inStats = :inStats WHERE id = :id")
+    suspend fun setInStats(id: Long, inStats: Boolean)
+
+    @Query("UPDATE matches SET inStats = 0 WHERE status != ${MatchStatus.IN_PROGRESS}")
+    suspend fun excludeFinishedFromStats()
+
+    @Query("UPDATE matches SET eloBefore = :before, eloAfter = :after WHERE id = :id")
+    suspend fun setRating(id: Long, before: Double?, after: Double?)
+
+    /** Deletes the game records (not the summaries) of finished matches started before [before]. */
+    @Query("UPDATE games SET record = '' WHERE matchId IN (SELECT id FROM matches WHERE status != ${MatchStatus.IN_PROGRESS} AND startedAt < :before)")
+    suspend fun clearRecordsBefore(before: Long)
+
+    @Query("UPDATE matches SET recordsCleared = 1 WHERE status != ${MatchStatus.IN_PROGRESS} AND startedAt < :before")
+    suspend fun markRecordsClearedBefore(before: Long)
+
+    @Transaction
+    suspend fun clearRecords(before: Long) {
+        clearRecordsBefore(before)
+        markRecordsClearedBefore(before)
+    }
+
+    @Query("SELECT * FROM matches")
+    suspend fun allMatches(): List<MatchEntity>
+
+    @Insert
+    suspend fun insertGame(g: GameEntity): Long
+
+    @Update
+    suspend fun updateGame(g: GameEntity)
+
+    @Update
+    suspend fun updateBlunder(b: BlunderEntity)
+
+    @Query("SELECT * FROM games WHERE matchId = :matchId ORDER BY number")
+    suspend fun games(matchId: Long): List<GameEntity>
+
+    @Query("SELECT id, matchId, number, finishedAt, winner, winType, points, summary, '' AS record, scoreBeforeHuman, scoreBeforeCpu FROM games")
+    suspend fun allGameSummaries(): List<GameEntity>
+
+    @Query("SELECT * FROM current_match WHERE slot = 0")
+    suspend fun current(): CurrentMatchEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveCurrent(c: CurrentMatchEntity)
+
+    @Query("DELETE FROM current_match")
+    suspend fun clearCurrent()
+
+    @Query("DELETE FROM games")
+    suspend fun deleteAllGames()
+
+    @Query("DELETE FROM matches WHERE status != ${MatchStatus.IN_PROGRESS}")
+    suspend fun deleteFinishedMatches()
+
+    @Query("DELETE FROM matches WHERE id = :id")
+    suspend fun deleteMatch(id: Long)
+
+    @Query("DELETE FROM games WHERE matchId = :id")
+    suspend fun deleteGamesOf(id: Long)
+
+    @Transaction
+    suspend fun deleteMatchWithGames(id: Long) {
+        deleteGamesOf(id)
+        deleteMatch(id)
+    }
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertBlunder(b: BlunderEntity): Long
+
+    @Query("SELECT * FROM blunders ORDER BY playedAt DESC, matchId DESC, gameNumber DESC, decisionIndex DESC")
+    suspend fun blunders(): List<BlunderEntity>
+
+    @Query("DELETE FROM blunders WHERE id = :id")
+    suspend fun deleteBlunder(id: Long)
+
+    @Query("DELETE FROM blunders")
+    suspend fun deleteAllBlunders()
+}
+
+@Database(
+    entities = [MatchEntity::class, GameEntity::class, CurrentMatchEntity::class, BlunderEntity::class],
+    version = 1,
+    exportSchema = true,
+)
+abstract class AppDatabase : RoomDatabase() {
+    abstract fun matches(): MatchDao
+
+    companion object {
+        fun create(context: Context): AppDatabase =
+            Room.databaseBuilder(context, AppDatabase::class.java, "plyground.db").build()
+    }
+}

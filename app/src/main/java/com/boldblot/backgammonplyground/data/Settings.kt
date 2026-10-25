@@ -1,0 +1,204 @@
+package com.boldblot.backgammonplyground.data
+
+import android.content.Context
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import com.boldblot.backgammonplyground.core.CpuLevel
+import com.boldblot.backgammonplyground.core.Depth
+import com.boldblot.backgammonplyground.core.MistakeRate
+import com.boldblot.backgammonplyground.core.MoveFilter
+import com.boldblot.backgammonplyground.core.Severity
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+/** When to show the practice-mode prompt after one of the human's decisions. */
+enum class FeedbackLevel(val label: String, val minSeverity: Severity?) {
+    OFF("Off", null),
+    BLUNDERS("Blunders only", Severity.BLUNDER),
+    ERRORS("Errors and blunders", Severity.ERROR),
+    ALL("Any non-best move", Severity.INACCURACY),
+}
+
+/** When and how the player learns about a mistake. */
+enum class TrainingMode(val label: String, val description: String) {
+    IMMEDIATE("Show mistakes immediately", "Intuition training: the right play and how much yours cost, straight after each mistake."),
+    AFTER_GAME("Show mistakes after the game", "Play the whole game undisturbed, then review your mistakes."),
+    TRY_AGAIN("Try again", "You are told only that it was an error or a blunder. Try the decision again, or show the answer. Your first try counts in PR."),
+}
+
+/** Order of the blunder list. */
+enum class BlunderSort(val label: String) { BIGGEST("Biggest first"), NEWEST("Newest first") }
+
+/** Pause after each move while autofinish plays the game out. */
+enum class AutoFinishSpeed(val label: String, val pauseMillis: Long) {
+    S01("0.1 s", 100), S03("0.3 s", 300), S05("0.5 s", 500), S10("1 s", 1000), S20("2 s", 2000)
+}
+
+enum class AnimationSpeed(val label: String, val stepMillis: Long) {
+    SLOW("Slow", 650), NORMAL("Normal", 380), FAST("Fast", 180), INSTANT("Instant", 0)
+}
+
+enum class BoardTheme(val label: String) { GRAY("Grey, black & white points"), CLASSIC("Classic green & wood") }
+
+enum class CheckerColor(val label: String) { YELLOW("Yellow"), RED("Red") }
+
+data class Settings(
+    val cpuLevel: CpuLevel = CpuLevel.MISTAKES,
+    val matchLength: Int = 5,
+    val useCube: Boolean = true,
+    val jacoby: Boolean = true,
+    val crawford: Boolean = true,
+    /** Money games: beavers allowed, and with them raccoons. */
+    val beavers: Boolean = false,
+    val raccoons: Boolean = false,
+    /** Opponent's error and blunder rates for [CpuLevel.MISTAKES]. */
+    val mistakes: MistakeRate = MistakeRate.PR8,
+    /** Analyze the computer's decisions too (its PR and review), at the same depths as the human's. */
+    val cpuAnalysis: Boolean = true,
+    /** Checker-play analysis depth (XG plies 1-4) and which moves are searched to that depth. */
+    val checkerPlies: Int = 3,
+    val moveFilter: MoveFilter = MoveFilter.WIDE,
+    /** Cube analysis depth (XG plies 1-4); 4-ply halves the cube error of 3-ply against XG. */
+    val cubePlies: Int = 4,
+    val blunderSort: BlunderSort = BlunderSort.BIGGEST,
+    val autoFinishSpeed: AutoFinishSpeed = AutoFinishSpeed.S05,
+    val feedback: FeedbackLevel = FeedbackLevel.ERRORS,
+    val trainingMode: TrainingMode = TrainingMode.IMMEDIATE,
+    /** Wait for the player to dismiss the prompt before the computer continues. */
+    val pauseOnMistake: Boolean = true,
+    /** Roll automatically when no cube decision is possible. */
+    val autoRoll: Boolean = true,
+    /** Submit the move as soon as it is complete (otherwise a Done button is shown). */
+    val autoConfirm: Boolean = false,
+    /** Play the human's move automatically when the roll can only be played one way. */
+    val autoForced: Boolean = true,
+    val animation: AnimationSpeed = AnimationSpeed.NORMAL,
+    val showPips: Boolean = true,
+    /** Show win/gammon chances meter during play (off by default: it is a hint). */
+    val showMeter: Boolean = false,
+    val boardTheme: BoardTheme = BoardTheme.GRAY,
+    /** Colour of the human's checkers on the grey board (the computer gets the other). */
+    val checkerColor: CheckerColor = CheckerColor.YELLOW,
+) {
+    val checkerDepth: Depth get() = Depth(checkerPlies, moveFilter)
+    val cubeDepth: Depth get() = Depth(cubePlies)
+}
+
+private val Context.dataStore by preferencesDataStore("settings")
+
+
+class SettingsStore(private val context: Context) {
+
+    private object Keys {
+        val level = stringPreferencesKey("cpu_level")
+        val length = intPreferencesKey("match_length")
+        val cube = booleanPreferencesKey("use_cube")
+        val jacoby = booleanPreferencesKey("jacoby")
+        val crawford = booleanPreferencesKey("crawford")
+        val beavers = booleanPreferencesKey("beavers")
+        val raccoons = booleanPreferencesKey("raccoons")
+        val cpuAnalysis = booleanPreferencesKey("analyze_cpu")
+        val checkerPlies = intPreferencesKey("checker_plies")
+        val moveFilter = stringPreferencesKey("move_filter")
+        val cubePlies = intPreferencesKey("cube_plies")
+        val errorRate = floatPreferencesKey("mistake_errors")
+        val blunderRate = floatPreferencesKey("mistake_blunders")
+        val mistakeCheckerPlies = intPreferencesKey("mistake_checker_plies")
+        val mistakeCubePlies = intPreferencesKey("mistake_cube_plies")
+        val maxMistake = floatPreferencesKey("mistake_max")
+        val blunderSort = stringPreferencesKey("blunder_sort")
+        val autoFinish = stringPreferencesKey("autofinish_speed")
+        val feedback = stringPreferencesKey("feedback")
+        val trainingMode = stringPreferencesKey("training_mode")
+        val pause = booleanPreferencesKey("pause_on_mistake")
+        val autoRoll = booleanPreferencesKey("auto_roll")
+        val autoConfirm = booleanPreferencesKey("auto_confirm")
+        val autoForced = booleanPreferencesKey("auto_forced")
+        val animation = stringPreferencesKey("animation")
+        val pips = booleanPreferencesKey("show_pips")
+        val meter = booleanPreferencesKey("show_meter")
+        val theme = stringPreferencesKey("board_theme")
+        val checker = stringPreferencesKey("checker_color")
+    }
+
+    private inline fun <reified E : Enum<E>> Preferences.enum(key: Preferences.Key<String>, default: E): E =
+        this[key]?.let { v -> enumValues<E>().firstOrNull { it.name == v } } ?: default
+
+    private fun read(p: Preferences): Settings {
+        val d = Settings()
+        return Settings(
+            cpuLevel = p.enum(Keys.level, d.cpuLevel),
+            matchLength = p[Keys.length] ?: d.matchLength,
+            useCube = p[Keys.cube] ?: d.useCube,
+            jacoby = p[Keys.jacoby] ?: d.jacoby,
+            crawford = p[Keys.crawford] ?: d.crawford,
+            beavers = p[Keys.beavers] ?: d.beavers,
+            raccoons = p[Keys.raccoons] ?: d.raccoons,
+            mistakes = MistakeRate(
+                p[Keys.errorRate] ?: d.mistakes.errors, p[Keys.blunderRate] ?: d.mistakes.blunders,
+                (p[Keys.mistakeCheckerPlies] ?: d.mistakes.checkerPlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
+                (p[Keys.mistakeCubePlies] ?: d.mistakes.cubePlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
+                p[Keys.maxMistake] ?: d.mistakes.maxMistake,
+            ),
+            cpuAnalysis = p[Keys.cpuAnalysis] ?: d.cpuAnalysis,
+            checkerPlies = (p[Keys.checkerPlies] ?: d.checkerPlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
+            moveFilter = p.enum(Keys.moveFilter, d.moveFilter),
+            cubePlies = (p[Keys.cubePlies] ?: d.cubePlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
+            blunderSort = p.enum(Keys.blunderSort, d.blunderSort),
+            autoFinishSpeed = p.enum(Keys.autoFinish, d.autoFinishSpeed),
+            feedback = p.enum(Keys.feedback, d.feedback),
+            trainingMode = p.enum(Keys.trainingMode, d.trainingMode),
+            pauseOnMistake = p[Keys.pause] ?: d.pauseOnMistake,
+            autoRoll = p[Keys.autoRoll] ?: d.autoRoll,
+            autoConfirm = p[Keys.autoConfirm] ?: d.autoConfirm,
+            autoForced = p[Keys.autoForced] ?: d.autoForced,
+            animation = p.enum(Keys.animation, d.animation),
+            showPips = p[Keys.pips] ?: d.showPips,
+            showMeter = p[Keys.meter] ?: d.showMeter,
+            boardTheme = p.enum(Keys.theme, d.boardTheme),
+            checkerColor = p.enum(Keys.checker, d.checkerColor),
+        )
+    }
+
+    val settings: Flow<Settings> = context.dataStore.data.map { read(it) }
+
+    suspend fun update(transform: (Settings) -> Settings) {
+        context.dataStore.edit { p ->
+            val s = transform(read(p))
+            p[Keys.level] = s.cpuLevel.name
+            p[Keys.length] = s.matchLength
+            p[Keys.cube] = s.useCube
+            p[Keys.jacoby] = s.jacoby
+            p[Keys.crawford] = s.crawford
+            p[Keys.beavers] = s.beavers
+            p[Keys.raccoons] = s.raccoons
+            p[Keys.errorRate] = s.mistakes.errors
+            p[Keys.blunderRate] = s.mistakes.blunders
+            p[Keys.mistakeCheckerPlies] = s.mistakes.checkerPlies
+            p[Keys.mistakeCubePlies] = s.mistakes.cubePlies
+            p[Keys.maxMistake] = s.mistakes.maxMistake
+            p[Keys.cpuAnalysis] = s.cpuAnalysis
+            p[Keys.checkerPlies] = s.checkerPlies
+            p[Keys.moveFilter] = s.moveFilter.name
+            p[Keys.cubePlies] = s.cubePlies
+            p[Keys.blunderSort] = s.blunderSort.name
+            p[Keys.autoFinish] = s.autoFinishSpeed.name
+            p[Keys.feedback] = s.feedback.name
+            p[Keys.trainingMode] = s.trainingMode.name
+            p[Keys.pause] = s.pauseOnMistake
+            p[Keys.autoRoll] = s.autoRoll
+            p[Keys.autoConfirm] = s.autoConfirm
+            p[Keys.autoForced] = s.autoForced
+            p[Keys.animation] = s.animation.name
+            p[Keys.pips] = s.showPips
+            p[Keys.meter] = s.showMeter
+            p[Keys.theme] = s.boardTheme.name
+            p[Keys.checker] = s.checkerColor.name
+        }
+    }
+}
