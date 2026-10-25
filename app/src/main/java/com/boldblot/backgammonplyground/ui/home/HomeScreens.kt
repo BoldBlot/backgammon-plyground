@@ -405,7 +405,7 @@ fun HistoryScreen(app: PlyGroundApp, onReview: (Long) -> Unit, onBlunder: (Long)
     suspend fun selectedFiles(): List<Pair<String, String>> = withContext(Dispatchers.IO) {
         MatFiles.unique(
             matches.orEmpty().filter { it.id in selected }.sortedBy { it.startedAt }.mapNotNull { m ->
-                app.repository.games(m.id).takeIf { it.isNotEmpty() }?.let { MatFiles.matchFile(m, it) }
+                app.repository.games(m.id).takeIf { it.isNotEmpty() }?.let { MatFiles.matchFile(m, it, playerName = settings?.playerName ?: "Player") }
             },
         )
     }
@@ -640,6 +640,17 @@ fun SettingsScreen(app: PlyGroundApp, onBack: () -> Unit, onSpeedTest: () -> Uni
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            Header("Exported files")
+            var name by remember { mutableStateOf(s.playerName) }
+            OutlinedTextField(
+                value = name,
+                onValueChange = { v -> name = v.take(30); update { it.copy(playerName = name) } },
+                label = { Text("Your name in exported files") },
+                supportingText = { Text("Shown in .mat files for eXtreme Gammon and GNU Backgammon; the computer is named after its engine and PR, e.g. \"PureTD PR 4\".") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
             Header("Analysis")
             Text("Checker play depth", style = MaterialTheme.typography.bodyMedium)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -680,8 +691,9 @@ fun SettingsScreen(app: PlyGroundApp, onBack: () -> Unit, onSpeedTest: () -> Uni
             OutlinedButton(onClick = onSpeedTest, modifier = Modifier.padding(top = 4.dp)) { Text("Speed test and recommendation") }
             Toggle("Analyze the computer's decisions too", s.cpuAnalysis) { v -> update { it.copy(cpuAnalysis = v) } }
             Text(
-                "Used for the computer's PR and its moves in review. Off makes the computer move sooner, " +
-                    "but it then has no PR.",
+                "Used for the computer's PR and its moves in review. Off (the default) makes the computer move " +
+                    "sooner and the phone stay cooler; it then has no PR. Analyze again in the review can still " +
+                    "analyze its moves later.",
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             HorizontalDivider(Modifier.padding(vertical = 12.dp))

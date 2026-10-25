@@ -37,11 +37,16 @@ object MatFiles {
      * A match, or the games of it in [only], in the .mat format read by eXtreme Gammon and GNU
      * Backgammon: file name and content.
      */
-    fun matchFile(match: MatchEntity, games: List<Pair<GameEntity, GameState>>, only: Pair<GameEntity, GameState>? = null): Pair<String, String> {
+    /** [playerName]: the player's name in the file (Settings), cleaned by [fileName]. */
+    fun matchFile(
+        match: MatchEntity, games: List<Pair<GameEntity, GameState>>, only: Pair<GameEntity, GameState>? = null,
+        playerName: String = "Player",
+    ): Pair<String, String> {
         val selected = if (only != null) listOf(only) else games
         val info = MatExport.Info(
             rules = MatchRules(match.length, match.useCube, match.jacoby, match.crawford),
-            names = listOf("Player", "Backgammon PlyGround ${Opponent.label(match.cpuLevel)}"), // by player index: human, computer
+            // By player index: human, computer. Short names, as XG and gnubg show them in narrow columns.
+            names = listOf(fileName(playerName), Opponent.exportName(match.cpuLevel)),
             startedAt = match.startedAt,
         )
         val out = selected.map { (e, g) -> MatExport.Game(e.number, listOf(e.scoreBeforeHuman, e.scoreBeforeCpu), g) }
@@ -49,6 +54,10 @@ object MatFiles {
         val name = "PlyGround-$stamp-" + if (only == null) "match.mat" else "game${out.first().number}.mat"
         return name to MatExport.write(info, out)
     }
+
+    /** A name safe for the .mat header: no colons, quotes or line breaks, at most 30 characters; "Player" if empty. */
+    fun fileName(name: String): String =
+        name.replace(Regex("[:\"\r\n\t]"), " ").replace(Regex(" +"), " ").trim().take(30).trim().ifEmpty { "Player" }
 
     /** Several files, named uniquely (two matches started in the same minute get the match id added). */
     fun unique(files: List<Pair<String, String>>): List<Pair<String, String>> {

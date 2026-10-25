@@ -58,8 +58,10 @@ data class Settings(
     val raccoons: Boolean = false,
     /** Opponent's error and blunder rates for [CpuLevel.MISTAKES]. */
     val mistakes: MistakeRate = MistakeRate.PR8,
-    /** Analyze the computer's decisions too (its PR and review), at the same depths as the human's. */
-    val cpuAnalysis: Boolean = true,
+    /** Analyze the computer's decisions too (its PR and review), at the same depths as the human's. Off by default: it doubles the work per move. */
+    val cpuAnalysis: Boolean = false,
+    /** The player's name in exported .mat files. */
+    val playerName: String = "Player",
     /** Checker-play analysis depth (XG plies 1-4) and which moves are searched to that depth. */
     val checkerPlies: Int = 3,
     val moveFilter: MoveFilter = MoveFilter.WIDE,
@@ -103,6 +105,7 @@ class SettingsStore(private val context: Context) {
         val beavers = booleanPreferencesKey("beavers")
         val raccoons = booleanPreferencesKey("raccoons")
         val cpuAnalysis = booleanPreferencesKey("analyze_cpu")
+        val playerName = stringPreferencesKey("player_name")
         val checkerPlies = intPreferencesKey("checker_plies")
         val moveFilter = stringPreferencesKey("move_filter")
         val cubePlies = intPreferencesKey("cube_plies")
@@ -146,6 +149,7 @@ class SettingsStore(private val context: Context) {
                 p[Keys.maxMistake] ?: d.mistakes.maxMistake,
             ),
             cpuAnalysis = p[Keys.cpuAnalysis] ?: d.cpuAnalysis,
+            playerName = p[Keys.playerName] ?: d.playerName,
             checkerPlies = (p[Keys.checkerPlies] ?: d.checkerPlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
             moveFilter = p.enum(Keys.moveFilter, d.moveFilter),
             cubePlies = (p[Keys.cubePlies] ?: d.cubePlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
@@ -183,6 +187,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.mistakeCubePlies] = s.mistakes.cubePlies
             p[Keys.maxMistake] = s.mistakes.maxMistake
             p[Keys.cpuAnalysis] = s.cpuAnalysis
+            p[Keys.playerName] = s.playerName
             p[Keys.checkerPlies] = s.checkerPlies
             p[Keys.moveFilter] = s.moveFilter.name
             p[Keys.cubePlies] = s.cubePlies

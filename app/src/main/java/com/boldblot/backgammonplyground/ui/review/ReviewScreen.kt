@@ -191,7 +191,10 @@ class ReviewViewModel(
         val s = _state.value
         val match = s.match ?: return null
         if (s.games.isEmpty()) return null
-        return MatFiles.matchFile(match, s.games, only = if (wholeMatch) null else s.games.getOrNull(s.gameIndex) ?: return null)
+        return MatFiles.matchFile(
+            match, s.games, only = if (wholeMatch) null else s.games.getOrNull(s.gameIndex) ?: return null,
+            playerName = s.settings.playerName,
+        )
     }
 
     private var reanalysis: Job? = null

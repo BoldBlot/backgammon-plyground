@@ -23,7 +23,7 @@ android {
         applicationId = "com.boldblot.backgammonplyground"
         minSdk = 26
         targetSdk = 36
-        versionCode = 28
+        versionCode = 29
         versionName = "0.6"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

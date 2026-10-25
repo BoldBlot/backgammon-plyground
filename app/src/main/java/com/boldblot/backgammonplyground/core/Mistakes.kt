@@ -177,5 +177,20 @@ object Opponent {
 
     fun label(key: String): String = parse(key).let { (l, r) -> label(l, r) }
 
+    /**
+     * The computer's name in exported files: engine and PR, "PureTD PR 4", "PureTD PR <2" (world
+     * class), or a custom opponent's estimated PR, "PureTD PR 7.3".
+     */
+    fun exportName(key: String, engine: EngineKind = EngineKind.PURETD): String {
+        val (level, rate) = parse(key)
+        val pr = when {
+            level == CpuLevel.MAXIMUM -> "PR <2"
+            level != CpuLevel.MISTAKES || rate == null -> level.label
+            else -> MistakeRate.presets.firstOrNull { it.rate == rate }?.name
+                ?: "PR %.1f".format(java.util.Locale.ROOT, rate.estimatedPr)
+        }
+        return "${engine.label} $pr"
+    }
+
     fun rating(key: String): Double = parse(key).let { (l, r) -> Elo.cpuRating(l, r) }
 }
