@@ -234,7 +234,7 @@ data class MatchState(
 
     /** How the opponent is stored with the match ([Opponent.key]) and shown. */
     val opponentKey: String get() = Opponent.key(cpuLevel, mistakes)
-    val opponentLabel: String get() = Opponent.label(cpuLevel, mistakes)
+    val opponentLabel: String get() = Opponent.name(cpuLevel, mistakes)
 
     fun ctx(onRoll: Int = game.turn) = game.cubeContext(rules, score, onRoll)
 

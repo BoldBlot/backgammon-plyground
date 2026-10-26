@@ -46,7 +46,7 @@ object MatFiles {
         val info = MatExport.Info(
             rules = MatchRules(match.length, match.useCube, match.jacoby, match.crawford),
             // By player index: human, computer. Short names, as XG and gnubg show them in narrow columns.
-            names = listOf(fileName(playerName), Opponent.exportName(match.cpuLevel)),
+            names = listOf(fileName(playerName), Opponent.name(match.cpuLevel)),
             startedAt = match.startedAt,
         )
         val out = selected.map { (e, g) -> MatExport.Game(e.number, listOf(e.scoreBeforeHuman, e.scoreBeforeCpu), g) }

@@ -90,7 +90,7 @@ import java.util.Date
 private fun context(b: SavedBlunder): String {
     val e = b.entity
     val d = b.decision
-    val level = Opponent.label(e.cpuLevel)
+    val level = Opponent.name(e.cpuLevel)
     val what = if (e.matchLength == 0) "Money" else "${e.matchLength}-pt match"
     val score = if (e.matchLength == 0) "" else " · score ${d.score[0]}-${d.score[1]}" + if (d.crawford) " Crawford" else ""
     val cube = if (d.cube.value > 1) " · cube ${d.cube.value}" else ""

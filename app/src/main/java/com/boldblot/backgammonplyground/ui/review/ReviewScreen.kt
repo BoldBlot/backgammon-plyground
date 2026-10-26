@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.NavigateBefore
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.LinearProgressIndicator
@@ -154,7 +155,7 @@ data class ReviewState(
 }
 
 class ReviewViewModel(
-    private val app: PlyGroundApp,
+    val app: PlyGroundApp,
     private val matchId: Long,
     /** Game to open (its number); null = the last one. */
     private val startGame: Int? = null,
@@ -342,11 +343,22 @@ private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit) {
         )
     }
     // One row: the game picker (a menu, so a long match takes no extra row) and the filters.
+    var summary by remember { mutableStateOf(false) }
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         if (st.games.size > 1) GamePicker(st, vm)
+        FilterChip(
+            selected = false, onClick = { summary = true }, label = { Text("Summary") },
+            leadingIcon = { Icon(Icons.Default.BarChart, null, Modifier.size(18.dp)) },
+        )
         ReviewFilter.entries.forEach { f ->
             FilterChip(selected = st.filter == f, onClick = { vm.setFilter(f) }, label = { Text(f.label) })
         }
+    }
+    st.match?.let { m ->
+        if (summary) SavedSummaryDialog(
+            vm.app, m.id, gameNumber = st.games.getOrNull(st.gameIndex)?.first?.number, startWithMatch = false,
+            onDismiss = { summary = false },
+        )
     }
 }
 

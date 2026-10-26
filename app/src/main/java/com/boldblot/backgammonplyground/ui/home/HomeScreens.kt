@@ -36,6 +36,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.PlayArrow
@@ -386,6 +387,7 @@ fun HistoryScreen(app: PlyGroundApp, onReview: (Long) -> Unit, onBlunder: (Long)
     var matches by remember { mutableStateOf<List<MatchEntity>?>(null) }
     var blunders by remember { mutableStateOf<List<SavedBlunder>?>(null) }
     var toDelete by remember { mutableStateOf<MatchEntity?>(null) }
+    var summaryOf by remember { mutableStateOf<MatchEntity?>(null) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var clear by remember { mutableStateOf<ClearKind?>(null) }
     // Selecting matches for export (Matches tab).
@@ -511,6 +513,7 @@ fun HistoryScreen(app: PlyGroundApp, onReview: (Long) -> Unit, onBlunder: (Long)
                         fun toggle() { selected = if (checked) selected - m.id else selected + m.id }
                         HistoryRow(
                             m, { if (selecting) toggle() else onReview(m.id) }, { toDelete = m },
+                            onSummary = { summaryOf = m },
                             selection = if (selecting) checked else null,
                             onToggleStats = {
                                 scope.launch {
@@ -532,6 +535,9 @@ fun HistoryScreen(app: PlyGroundApp, onReview: (Long) -> Unit, onBlunder: (Long)
                 reload()
             }
         }
+    }
+    summaryOf?.let { m ->
+        com.boldblot.backgammonplyground.ui.review.SavedSummaryDialog(app, m.id, gameNumber = null, startWithMatch = true, onDismiss = { summaryOf = null })
     }
     toDelete?.let { m ->
         AlertDialog(
@@ -558,9 +564,10 @@ private fun HistoryRow(
     /** Selecting for export: whether this match is selected (null = not selecting). */
     selection: Boolean? = null,
     onToggleStats: () -> Unit,
+    onSummary: () -> Unit,
 ) {
     val perf = m.humanPerformance?.let { runCatching { AppJson.decodeFromString<PerformanceTotals>(it) }.getOrNull() }
-    val level = Opponent.label(m.cpuLevel)
+    val level = Opponent.name(m.cpuLevel)
     val result = when {
         m.status == MatchStatus.IN_PROGRESS -> "in progress"
         m.status == MatchStatus.ABANDONED -> "abandoned"
@@ -588,6 +595,10 @@ private fun HistoryRow(
             if (selection == null) Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Match options") }
                 DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Summary") }, leadingIcon = { Icon(Icons.Default.BarChart, null) },
+                        onClick = { menu = false; onSummary() },
+                    )
                     DropdownMenuItem(
                         text = { Text(if (m.inStats) "Exclude from statistics" else "Count in statistics") },
                         onClick = { menu = false; onToggleStats() },

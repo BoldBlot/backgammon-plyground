@@ -1067,7 +1067,7 @@ private fun GameOverDialog(
 
 /** PR, rating, luck and error counts of both players. */
 @Composable
-private fun PerformanceRows(you: PerformanceTotals, cpu: PerformanceTotals) {
+internal fun PerformanceRows(you: PerformanceTotals, cpu: PerformanceTotals) {
     SummaryRow("PR", you.pr?.let { fmt(it) } ?: "–", cpu.pr?.let { fmt(it) } ?: "–", strong = true)
     SummaryRow("Rating", you.pr?.let { XgRules.ratingName(it) } ?: "–", cpu.pr?.let { XgRules.ratingName(it) } ?: "–")
     SummaryRow("Luck", eq(you.luck), eq(cpu.luck), strong = true)
@@ -1091,7 +1091,7 @@ private fun PerformanceRows(you: PerformanceTotals, cpu: PerformanceTotals) {
 
 /** A row of the game summary: label, the human's value, the computer's value. */
 @Composable
-private fun SummaryRow(label: String, you: String, cpu: String, header: Boolean = false, strong: Boolean = false) {
+internal fun SummaryRow(label: String, you: String, cpu: String, header: Boolean = false, strong: Boolean = false) {
     val labelStyle = if (header) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium
     val valueStyle = if (header) MaterialTheme.typography.labelLarge else MaterialTheme.typography.bodyMedium
     val weight = if (header || strong) FontWeight.SemiBold else FontWeight.Normal

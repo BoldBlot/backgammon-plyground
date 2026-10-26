@@ -181,6 +181,10 @@ class Repository(private val db: AppDatabase) {
 
     suspend fun match(id: Long): MatchEntity? = dao.match(id)
 
+    /** Each finished game of match [matchId] with its stored summary (also for games whose records were cleared). */
+    suspend fun gameSummaries(matchId: Long): List<Pair<GameEntity, GameSummary>> =
+        dao.games(matchId).mapNotNull { e -> runCatching { e to AppJson.decodeFromString<GameSummary>(e.summary) }.getOrNull() }
+
     /**
      * Stores game [e] analyzed again ([g]): its record and summary, and the match's totals if the
      * match is over (statistics and PR history read both).

@@ -4,6 +4,10 @@
 
 - Settings → Board: "Home board on the left (mirrored board)": the board, its numbers, the tray,
   dice, arrows and touch input all mirror; games and exports are unchanged.
+- The end-of-game summary (PR, rating, luck, errors) for saved matches: "Summary" in a match's menu in
+  History, and the Summary chip in the review (this game or the whole match).
+- The computer is called by its engine and PR everywhere (History, My blunders, the game screen),
+  e.g. "PureTD PR 4", as in exported files.
 
 ## 0.6 — 2026-10-25
 

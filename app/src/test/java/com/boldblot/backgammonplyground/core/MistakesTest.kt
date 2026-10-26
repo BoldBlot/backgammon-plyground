@@ -117,11 +117,11 @@ class MistakesTest {
     }
 
     @Test
-    fun exportNamesAreEngineAndPr() {
-        assertEquals("PureTD PR 4", Opponent.exportName(Opponent.key(CpuLevel.MISTAKES, MistakeRate.PR4)))
-        assertEquals("PureTD PR <2", Opponent.exportName(Opponent.key(CpuLevel.MAXIMUM, null)))
+    fun namesAreEngineAndPr() {
+        assertEquals("PureTD PR 4", Opponent.name(Opponent.key(CpuLevel.MISTAKES, MistakeRate.PR4)))
+        assertEquals("PureTD PR <2", Opponent.name(Opponent.key(CpuLevel.MAXIMUM, null)))
         val custom = MistakeRate(0.1f, 0.02f, checkerPlies = 2, cubePlies = 4, maxMistake = 0.4f)
-        assertTrue(Opponent.exportName(Opponent.key(CpuLevel.MISTAKES, custom)).matches(Regex("PureTD PR \\d+\\.\\d")))
+        assertTrue(Opponent.name(Opponent.key(CpuLevel.MISTAKES, custom)).matches(Regex("PureTD PR \\d+\\.\\d")))
         assertEquals("Ann Smith", com.boldblot.backgammonplyground.ui.review.MatFiles.fileName("  Ann: \"Smith\" "))
         assertEquals("Player", com.boldblot.backgammonplyground.ui.review.MatFiles.fileName("  "))
     }
