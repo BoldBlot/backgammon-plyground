@@ -15,6 +15,7 @@ import com.boldblot.backgammonplyground.core.MoveFilter
 import com.boldblot.backgammonplyground.core.Severity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
 
 /** When to show the practice-mode prompt after one of the human's decisions. */
 enum class FeedbackLevel(val label: String, val minSeverity: Severity?) {
@@ -43,9 +44,34 @@ enum class AnimationSpeed(val label: String, val stepMillis: Long) {
     SLOW("Slow", 650), NORMAL("Normal", 380), FAST("Fast", 180), INSTANT("Instant", 0)
 }
 
-enum class BoardTheme(val label: String) { GRAY("Grey, black & white points"), CLASSIC("Classic green & wood") }
+/** The ready-made boards (see ui/board/BoardThemes.kt), and [CUSTOM]: one of the player's own designs. */
+enum class BoardTheme(val label: String) {
+    GRAY("Matt's"), CLASSIC("Classic"), CLAUDE("Claude's"), WALNUT("Walnut & ivory"), NAVY("Navy tournament"),
+    LEATHER("Red leather"), OLIVE("Olive & cream"), CONTRAST("High contrast"),
+    /** The design in [Settings.customSlot]. */
+    CUSTOM("My design"),
+}
 
-enum class CheckerColor(val label: String) { YELLOW("Yellow"), RED("Red") }
+/** Which of the board's two checker colours is the human's (the computer gets the other). */
+enum class CheckerSide { FIRST, SECOND }
+
+enum class CheckerStyle(val label: String) { RIMMED("Rimmed"), FLAT("Flat"), DOUBLE_RING("Double ring"), DOMED("Domed") }
+
+/** A board made in the board designer; colours are ARGB. */
+@Serializable
+data class CustomBoard(
+    val name: String,
+    val frame: Long,
+    val surface: Long,
+    val pointLight: Long,
+    val pointDark: Long,
+    val mine: Long,
+    val theirs: Long,
+    val numbers: Long,
+    val highlight: Long,
+)
+
+const val CUSTOM_SLOTS = 4
 
 data class Settings(
     val cpuLevel: CpuLevel = CpuLevel.MISTAKES,
@@ -84,9 +110,12 @@ data class Settings(
     /** Show win/gammon chances meter during play (off by default: it is a hint). */
     val showMeter: Boolean = false,
     val boardTheme: BoardTheme = BoardTheme.GRAY,
-    /** Colour of the human's checkers on the grey board (the computer gets the other). */
-    val checkerColor: CheckerColor = CheckerColor.YELLOW,
-    /** Your home board on the left (checkers move clockwise) instead of the right. */
+    val checkerSide: CheckerSide = CheckerSide.FIRST,
+    val checkerStyle: CheckerStyle = CheckerStyle.RIMMED,
+    /** The board designer's save slots ([CUSTOM_SLOTS]; null = empty) and the one in use with [BoardTheme.CUSTOM]. */
+    val customBoards: List<CustomBoard?> = List(CUSTOM_SLOTS) { null },
+    val customSlot: Int = 0,
+    /** Bear off to the left: your home board on the left (checkers move clockwise) instead of the right. */
     val mirrorBoard: Boolean = false,
 ) {
     val checkerDepth: Depth get() = Depth(checkerPlies, moveFilter)
@@ -129,6 +158,9 @@ class SettingsStore(private val context: Context) {
         val meter = booleanPreferencesKey("show_meter")
         val theme = stringPreferencesKey("board_theme")
         val checker = stringPreferencesKey("checker_color")
+        val checkerStyle = stringPreferencesKey("checker_style")
+        val customBoards = stringPreferencesKey("custom_boards")
+        val customSlot = intPreferencesKey("custom_slot")
         val mirror = booleanPreferencesKey("mirror_board")
     }
 
@@ -168,7 +200,13 @@ class SettingsStore(private val context: Context) {
             showPips = p[Keys.pips] ?: d.showPips,
             showMeter = p[Keys.meter] ?: d.showMeter,
             boardTheme = p.enum(Keys.theme, d.boardTheme),
-            checkerColor = p.enum(Keys.checker, d.checkerColor),
+            // build 31 and earlier stored the grey board's colour, YELLOW (first) or RED (second)
+            checkerSide = if (p[Keys.checker] in setOf("RED", "SECOND")) CheckerSide.SECOND else CheckerSide.FIRST,
+            checkerStyle = p.enum(Keys.checkerStyle, d.checkerStyle),
+            customBoards = p[Keys.customBoards]
+                ?.let { runCatching { AppJson.decodeFromString<List<CustomBoard?>>(it) }.getOrNull() }
+                ?.let { l -> List(CUSTOM_SLOTS) { l.getOrNull(it) } } ?: d.customBoards,
+            customSlot = (p[Keys.customSlot] ?: d.customSlot).coerceIn(0, CUSTOM_SLOTS - 1),
             mirrorBoard = p[Keys.mirror] ?: d.mirrorBoard,
         )
     }
@@ -207,7 +245,10 @@ class SettingsStore(private val context: Context) {
             p[Keys.pips] = s.showPips
             p[Keys.meter] = s.showMeter
             p[Keys.theme] = s.boardTheme.name
-            p[Keys.checker] = s.checkerColor.name
+            p[Keys.checker] = s.checkerSide.name
+            p[Keys.checkerStyle] = s.checkerStyle.name
+            p[Keys.customBoards] = AppJson.encodeToString(s.customBoards)
+            p[Keys.customSlot] = s.customSlot
             p[Keys.mirror] = s.mirrorBoard
         }
     }

@@ -15,7 +15,9 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.StrokeCap
@@ -34,6 +36,7 @@ import com.boldblot.backgammonplyground.core.CubeState
 import com.boldblot.backgammonplyground.core.OFF
 import com.boldblot.backgammonplyground.core.Player
 import com.boldblot.backgammonplyground.core.Step
+import com.boldblot.backgammonplyground.data.CheckerStyle
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.sign
@@ -54,48 +57,11 @@ data class BoardColors(
     val lastMove: Color,
     val label: Color,
     val tray: Color,
+    val checkerStyle: CheckerStyle = CheckerStyle.RIMMED,
 ) {
     companion object {
-        private val yellow = Color(0xFFF2C14E)
-        private val yellowRim = Color(0xFFA9781A)
-        private val red = Color(0xFFC8372D)
-        private val redRim = Color(0xFF7A1C16)
-
-        /** Default: grey felt, black and white points, warm yellow and red checkers. */
-        fun gray(humanIsYellow: Boolean = true) = BoardColors(
-            frame = Color(0xFF3A3D41),
-            surface = Color(0xFF8E9297),
-            pointLight = Color(0xFFF1F0EC),
-            pointDark = Color(0xFF1E1F21),
-            human = if (humanIsYellow) yellow else red,
-            humanRim = if (humanIsYellow) yellowRim else redRim,
-            cpu = if (humanIsYellow) red else yellow,
-            cpuRim = if (humanIsYellow) redRim else yellowRim,
-            humanPip = if (humanIsYellow) Color(0xFF2B1D05) else Color(0xFFFFF4E8),
-            cpuPip = if (humanIsYellow) Color(0xFFFFF4E8) else Color(0xFF2B1D05),
-            highlight = Color(0xFF19D3C5),
-            lastMove = Color(0xFF3D7BFF),
-            label = Color(0xFFD8DADD),
-            tray = Color(0xFF2A2C2F),
-        )
-
-        /** Wooden frame, green felt, cream and red points, white and black checkers. */
-        fun classic() = BoardColors(
-            frame = Color(0xFF4A2F1B),
-            surface = Color(0xFF285C43),
-            pointLight = Color(0xFFE6D3AA),
-            pointDark = Color(0xFFA9412C),
-            human = Color(0xFFF5F0E6),
-            humanRim = Color(0xFF8A7F6C),
-            cpu = Color(0xFF2A2A2A),
-            cpuRim = Color(0xFF6B6B6B),
-            humanPip = Color(0xFF1E1E1E),
-            cpuPip = Color(0xFFF2F2F2),
-            highlight = Color(0xFFFFC94A),
-            lastMove = Color(0xFF7FD3FF),
-            label = Color(0xFFE9E1CF),
-            tray = Color(0xFF3A2414),
-        )
+        /** Matt's board (the default). */
+        fun gray() = BoardThemes.matts.colors(com.boldblot.backgammonplyground.data.CheckerSide.FIRST, CheckerStyle.RIMMED)
     }
 }
 
@@ -358,7 +324,7 @@ fun BoardView(
         pips?.let { drawPips(g, colors, it, measurer) }
         dice.forEach { drawDice(g, colors, it) }
         drawArrows(g, board, arrows, postMove = false)
-        dragFrom?.let { checker(dragPos, g.radius * 1.08f, colors.human, colors.humanRim) }
+        dragFrom?.let { checker(dragPos, g.radius * 1.08f, colors.human, colors.humanRim, colors.checkerStyle) }
     }
 }
 
@@ -407,10 +373,34 @@ private fun DrawScope.drawFlags(g: BoardGeometry, flagged: Set<Int>) {
     }
 }
 
-private fun DrawScope.checker(center: Offset, r: Float, fill: Color, rim: Color) {
-    drawCircle(fill, r, center)
-    drawCircle(rim, r * 0.96f, center, style = Stroke(width = r * 0.08f))
-    drawCircle(rim.copy(alpha = 0.35f), r * 0.6f, center, style = Stroke(width = r * 0.05f))
+internal fun DrawScope.checker(center: Offset, r: Float, fill: Color, rim: Color, style: CheckerStyle) {
+    when (style) {
+        CheckerStyle.RIMMED -> {
+            drawCircle(fill, r, center)
+            drawCircle(rim, r * 0.96f, center, style = Stroke(width = r * 0.08f))
+            drawCircle(rim.copy(alpha = 0.35f), r * 0.6f, center, style = Stroke(width = r * 0.05f))
+        }
+        CheckerStyle.FLAT -> {
+            drawCircle(fill, r, center)
+            drawCircle(rim, r * 0.98f, center, style = Stroke(width = r * 0.04f))
+        }
+        CheckerStyle.DOUBLE_RING -> {
+            drawCircle(fill, r, center)
+            drawCircle(rim, r * 0.94f, center, style = Stroke(width = r * 0.1f))
+            drawCircle(rim, r * 0.64f, center, style = Stroke(width = r * 0.09f))
+        }
+        CheckerStyle.DOMED -> {
+            // lit from the top left: lighter centre, darker edge
+            drawCircle(
+                Brush.radialGradient(
+                    listOf(lerp(fill, Color.White, 0.35f), fill, lerp(fill, Color.Black, 0.28f)),
+                    center = center + Offset(-r * 0.35f, -r * 0.35f), radius = r * 1.45f,
+                ),
+                r, center,
+            )
+            drawCircle(rim.copy(alpha = 0.7f), r * 0.98f, center, style = Stroke(width = r * 0.04f))
+        }
+    }
 }
 
 private fun DrawScope.drawCheckers(g: BoardGeometry, c: BoardColors, board: Board, dragFrom: Int?, measurer: TextMeasurer) {
@@ -423,7 +413,7 @@ private fun DrawScope.drawCheckers(g: BoardGeometry, c: BoardColors, board: Boar
             if (n <= 0) continue
             val humanIdx = if (player == Player.HUMAN) idx else 23 - idx
             val shown = min(n, 5)
-            for (k in 0 until shown) checker(g.checkerCenter(humanIdx, k), g.radius, fill, rim)
+            for (k in 0 until shown) checker(g.checkerCenter(humanIdx, k), g.radius, fill, rim, c.checkerStyle)
             if (n > 5) {
                 val center = g.checkerCenter(humanIdx, 4)
                 val t = measurer.measure(
@@ -435,7 +425,7 @@ private fun DrawScope.drawCheckers(g: BoardGeometry, c: BoardColors, board: Boar
         }
         var bar = board.bar(player)
         if (player == Player.HUMAN && dragFrom == BAR) bar--
-        for (k in 0 until min(bar, 4)) checker(g.barCenter(player, k), g.radius, fill, rim)
+        for (k in 0 until min(bar, 4)) checker(g.barCenter(player, k), g.radius, fill, rim, c.checkerStyle)
         if (bar > 4) {
             val t = measurer.measure(bar.toString(), TextStyle(color = Color.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold))
             drawText(t, topLeft = g.barCenter(player, 3) - Offset(t.size.width / 2f, t.size.height / 2f))
@@ -543,10 +533,8 @@ private fun DrawScope.drawPips(r: Rect, v: Int, color: Color) {
 }
 
 /** Board colours for the user's settings. */
-fun boardColorsFor(s: com.boldblot.backgammonplyground.data.Settings): BoardColors = when (s.boardTheme) {
-    com.boldblot.backgammonplyground.data.BoardTheme.GRAY -> BoardColors.gray(s.checkerColor == com.boldblot.backgammonplyground.data.CheckerColor.YELLOW)
-    com.boldblot.backgammonplyground.data.BoardTheme.CLASSIC -> BoardColors.classic()
-}
+fun boardColorsFor(s: com.boldblot.backgammonplyground.data.Settings): BoardColors =
+    BoardThemes.palette(s).colors(s.checkerSide, s.checkerStyle)
 
 /** Fixed arrow colours (readable on every board theme). */
 object ArrowColors {

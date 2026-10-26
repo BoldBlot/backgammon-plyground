@@ -2,6 +2,16 @@
 
 ## 0.6 — 2026-10-25
 
+Build 32:
+- Eight boards to choose from, each shown with a small preview: Matt's (the grey board), Classic,
+  Claude's, Walnut & ivory, Navy tournament, Red leather, Olive & cream and High contrast. Every
+  board lets you choose your checker colour.
+- Checker styles: Rimmed, Flat, Double ring and Domed.
+- Settings → Board: "Bear off direction: Left / Right" replaces the mirrored-board switch (the same
+  setting, kept as it was).
+- Board designer (experimental): a colour for each part of the board and for both sides' checkers;
+  save up to four designs, which appear in the board list.
+
 Build 31:
 - Settings → Board: "Home board on the left (mirrored board)": the board, its numbers, the tray,
   dice, arrows and touch input all mirror; games and exports are unchanged.

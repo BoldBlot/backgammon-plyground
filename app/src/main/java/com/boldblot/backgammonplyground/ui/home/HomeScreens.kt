@@ -91,8 +91,6 @@ import com.boldblot.backgammonplyground.data.AnimationSpeed
 import com.boldblot.backgammonplyground.data.AppJson
 import com.boldblot.backgammonplyground.data.AutoFinishSpeed
 import com.boldblot.backgammonplyground.data.BlunderSort
-import com.boldblot.backgammonplyground.data.BoardTheme
-import com.boldblot.backgammonplyground.data.CheckerColor
 import com.boldblot.backgammonplyground.data.FeedbackLevel
 import com.boldblot.backgammonplyground.data.MatchEntity
 import com.boldblot.backgammonplyground.data.MatchStatus
@@ -733,16 +731,7 @@ fun SettingsScreen(app: PlyGroundApp, onBack: () -> Unit, onSpeedTest: () -> Uni
             )
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             Header("Board")
-            BoardTheme.entries.forEach { t -> Radio(t.label, s.boardTheme == t) { update { it.copy(boardTheme = t) } } }
-            Toggle("Home board on the left (mirrored board)", s.mirrorBoard) { v -> update { it.copy(mirrorBoard = v) } }
-            if (s.boardTheme == BoardTheme.GRAY) {
-                Text("My checkers", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(CheckerColor.entries) { c ->
-                        FilterChip(selected = s.checkerColor == c, onClick = { update { it.copy(checkerColor = c) } }, label = { Text(c.label) })
-                    }
-                }
-            }
+            BoardSettings(s, ::update)
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             Header("Data")
             ClearKind.entries.forEach { k ->
