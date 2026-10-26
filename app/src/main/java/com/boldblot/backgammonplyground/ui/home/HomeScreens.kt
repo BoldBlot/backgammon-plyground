@@ -203,8 +203,8 @@ fun NewMatchScreen(app: PlyGroundApp, hasMatch: Boolean, onStart: (MatchRules, C
     val settings by app.settings.settings.collectAsState(initial = null)
     val s = settings ?: return
     var length by remember(s) { mutableStateOf(s.matchLength) }
-    // The opponents are PR levels: Maximum, or the mistake-rate opponent.
-    var level by remember(s) { mutableStateOf(if (s.cpuLevel == CpuLevel.MAXIMUM) CpuLevel.MAXIMUM else CpuLevel.MISTAKES) }
+    // The opponents are PR levels: PR <1 (Maximum), PR <2 (Strong), or the mistake-rate opponent.
+    var level by remember(s) { mutableStateOf(if (s.cpuLevel == CpuLevel.MAXIMUM || s.cpuLevel == CpuLevel.STRONG) s.cpuLevel else CpuLevel.MISTAKES) }
     var cube by remember(s) { mutableStateOf(s.useCube) }
     var jacoby by remember(s) { mutableStateOf(s.jacoby) }
     var crawford by remember(s) { mutableStateOf(s.crawford) }
@@ -276,7 +276,8 @@ fun NewMatchScreen(app: PlyGroundApp, hasMatch: Boolean, onStart: (MatchRules, C
         }
         val strength: @Composable () -> Unit = {
             EngineChips(engine, { engine = it }, Modifier.padding(bottom = 4.dp))
-            LevelRow("PR <2 · World class", "Checker 3-ply, all moves, cube 3-ply · no mistakes", level == CpuLevel.MAXIMUM) { level = CpuLevel.MAXIMUM }
+            LevelRow("PR <1 · World champion", "Checker 3-ply, all moves, cube 3-ply · no mistakes", level == CpuLevel.MAXIMUM) { level = CpuLevel.MAXIMUM }
+            LevelRow("PR <2 · World class", "Checker 2-ply, all moves, cube 2-ply · no mistakes · faster", level == CpuLevel.STRONG) { level = CpuLevel.STRONG }
             val preset = MistakeRate.presets.firstOrNull { it.rate == mistakes }
             var custom by remember { mutableStateOf(preset == null) }
             MistakeRate.presets.forEach { p ->
@@ -638,9 +639,17 @@ fun SettingsScreen(app: PlyGroundApp, onBack: () -> Unit, onSpeedTest: () -> Uni
             if (s.trainingMode == TrainingMode.IMMEDIATE) {
                 Toggle("Wait for me before the computer continues", s.pauseOnMistake) { v -> update { it.copy(pauseOnMistake = v) } }
             }
+            if (during) {
+                Toggle("Show the best move's arrows with my move", s.bestMoveArrows) { v -> update { it.copy(bestMoveArrows = v) } }
+                Text(
+                    "Otherwise the board shows only your move; pick the best move in the list to see it.",
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Toggle("Show the summary after each game", s.gameSummary) { v -> update { it.copy(gameSummary = v) } }
             if (!during) {
                 Text(
-                    "After the game, the review lists your errors and blunders.",
+                    "After the match, the review lists your errors and blunders.",
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

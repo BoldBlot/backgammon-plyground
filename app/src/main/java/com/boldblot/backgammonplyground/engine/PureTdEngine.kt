@@ -9,6 +9,7 @@ import com.boldblot.backgammonplyground.core.CubeEval
 import com.boldblot.backgammonplyground.core.CubeView
 import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.MAX_PLIES
+import com.boldblot.backgammonplyground.core.MoveFilter
 import com.boldblot.backgammonplyground.core.MatchCube
 import com.boldblot.backgammonplyground.core.MatchEquityTable
 import com.boldblot.backgammonplyground.core.Move
@@ -251,6 +252,7 @@ class PureTdEngine(private val handle: Long, private val met: MatchEquityTable =
             CpuLevel.WORLD_CLASS -> 1
             CpuLevel.SUPREMO -> 2
             CpuLevel.GRANDMASTER, CpuLevel.MISTAKES -> 3
+            CpuLevel.STRONG -> Depth(2, MoveFilter.ALL).code
             CpuLevel.MAXIMUM -> MAX_PLIES
             else -> 0
         }

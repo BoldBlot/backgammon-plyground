@@ -206,6 +206,8 @@ data class PerformanceTotals(
     val rolls: Int = 0,
 ) {
     val decisions: Int get() = checkerDecisions + doubleDecisions + takeDecisions
+    /** Errors and blunders, checker and cube. */
+    val mistakes: Int get() = checkerErrors + checkerBlunders + doubleErrors + doubleBlunders + takeErrors + takeBlunders
     val cubeDecisions: Int get() = doubleDecisions + takeDecisions
     val totalError: Double get() = checkerError + doubleError + takeError
     val cubeError: Double get() = doubleError + takeError

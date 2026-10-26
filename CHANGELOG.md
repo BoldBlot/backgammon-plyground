@@ -2,6 +2,15 @@
 
 ## 0.6 — 2026-10-25
 
+Build 33:
+- Training mode "Show mistakes after the match" (was "after the game"): your errors and blunders
+  are shown when the match ends, with "Review my mistakes"; in a money session, when you end it.
+- The summary after each game can be turned off: in Settings → Training mode, or with "Don't show
+  this after each game" on the summary itself. The end of a match always shows it.
+- Mistake prompt: the board shows only your move, its arrows coloured as an error or a blunder;
+  pick the best move in the list to see it. Settings → Training mode can show both moves' arrows.
+- Opponents: PR <2 now plays at 2-ply (faster), and a new PR <1 plays at 3-ply (the former PR <2).
+
 Build 32:
 - Eight boards to choose from, each shown with a small preview: Matt's (the grey board), Classic,
   Claude's, Walnut & ivory, Navy tournament, Red leather, Olive & cream and High contrast. Every

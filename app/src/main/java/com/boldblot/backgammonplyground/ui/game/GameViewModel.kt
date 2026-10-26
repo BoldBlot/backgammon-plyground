@@ -64,10 +64,12 @@ data class GameOverInfo(
     val matchLength: Int,
     /** All games of the match or session so far, this one included. */
     val match: MatchReport?,
-    /** The human's errors and blunders in this game (first tries where tried again). */
+    /** The human's errors and blunders: of the whole match with [afterMatch], otherwise of this game. */
     val mistakes: Int = 0,
-    /** Mistakes were held back for after the game ([TrainingMode.AFTER_GAME]). */
-    val afterGame: Boolean = false,
+    /** The match is over and its mistakes were held back for now ([TrainingMode.AFTER_GAME]). */
+    val afterMatch: Boolean = false,
+    /** The game the mistake review opens on (the first with a mistake). */
+    val reviewGame: Int = gameNumber,
 )
 
 /** "Try again" training: the prompt names the mistake; the answer shows only when asked ([revealed]). */
@@ -154,7 +156,7 @@ val GameUiState.canQueueResign: Boolean
 
 private enum class AutoMode { FINISH, DEBUG }
 
-class GameViewModel(private val app: PlyGroundApp) : ViewModel() {
+class GameViewModel(val app: PlyGroundApp) : ViewModel() {
 
     private val repo = app.repository
     private val engineService = app.engine
@@ -467,6 +469,13 @@ class GameViewModel(private val app: PlyGroundApp) : ViewModel() {
             repo.saveCurrent(next)
         }
         pendingNext = next
+        if (!next.isOver && !settings.gameSummary) {
+            _state.update { it.copy(notice = null) }
+            nextGame()
+            return
+        }
+        val afterMatch = settings.trainingMode == TrainingMode.AFTER_GAME && next.isOver
+        val (matchMistakes, firstMistake) = if (afterMatch) repo.humanMistakes(m.id) else 0 to null
         val report = runCatching { repo.matchReport(m.id) }.getOrNull()
         _state.update {
             it.copy(
@@ -476,7 +485,8 @@ class GameViewModel(private val app: PlyGroundApp) : ViewModel() {
                     cpuPerformance = summary.performance[1], score = next.score,
                     matchOver = next.isOver, matchWinner = next.winner, isMoney = m.rules.isMoney,
                     matchId = m.id, gameNumber = m.gameNumber, matchLength = m.rules.length, match = report,
-                    mistakes = mistakes, afterGame = settings.trainingMode == TrainingMode.AFTER_GAME,
+                    mistakes = if (afterMatch) matchMistakes else mistakes, afterMatch = afterMatch,
+                    reviewGame = firstMistake ?: m.gameNumber,
                 ),
             )
         }
@@ -491,6 +501,11 @@ class GameViewModel(private val app: PlyGroundApp) : ViewModel() {
             return
         }
         viewModelScope.launch { startGame(next) }
+    }
+
+    /** Shows or hides the summary after each game (Settings, or the box on the summary). */
+    fun setGameSummary(on: Boolean) {
+        viewModelScope.launch { app.settings.update { it.copy(gameSummary = on) } }
     }
 
     /** Ends a money session after a game (or closes a finished match). */
@@ -581,15 +596,18 @@ class GameViewModel(private val app: PlyGroundApp) : ViewModel() {
         showPlayedVsBest(fb)
     }
 
-    /** Shows the position before the decision with the played move and the best move as arrows. */
+    /**
+     * Shows the position before the decision with the played move's arrows in its severity's colour,
+     * and the best move's too with [Settings.bestMoveArrows] (otherwise it is picked from the list).
+     */
     private fun showPlayedVsBest(fb: Feedback) {
         val d = fb.decision
         val a = d.checker ?: return
         val played = a.candidates.getOrNull(a.playedIndex)?.move ?: d.move ?: return
         val best = a.candidates.firstOrNull()?.move ?: return
-        val arrows = arrowsFor(Player.HUMAN, best, ArrowColors.best) +
-            arrowsFor(Player.HUMAN, played, ArrowColors.forSeverity(fb.severity))
-        preview(d.board, arrows, -1)
+        val mine = arrowsFor(Player.HUMAN, played, ArrowColors.forSeverity(fb.severity))
+        if (settings.bestMoveArrows) preview(d.board, arrowsFor(Player.HUMAN, best, ArrowColors.best) + mine, -1)
+        else preview(d.board, mine, a.playedIndex)
     }
 
     fun roll() {

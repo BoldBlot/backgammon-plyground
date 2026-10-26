@@ -39,7 +39,11 @@ import com.boldblot.backgammonplyground.ui.game.SummaryRow
  * match / session, with the same rows as at the end of a game (PR, rating, luck, errors).
  */
 @Composable
-fun SavedSummaryDialog(app: PlyGroundApp, matchId: Long, gameNumber: Int?, startWithMatch: Boolean, onDismiss: () -> Unit) {
+fun SavedSummaryDialog(
+    app: PlyGroundApp, matchId: Long, gameNumber: Int?, startWithMatch: Boolean, onDismiss: () -> Unit,
+    /** A money session just ended in "after the match" training: its mistake count and a review of them (from game n). */
+    onReviewMistakes: ((Int) -> Unit)? = null,
+) {
     var match by remember { mutableStateOf<MatchEntity?>(null) }
     var games by remember { mutableStateOf<List<Pair<GameEntity, GameSummary>>>(emptyList()) }
     var report by remember { mutableStateOf<MatchReport?>(null) }
@@ -66,6 +70,17 @@ fun SavedSummaryDialog(app: PlyGroundApp, matchId: Long, gameNumber: Int?, start
                         if (m.games == 1) "" else "s",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (onReviewMistakes != null) {
+                    val n = games.sumOf { it.second.performance[0].mistakes }
+                    Text(
+                        when (n) {
+                            0 -> "No errors or blunders this session. Well played!"
+                            1 -> "You made 1 error or blunder this session."
+                            else -> "You made $n errors and blunders this session."
+                        },
+                        style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
                 val r = report
                 if (games.size > 1 && r != null) {
                     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 8.dp)) {
@@ -116,6 +131,11 @@ fun SavedSummaryDialog(app: PlyGroundApp, matchId: Long, gameNumber: Int?, start
                 )
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(if (onReviewMistakes != null) "Done" else "Close") } },
+        dismissButton = onReviewMistakes?.let { review ->
+            games.firstOrNull { it.second.performance[0].mistakes > 0 }?.let { (e, _) ->
+                { TextButton(onClick = { review(e.number) }) { Text("Review my mistakes") } }
+            }
+        },
     )
 }

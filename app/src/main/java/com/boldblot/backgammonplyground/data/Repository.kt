@@ -181,6 +181,12 @@ class Repository(private val db: AppDatabase) {
 
     suspend fun match(id: Long): MatchEntity? = dao.match(id)
 
+    /** The human's errors and blunders in match [matchId]'s finished games, and the first game that has any. */
+    suspend fun humanMistakes(matchId: Long): Pair<Int, Int?> {
+        val games = gameSummaries(matchId)
+        return games.sumOf { it.second.performance[0].mistakes } to games.firstOrNull { it.second.performance[0].mistakes > 0 }?.first?.number
+    }
+
     /** Each finished game of match [matchId] with its stored summary (also for games whose records were cleared). */
     suspend fun gameSummaries(matchId: Long): List<Pair<GameEntity, GameSummary>> =
         dao.games(matchId).mapNotNull { e -> runCatching { e to AppJson.decodeFromString<GameSummary>(e.summary) }.getOrNull() }

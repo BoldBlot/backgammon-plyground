@@ -28,7 +28,8 @@ enum class FeedbackLevel(val label: String, val minSeverity: Severity?) {
 /** When and how the player learns about a mistake. */
 enum class TrainingMode(val label: String, val description: String) {
     IMMEDIATE("Show mistakes immediately", "Intuition training: the right play and how much yours cost, straight after each mistake."),
-    AFTER_GAME("Show mistakes after the game", "Play the whole game undisturbed, then review your mistakes."),
+    /** Mistakes are held back until the match ends (a money session: when it is ended). */
+    AFTER_GAME("Show mistakes after the match", "Play the whole match undisturbed, then review your mistakes. In a money session: when you end it."),
     TRY_AGAIN("Try again", "You are told only that it was an error or a blunder. Try the decision again, or show the answer. Your first try counts in PR."),
 }
 
@@ -99,6 +100,10 @@ data class Settings(
     val trainingMode: TrainingMode = TrainingMode.IMMEDIATE,
     /** Wait for the player to dismiss the prompt before the computer continues. */
     val pauseOnMistake: Boolean = true,
+    /** The mistake prompt draws the best move's arrows too (otherwise only the played move's). */
+    val bestMoveArrows: Boolean = false,
+    /** The summary after each game of a match or session (the end of a match always shows one). */
+    val gameSummary: Boolean = true,
     /** Roll automatically when no cube decision is possible. */
     val autoRoll: Boolean = true,
     /** Submit the move as soon as it is complete (otherwise a Done button is shown). */
@@ -150,6 +155,8 @@ class SettingsStore(private val context: Context) {
         val feedback = stringPreferencesKey("feedback")
         val trainingMode = stringPreferencesKey("training_mode")
         val pause = booleanPreferencesKey("pause_on_mistake")
+        val bestArrows = booleanPreferencesKey("best_move_arrows")
+        val gameSummary = booleanPreferencesKey("game_summary")
         val autoRoll = booleanPreferencesKey("auto_roll")
         val autoConfirm = booleanPreferencesKey("auto_confirm")
         val autoForced = booleanPreferencesKey("auto_forced")
@@ -193,6 +200,8 @@ class SettingsStore(private val context: Context) {
             feedback = p.enum(Keys.feedback, d.feedback),
             trainingMode = p.enum(Keys.trainingMode, d.trainingMode),
             pauseOnMistake = p[Keys.pause] ?: d.pauseOnMistake,
+            bestMoveArrows = p[Keys.bestArrows] ?: d.bestMoveArrows,
+            gameSummary = p[Keys.gameSummary] ?: d.gameSummary,
             autoRoll = p[Keys.autoRoll] ?: d.autoRoll,
             autoConfirm = p[Keys.autoConfirm] ?: d.autoConfirm,
             autoForced = p[Keys.autoForced] ?: d.autoForced,
@@ -238,6 +247,8 @@ class SettingsStore(private val context: Context) {
             p[Keys.feedback] = s.feedback.name
             p[Keys.trainingMode] = s.trainingMode.name
             p[Keys.pause] = s.pauseOnMistake
+            p[Keys.bestArrows] = s.bestMoveArrows
+            p[Keys.gameSummary] = s.gameSummary
             p[Keys.autoRoll] = s.autoRoll
             p[Keys.autoConfirm] = s.autoConfirm
             p[Keys.autoForced] = s.autoForced

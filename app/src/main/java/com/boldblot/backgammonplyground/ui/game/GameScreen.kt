@@ -1,5 +1,7 @@
 package com.boldblot.backgammonplyground.ui.game
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -10,36 +12,20 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.layout.layout
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import com.boldblot.backgammonplyground.core.PerformanceTotals
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.text.style.TextOverflow
-import com.boldblot.backgammonplyground.ui.board.boardColorsFor
-import com.boldblot.backgammonplyground.ui.board.ArrowColors
-import com.boldblot.backgammonplyground.ui.board.arrowsFor
-import com.boldblot.backgammonplyground.ui.components.PlayedBestBar
-import com.boldblot.backgammonplyground.core.MoveNotation
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
@@ -54,6 +40,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -63,14 +50,19 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -78,34 +70,47 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.unit.dp
-import com.boldblot.backgammonplyground.core.DecisionKind
-import com.boldblot.backgammonplyground.core.Feedback
-import com.boldblot.backgammonplyground.core.MatchState
-import com.boldblot.backgammonplyground.core.Phase
-import com.boldblot.backgammonplyground.core.Severity
-import androidx.compose.ui.graphics.Color
-import com.boldblot.backgammonplyground.ui.components.eq
-import com.boldblot.backgammonplyground.ui.components.scrollIndicator
-import com.boldblot.backgammonplyground.core.Player
 import com.boldblot.backgammonplyground.core.Board
 import com.boldblot.backgammonplyground.core.CubeState
+import com.boldblot.backgammonplyground.core.DecisionKind
+import com.boldblot.backgammonplyground.core.Feedback
 import com.boldblot.backgammonplyground.core.GameState
+import com.boldblot.backgammonplyground.core.MatchState
+import com.boldblot.backgammonplyground.core.MoveNotation
+import com.boldblot.backgammonplyground.core.PerformanceTotals
+import com.boldblot.backgammonplyground.core.Phase
+import com.boldblot.backgammonplyground.core.Player
+import com.boldblot.backgammonplyground.core.Severity
 import com.boldblot.backgammonplyground.core.WinType
 import com.boldblot.backgammonplyground.core.XgRules
-import com.boldblot.backgammonplyground.ui.board.BoardView
+import com.boldblot.backgammonplyground.data.TrainingMode
+import com.boldblot.backgammonplyground.ui.board.ArrowColors
 import com.boldblot.backgammonplyground.ui.board.BoardGeometry
+import com.boldblot.backgammonplyground.ui.board.BoardView
 import com.boldblot.backgammonplyground.ui.board.DiceView
+import com.boldblot.backgammonplyground.ui.board.arrowsFor
+import com.boldblot.backgammonplyground.ui.board.boardColorsFor
 import com.boldblot.backgammonplyground.ui.components.CandidateList
 import com.boldblot.backgammonplyground.ui.components.CubeTable
+import com.boldblot.backgammonplyground.ui.components.PlayedBestBar
 import com.boldblot.backgammonplyground.ui.components.SeverityBadge
 import com.boldblot.backgammonplyground.ui.components.describeAction
+import com.boldblot.backgammonplyground.ui.components.eq
 import com.boldblot.backgammonplyground.ui.components.fmt
 import com.boldblot.backgammonplyground.ui.components.pct
+import com.boldblot.backgammonplyground.ui.components.scrollIndicator
+import com.boldblot.backgammonplyground.ui.review.SavedSummaryDialog
 import kotlin.math.roundToInt
 
 @Composable
@@ -120,6 +125,12 @@ fun GameScreen(
     val m = st.match
     var confirmAbandon by remember { mutableStateOf(false) }
     var chooseResign by remember { mutableStateOf(false) }
+    // A money session just ended with its mistakes held back ("after the match" training): its summary.
+    var endedSession by remember { mutableStateOf<Long?>(null) }
+    fun endSession(id: Long, finishedGames: Boolean, end: () -> Unit) {
+        end()
+        if (finishedGames && st.settings.trainingMode == TrainingMode.AFTER_GAME) endedSession = id else onBack()
+    }
 
     Box(Modifier.fillMaxSize()) {
         when {
@@ -155,12 +166,27 @@ fun GameScreen(
                     else "Finished games stay in your statistics. The match will not count as won or lost and will not change your rating.",
                 )
             },
-            confirmButton = { TextButton(onClick = { confirmAbandon = false; vm.abandonMatch(); onBack() }) { Text("Yes") } },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmAbandon = false
+                    if (m.rules.isMoney) endSession(m.id, m.gameNumber > 1, vm::abandonMatch) else { vm.abandonMatch(); onBack() }
+                }) { Text("Yes") }
+            },
             dismissButton = { TextButton(onClick = { confirmAbandon = false }) { Text("Cancel") } },
         )
     }
 
-    st.gameOver?.let { info -> GameOverDialog(info, st.inStats, vm, onReview, onReviewMistakes, onBack) }
+    st.gameOver?.let { info ->
+        GameOverDialog(info, st.inStats, st.settings.gameSummary, vm, onReview, onReviewMistakes, onBack) {
+            endSession(info.matchId, true, vm::endSession)
+        }
+    }
+    endedSession?.let { id ->
+        SavedSummaryDialog(
+            vm.app, id, gameNumber = null, startWithMatch = true, onDismiss = { endedSession = null; onBack() },
+            onReviewMistakes = { game -> endedSession = null; onReviewMistakes(id, game) },
+        )
+    }
 }
 
 /** Lets the human choose how much to resign: a single game, a gammon or a backgammon. */
@@ -949,8 +975,8 @@ private fun TryAgainCard(fb: Feedback, vm: GameViewModel) {
  */
 @Composable
 private fun GameOverDialog(
-    info: GameOverInfo, inStats: Boolean, vm: GameViewModel, onReview: (Long) -> Unit,
-    onReviewMistakes: (matchId: Long, gameNumber: Int) -> Unit, onBack: () -> Unit,
+    info: GameOverInfo, inStats: Boolean, gameSummary: Boolean, vm: GameViewModel, onReview: (Long) -> Unit,
+    onReviewMistakes: (matchId: Long, gameNumber: Int) -> Unit, onBack: () -> Unit, onEndSession: () -> Unit,
 ) {
     val won = info.result.winner == Player.HUMAN
     val kind = when (info.result.type) {
@@ -1000,12 +1026,12 @@ private fun GameOverDialog(
                             ) { Text("$matchName (${report.games} games)", maxLines = 1) }
                         }
                     }
-                    if (info.afterGame) {
+                    if (info.afterMatch) {
                         Text(
                             when (info.mistakes) {
-                                0 -> "No errors or blunders this game. Well played!"
-                                1 -> "You made 1 error or blunder this game."
-                                else -> "You made ${info.mistakes} errors and blunders this game."
+                                0 -> "No errors or blunders this match. Well played!"
+                                1 -> "You made 1 error or blunder this match."
+                                else -> "You made ${info.mistakes} errors and blunders this match."
                             },
                             style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp),
                         )
@@ -1044,15 +1070,27 @@ private fun GameOverDialog(
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 6.dp, bottom = 4.dp),
                     )
+                    if (!info.matchOver) {
+                        Row(
+                            Modifier.fillMaxWidth().toggleable(!gameSummary, role = Role.Checkbox) { vm.setGameSummary(!it) },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = !gameSummary, onCheckedChange = null)
+                            Text(
+                                "Don't show this after each game (Settings → Training mode)",
+                                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
+                    }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.End) {
-                    if (info.afterGame && info.mistakes > 0) {
-                        TextButton(onClick = { onReviewMistakes(info.matchId, info.gameNumber) }) { Text("Review my mistakes") }
+                    if (info.afterMatch && info.mistakes > 0) {
+                        TextButton(onClick = { onReviewMistakes(info.matchId, info.reviewGame) }) { Text("Review my mistakes") }
                     } else {
                         TextButton(onClick = { onReview(info.matchId) }) { Text("Review") }
                     }
                     if (info.isMoney && !info.matchOver) {
-                        TextButton(onClick = { vm.endSession(); onBack() }) { Text("End session") }
+                        TextButton(onClick = onEndSession) { Text("End session") }
                     }
                     if (info.matchOver) {
                         TextButton(onClick = { vm.endSession(); onBack() }) { Text("Done") }

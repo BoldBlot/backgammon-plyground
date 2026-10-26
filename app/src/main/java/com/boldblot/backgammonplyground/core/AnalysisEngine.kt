@@ -12,6 +12,9 @@ enum class CpuLevel(val engineLevel: Int, val label: String, val description: St
     WORLD_CLASS(5, "World Class", "3-ply, moves within 0.04"),
     SUPREMO(6, "Supremo", "3-ply, moves within 0.08"),
     GRANDMASTER(7, "Grandmaster", "3-ply, moves within 0.16"),
+    /** PR <2: 2-ply on every legal move, cube 2-ply (faster than [MAXIMUM]). */
+    STRONG(10, "Strong", "2-ply, every legal move"),
+    /** PR <1: 3-ply on every legal move, cube 3-ply. */
     MAXIMUM(8, "Maximum", "3-ply, every legal move"),
 
     /** Plays at Grandmaster depth but makes errors and blunders at a set rate ([MistakeRate]). */

@@ -179,13 +179,15 @@ object Opponent {
 
     /**
      * The computer's name, in lists, on the game screen and in exported files: engine and PR,
-     * "PureTD PR 4", "PureTD PR <2" (world class), or a custom opponent's estimated PR, "PureTD PR 7.3".
+     * "PureTD PR 4", "PureTD PR <1" / "PureTD PR <2" (3-ply / 2-ply, no mistakes), or a custom
+     * opponent's estimated PR, "PureTD PR 7.3".
      */
     fun name(key: String, engine: EngineKind = EngineKind.PURETD): String = parse(key).let { (l, r) -> name(l, r, engine) }
 
     fun name(level: CpuLevel, rate: MistakeRate?, engine: EngineKind = EngineKind.PURETD): String {
         val pr = when {
-            level == CpuLevel.MAXIMUM -> "PR <2"
+            level == CpuLevel.MAXIMUM -> "PR <1"
+            level == CpuLevel.STRONG -> "PR <2"
             level != CpuLevel.MISTAKES || rate == null -> level.label
             else -> MistakeRate.presets.firstOrNull { it.rate == rate }?.name
                 ?: "PR %.1f".format(java.util.Locale.ROOT, rate.estimatedPr)
