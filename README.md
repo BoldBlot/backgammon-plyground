@@ -129,8 +129,8 @@ only native library is the engine's JNI bridge (no C++ runtime, `ANDROID_STL=non
 changing native code, check with `llvm-readelf -lW` that every arm64-v8a and x86_64 library
 has `LOAD` alignment `0x4000`.
 
-**Engine data.** `app/src/main/assets/puretd` holds PureTD's two wide networks in half
-precision: `prob5_wide.ptw` (cubeless win / gammon / backgammon chances) and
+**Engine data.** `app/src/main/assets/puretd` holds PureTD's two wide networks at full
+(float32) precision: `prob5_wide.ptw` (cubeless win / gammon / backgammon chances) and
 `cubeful_wide.ptw` (cubeful equity, used at the leaves of the cube search). They are exported
 from PureTD's checkpoints with `engine/tools/export_puretd.py`. The bear-off database is built
 on the phone at first start and cached; the match equity table is computed by the app

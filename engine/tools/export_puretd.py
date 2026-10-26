@@ -2,7 +2,7 @@
 
   python export_puretd.py model.pt model.ptw
 
-Format (little endian): "PTW1" (float32 weights) or "PTW2" (float16 weights, the default), int32 kind (0 prob5, 1 cubeful equity), int32 layer count,
+Format (little endian): "PTW1" (float32 weights, the default) or "PTW2" (float16 weights, pass 16), int32 kind (0 prob5, 1 cubeful equity), int32 layer count,
 int32 input size; per layer int32 outputs, float32 weights [out][in], float32 bias [out].
 The checkpoint is read with weights_only=True (a downloaded file is never executed).
 """
@@ -12,7 +12,7 @@ import sys
 import torch
 
 
-def main(src, dst, precision="16"):
+def main(src, dst, precision="32"):
     ck = torch.load(src, map_location="cpu", weights_only=True)
     sd = ck["state_dict"]
     assert ck["activation"] == "relu"

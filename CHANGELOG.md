@@ -2,6 +2,10 @@
 
 ## 0.6 — 2026-10-25
 
+Build 30:
+- The engine's networks are stored at full precision (float32) instead of half precision: exactly
+  PureTD's published weights. The app is about 4 MB larger.
+
 Build 29:
 - Exported .mat files: set your own name in Settings (Exported files); the computer gets a short
   name: its engine and PR, such as "PureTD PR 4". (#1)

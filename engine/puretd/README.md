@@ -6,8 +6,8 @@
 - `ptd.c`, `ptd.h`: our network evaluation and search (1-ply and 3-ply checker play with the
   usual 5-move filter; cube-aware 3-ply money cube decisions with PureTD's cubeful network at the
   leaves, moves inside the tree picked by the cubeless network).
-- Networks: `app/src/main/assets/puretd/*.ptw`, exported from PureTD's checkpoints with
-  `engine/tools/export_puretd.py`.
+- Networks: `app/src/main/assets/puretd/*.ptw`, PureTD's weights at full precision (float32),
+  exported from its checkpoints with `engine/tools/export_puretd.py`.
 
 Checked against Bold Blot's GPU research implementation: network values agree within 0.0024
 equity (the research code runs in fp16), and 3-ply checker play and cube decisions give the same
