@@ -723,6 +723,7 @@ fun SettingsScreen(app: PlyGroundApp, onBack: () -> Unit, onSpeedTest: () -> Uni
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             Header("Board")
             BoardTheme.entries.forEach { t -> Radio(t.label, s.boardTheme == t) { update { it.copy(boardTheme = t) } } }
+            Toggle("Home board on the left (mirrored board)", s.mirrorBoard) { v -> update { it.copy(mirrorBoard = v) } }
             if (s.boardTheme == BoardTheme.GRAY) {
                 Text("My checkers", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

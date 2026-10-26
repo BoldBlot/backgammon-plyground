@@ -209,7 +209,7 @@ private fun EditorBoard(st: PositionState, vm: PositionViewModel, colors: BoardC
         arrowsFor(st.onRoll, c.move, if (i == 0) ArrowColors.best else ArrowColors.forSeverity(sev))
     } else emptyList()
     BoardView(
-        board = st.board, modifier = modifier, colors = colors,
+        board = st.board, modifier = modifier, colors = colors, mirrored = st.settings.mirrorBoard,
         dice = if (st.hasDice) listOf(DiceView(st.onRoll, listOf(st.dice[0]!!, st.dice[1]!!).sortedDescending())) else emptyList(),
         cube = if (st.isCrawford) com.boldblot.backgammonplyground.core.CubeState() else st.cube,
         pips = listOf(st.board.pipCount(Player.HUMAN), st.board.pipCount(Player.CPU)),

@@ -448,6 +448,7 @@ private fun ReviewBoard(st: ReviewState, modifier: Modifier) {
     BoardView(
         board = board, modifier = modifier,
         colors = boardColorsFor(st.settings),
+        mirrored = st.settings.mirrorBoard,
         dice = listOfNotNull(dice),
         cube = d?.let { decisionCube(it).first } ?: CubeState(),
         cubeOffered = d?.let { decisionCube(it).second } ?: false,

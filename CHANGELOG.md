@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Settings → Board: "Home board on the left (mirrored board)": the board, its numbers, the tray,
+  dice, arrows and touch input all mirror; games and exports are unchanged.
+
 ## 0.6 — 2026-10-25
 
 Build 30:

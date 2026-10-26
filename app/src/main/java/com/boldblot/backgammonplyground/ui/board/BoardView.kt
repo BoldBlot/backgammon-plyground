@@ -118,7 +118,11 @@ data class DiceView(
  *   i in 0..11  -> bottom row, column 11 - i (right to left)
  *   i in 12..23 -> top row, column i - 12 (left to right)
  */
-class BoardGeometry(val width: Float, val height: Float) {
+/**
+ * Where everything sits on a board [width] × [height]. [mirrored]: the human's home board on the
+ * left and the bear-off tray on the left (checkers move clockwise); otherwise home on the right.
+ */
+class BoardGeometry(val width: Float, val height: Float, val mirrored: Boolean = false) {
     val margin = width * 0.018f
     /** Strip above and below the playing surface (point numbers). */
     val vMargin = height * 0.04f
@@ -126,19 +130,22 @@ class BoardGeometry(val width: Float, val height: Float) {
     val surfaceBottom = height - vMargin
     val trayW = width * 0.075f
     val barW = width * 0.065f
-    val playLeft = margin
-    val playRight = width - trayW - margin
+    val playLeft = if (mirrored) trayW + margin else margin
+    val playRight = if (mirrored) width - margin else width - trayW - margin
     val pointW = (playRight - playLeft - barW) / 12f
     val pointH = (surfaceBottom - surfaceTop) * 0.42f
     /** Checkers are as wide as a point, or five of them fill 46.5% of the surface height (as in Backgammon Galaxy). */
     val radius = min(pointW * 0.5f, (surfaceBottom - surfaceTop) / 21.5f)
     val barCenterX = playLeft + 6 * pointW + barW / 2
-    val trayLeft = width - trayW
+    val trayLeft = if (mirrored) 0f else width - trayW
 
     fun columnLeft(col: Int): Float = playLeft + col * pointW + if (col >= 6) barW else 0f
 
     fun isTop(index: Int) = index >= 12
-    fun column(index: Int) = if (index < 12) 11 - index else index - 12
+    fun column(index: Int): Int {
+        val c = if (index < 12) 11 - index else index - 12
+        return if (mirrored) 11 - c else c
+    }
 
     fun pointCenterX(index: Int) = columnLeft(column(index)) + pointW / 2
 
@@ -167,7 +174,7 @@ class BoardGeometry(val width: Float, val height: Float) {
     fun diceRects(owner: Int): List<Rect> {
         val gap = dieSize * 0.25f
         val total = 2 * dieSize + gap
-        val halfLeft = if (owner == Player.HUMAN) columnLeft(6) else columnLeft(0)
+        val halfLeft = if ((owner == Player.HUMAN) != mirrored) columnLeft(6) else columnLeft(0)
         val x0 = halfLeft + (6 * pointW - total) / 2
         val y = height / 2 - dieSize / 2
         return List(2) { i -> Rect(Offset(x0 + i * (dieSize + gap), y), Size(dieSize, dieSize)) }
@@ -200,10 +207,11 @@ class BoardGeometry(val width: Float, val height: Float) {
 
     /** Hit test: point index (0..23), [BAR], [OFF] (-1) or null. */
     fun hitTest(p: Offset): Int? {
-        if (p.x >= trayLeft) return OFF
+        if (p.x >= trayLeft && p.x < trayLeft + trayW) return OFF
         if (p.x < playLeft || p.x > playRight) return null
         if (p.x >= columnLeft(6) - barW && p.x < columnLeft(6)) return BAR
-        val col = (0 until 12).firstOrNull { c -> p.x >= columnLeft(c) && p.x < columnLeft(c) + pointW } ?: return null
+        val screenCol = (0 until 12).firstOrNull { c -> p.x >= columnLeft(c) && p.x < columnLeft(c) + pointW } ?: return null
+        val col = if (mirrored) 11 - screenCol else screenCol
         val top = p.y < height / 2
         return if (top) col + 12 else 11 - col
     }
@@ -236,6 +244,8 @@ fun BoardView(
     onDrag: ((from: Int, to: Int) -> Unit)? = null,
     /** Points (human orientation) to mark for checking (framed in orange). */
     flagged: Set<Int> = emptySet(),
+    /** Home board on the left (Settings → Board); see [BoardGeometry]. */
+    mirrored: Boolean = false,
     /**
      * Position editing: a tap on point [target] (human orientation) at checker [slot] (0 = base),
      * or on the bar ([target] = [BAR], [slot] counted from the centre) in [barPlayer]'s half.
@@ -335,7 +345,7 @@ fun BoardView(
     }
 
     Canvas(mod) {
-        val g = BoardGeometry(size.width, size.height)
+        val g = BoardGeometry(size.width, size.height, mirrored)
         geometry = g
         drawBoard(g, colors, measurer, showNumbers)
         drawFlags(g, flagged)

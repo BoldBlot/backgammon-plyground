@@ -86,6 +86,8 @@ data class Settings(
     val boardTheme: BoardTheme = BoardTheme.GRAY,
     /** Colour of the human's checkers on the grey board (the computer gets the other). */
     val checkerColor: CheckerColor = CheckerColor.YELLOW,
+    /** Your home board on the left (checkers move clockwise) instead of the right. */
+    val mirrorBoard: Boolean = false,
 ) {
     val checkerDepth: Depth get() = Depth(checkerPlies, moveFilter)
     val cubeDepth: Depth get() = Depth(cubePlies)
@@ -127,6 +129,7 @@ class SettingsStore(private val context: Context) {
         val meter = booleanPreferencesKey("show_meter")
         val theme = stringPreferencesKey("board_theme")
         val checker = stringPreferencesKey("checker_color")
+        val mirror = booleanPreferencesKey("mirror_board")
     }
 
     private inline fun <reified E : Enum<E>> Preferences.enum(key: Preferences.Key<String>, default: E): E =
@@ -166,6 +169,7 @@ class SettingsStore(private val context: Context) {
             showMeter = p[Keys.meter] ?: d.showMeter,
             boardTheme = p.enum(Keys.theme, d.boardTheme),
             checkerColor = p.enum(Keys.checker, d.checkerColor),
+            mirrorBoard = p[Keys.mirror] ?: d.mirrorBoard,
         )
     }
 
@@ -204,6 +208,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.meter] = s.showMeter
             p[Keys.theme] = s.boardTheme.name
             p[Keys.checker] = s.checkerColor.name
+            p[Keys.mirror] = s.mirrorBoard
         }
     }
 }

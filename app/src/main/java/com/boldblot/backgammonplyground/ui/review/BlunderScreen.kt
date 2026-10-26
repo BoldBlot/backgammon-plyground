@@ -297,6 +297,7 @@ private fun Board(st: BlunderState, d: DecisionRecord, modifier: Modifier) {
     BoardView(
         board = board, modifier = modifier,
         colors = boardColorsFor(st.settings),
+        mirrored = st.settings.mirrorBoard,
         dice = listOfNotNull(dice),
         cube = decisionCube(d).first,
         cubeOffered = decisionCube(d).second,

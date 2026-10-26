@@ -436,6 +436,7 @@ private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifie
                 board = showBoard,
                 modifier = Modifier.fillMaxSize(),
                 colors = boardColorsFor(st.settings),
+                mirrored = st.settings.mirrorBoard,
                 dice = dice,
                 cube = offeredCube(g),
                 cubeOffered = g.offeredCube != null,
@@ -453,7 +454,8 @@ private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifie
             val tray = w * 0.075f
             val bar = w * 0.065f
             val pointW = (w - tray - margin * 2 - bar) / 12
-            val halfLeft = margin + pointW * 6 + bar
+            val mirrored = st.settings.mirrorBoard
+            val halfLeft = if (mirrored) margin + tray else margin + pointW * 6 + bar
             Box(
                 Modifier.offset(x = halfLeft).width(pointW * 6).fillMaxHeight(),
                 contentAlignment = Alignment.Center,
@@ -466,13 +468,13 @@ private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifie
                     (g.phase == Phase.BEAVERED && g.turn == Player.HUMAN))
             val boardW = maxWidth
             val boardH = maxHeight
-            Box(Modifier.width(barCenterXOf(boardW) * 2).fillMaxHeight(), contentAlignment = Alignment.Center) {
+            Box(Modifier.width(barCenterXOf(boardW, mirrored) * 2).fillMaxHeight(), contentAlignment = Alignment.Center) {
                 Column(
                     Modifier
                         .wrapContentWidth(unbounded = true)
                         .layout { measurable, constraints ->
                             val p = measurable.measure(constraints)
-                            val geo = BoardGeometry(boardW.toPx(), boardH.toPx())
+                            val geo = BoardGeometry(boardW.toPx(), boardH.toPx(), mirrored)
                             val top = signTop(
                                 geo, showBoard, dice, offeredCube(g), g.offeredCube != null, buttonsShown,
                                 p.width.toFloat(), p.height.toFloat(), ((40.dp + BUTTON_GAP) * buttonRows(m) - BUTTON_GAP).toPx() / 2, 4.dp.toPx(),
@@ -539,12 +541,13 @@ private fun buttonRows(m: MatchState): Int {
 /** The cube to draw: while a double (or beaver) is offered, the value before the offer (the board shows it doubled). */
 private fun offeredCube(g: GameState): CubeState = g.offeredCube?.let { CubeState(it / 2, g.cube.owner) } ?: g.cube
 
-/** x of the bar's centre for a board [w] wide (as in [BoardGeometry]). */
-private fun barCenterXOf(w: Dp): Dp {
+/** x of the bar's centre for a board [w] wide (as in [BoardGeometry]; [mirrored]: tray on the left). */
+private fun barCenterXOf(w: Dp, mirrored: Boolean): Dp {
     val margin = w * 0.018f
     val bar = w * 0.065f
-    val pointW = (w - w * 0.075f - margin * 2 - bar) / 12
-    return margin + pointW * 6 + bar / 2
+    val tray = w * 0.075f
+    val pointW = (w - tray - margin * 2 - bar) / 12
+    return (if (mirrored) tray else 0.dp) + margin + pointW * 6 + bar / 2
 }
 
 /**
