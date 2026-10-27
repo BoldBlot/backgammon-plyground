@@ -222,6 +222,8 @@ data class MatchState(
     val cpuLevel: CpuLevel,
     /** Error and blunder rates when [cpuLevel] is [CpuLevel.MISTAKES]. */
     val mistakes: MistakeRate? = null,
+    /** The engine the computer plays with. */
+    val engine: EngineKind = EngineKind.PURETD,
     val score: List<Int> = listOf(0, 0),
     val gameNumber: Int = 1,
     /** True once the Crawford game has been played (or started). */
@@ -233,8 +235,8 @@ data class MatchState(
     val isOver: Boolean get() = winner != null
 
     /** How the opponent is stored with the match ([Opponent.key]) and shown. */
-    val opponentKey: String get() = Opponent.key(cpuLevel, mistakes)
-    val opponentLabel: String get() = Opponent.name(cpuLevel, mistakes)
+    val opponentKey: String get() = Opponent.key(cpuLevel, mistakes, engine)
+    val opponentLabel: String get() = Opponent.name(cpuLevel, mistakes, engine)
 
     fun ctx(onRoll: Int = game.turn) = game.cubeContext(rules, score, onRoll)
 

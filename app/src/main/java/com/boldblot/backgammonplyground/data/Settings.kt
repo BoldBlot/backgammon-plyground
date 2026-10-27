@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.boldblot.backgammonplyground.core.CpuLevel
 import com.boldblot.backgammonplyground.core.Depth
+import com.boldblot.backgammonplyground.core.EngineKind
 import com.boldblot.backgammonplyground.core.MistakeRate
 import com.boldblot.backgammonplyground.core.MoveFilter
 import com.boldblot.backgammonplyground.core.Severity
@@ -85,6 +86,10 @@ data class Settings(
     val raccoons: Boolean = false,
     /** Opponent's error and blunder rates for [CpuLevel.MISTAKES]. */
     val mistakes: MistakeRate = MistakeRate.PR8,
+    /** The engine the computer plays with in a new match. */
+    val opponentEngine: EngineKind = EngineKind.PURETD,
+    /** The engine that analyzes games, hints and positions. */
+    val analysisEngine: EngineKind = EngineKind.PURETD,
     /** Analyze the computer's decisions too (its PR and review), at the same depths as the human's. Off by default: it doubles the work per move. */
     val cpuAnalysis: Boolean = false,
     /** The player's name in exported .mat files. */
@@ -141,6 +146,8 @@ class SettingsStore(private val context: Context) {
         val beavers = booleanPreferencesKey("beavers")
         val raccoons = booleanPreferencesKey("raccoons")
         val cpuAnalysis = booleanPreferencesKey("analyze_cpu")
+        val opponentEngine = stringPreferencesKey("opponent_engine")
+        val analysisEngine = stringPreferencesKey("analysis_engine")
         val playerName = stringPreferencesKey("player_name")
         val checkerPlies = intPreferencesKey("checker_plies")
         val moveFilter = stringPreferencesKey("move_filter")
@@ -191,6 +198,8 @@ class SettingsStore(private val context: Context) {
                 p[Keys.maxMistake] ?: d.mistakes.maxMistake,
             ),
             cpuAnalysis = p[Keys.cpuAnalysis] ?: d.cpuAnalysis,
+            opponentEngine = p.enum(Keys.opponentEngine, d.opponentEngine),
+            analysisEngine = p.enum(Keys.analysisEngine, d.analysisEngine),
             playerName = p[Keys.playerName] ?: d.playerName,
             checkerPlies = (p[Keys.checkerPlies] ?: d.checkerPlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
             moveFilter = p.enum(Keys.moveFilter, d.moveFilter),
@@ -238,6 +247,8 @@ class SettingsStore(private val context: Context) {
             p[Keys.mistakeCubePlies] = s.mistakes.cubePlies
             p[Keys.maxMistake] = s.mistakes.maxMistake
             p[Keys.cpuAnalysis] = s.cpuAnalysis
+            p[Keys.opponentEngine] = s.opponentEngine.name
+            p[Keys.analysisEngine] = s.analysisEngine.name
             p[Keys.playerName] = s.playerName
             p[Keys.checkerPlies] = s.checkerPlies
             p[Keys.moveFilter] = s.moveFilter.name

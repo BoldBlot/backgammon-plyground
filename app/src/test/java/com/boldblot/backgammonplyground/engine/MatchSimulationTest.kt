@@ -8,6 +8,7 @@ import com.boldblot.backgammonplyground.core.DecisionKind
 import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.Reanalysis
 import com.boldblot.backgammonplyground.core.DiceSource
+import com.boldblot.backgammonplyground.core.EngineKind
 import com.boldblot.backgammonplyground.core.MatchController
 import com.boldblot.backgammonplyground.core.MatchRules
 import com.boldblot.backgammonplyground.core.MatchState
@@ -38,14 +39,21 @@ class MatchSimulationTest {
      */
     private fun playMatch(
         rules: MatchRules, seed: Int, humanPolicy: String, cpuPlies: Int? = 0, maxGames: Int = 7,
-        level: CpuLevel = CpuLevel.EXPERT, mistakes: MistakeRate? = null,
+        level: CpuLevel = CpuLevel.EXPERT, mistakes: MistakeRate? = null, opponent: EngineKind = EngineKind.PURETD,
         onGame: (GameState) -> Unit = {},
     ): List<PerformanceTotals> {
         val e = engine!!
         val rnd = Random(seed)
-        val c = MatchController(e, DiceSource { rnd.nextInt(1, 7) }, AnalysisSettings(plies = 0, cubePlies = 0, cpuPlies = cpuPlies))
+        val opponents = { k: EngineKind ->
+            when (k) {
+                EngineKind.PURETD -> e
+                EngineKind.GNUBG -> TestEngine.gnubg!!
+                EngineKind.SAGE -> TestEngine.sage!!
+            }
+        }
+        val c = MatchController(e, DiceSource { rnd.nextInt(1, 7) }, AnalysisSettings(plies = 0, cubePlies = 0, cpuPlies = cpuPlies), opponents)
         val auto = humanPolicy == "auto"
-        var m = MatchState(rules = rules, cpuLevel = level, mistakes = mistakes)
+        var m = MatchState(rules = rules, cpuLevel = level, mistakes = mistakes, engine = opponent)
         val totals = MutableList(2) { PerformanceTotals() }
         var games = 0
         while (!m.isOver && games < maxGames) {
@@ -101,6 +109,17 @@ class MatchSimulationTest {
             games++
         }
         return totals
+    }
+
+    @Test
+    fun gnuAndSageOpponentsPlayWholeMatches() {
+        assumeTrue(engine != null)
+        for (k in listOf(EngineKind.GNUBG, EngineKind.SAGE)) {
+            val money = playMatch(MatchRules(length = 0), seed = 11, humanPolicy = "best", maxGames = 3, opponent = k)
+            val match = playMatch(MatchRules(length = 3), seed = 12, humanPolicy = "random", opponent = k, level = CpuLevel.STRONG)
+            println("$k: money PR ${money[0].pr} / ${money[1].pr}, 3-point match PR ${match[0].pr} / ${match[1].pr}")
+            assertTrue(k.name, match[0].pr!! > 10.0)
+        }
     }
 
     @Test

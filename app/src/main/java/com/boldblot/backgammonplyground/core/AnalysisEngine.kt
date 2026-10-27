@@ -98,9 +98,9 @@ data class Depth(val plies: Int, val filter: MoveFilter = MoveFilter.ALL) {
 fun plyLabel(plies: Int): String = Depth.of(plies).label()
 
 /** Engines the app can play and analyze with. */
-enum class EngineKind(val label: String) { PURETD("PureTD") }
+enum class EngineKind(val label: String) { PURETD("PureTD"), GNUBG("GNU BG"), SAGE("Open Sage") }
 
-/** The evaluation engine (PureTD). All methods are blocking. */
+/** An evaluation engine (PureTD, GNU Backgammon, Open Sage). All methods are blocking. */
 interface AnalysisEngine {
     fun rankMoves(board: Board, ctx: CubeContext, d1: Int, d2: Int, plies: Int, played: Move?): RankResult
     fun chooseMove(board: Board, ctx: CubeContext, d1: Int, d2: Int, level: CpuLevel): Move

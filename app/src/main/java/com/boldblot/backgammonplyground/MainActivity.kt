@@ -97,8 +97,8 @@ class MainActivity : ComponentActivity() {
                 )
             }
             composable("new") {
-                NewMatchScreen(app, hasMatch, onStart = { rules, level, mistakes ->
-                    gameVm.newMatch(rules, level, mistakes)
+                NewMatchScreen(app, hasMatch, onStart = { rules, level, mistakes, engine ->
+                    gameVm.newMatch(rules, level, mistakes, engine)
                     nav.navigate("game") { popUpTo("home") }
                 }, onBack = { nav.popBackStack() })
             }

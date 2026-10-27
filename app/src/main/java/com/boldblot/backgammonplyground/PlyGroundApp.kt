@@ -23,5 +23,7 @@ class PlyGroundApp : Application() {
         AppLog.init(this)
         // Warm up the engine (data extraction + neural net loading) in the background.
         appScope.launch { engine.start() }
+        // Analysis uses the engine chosen in Settings.
+        appScope.launch { settings.settings.collect { engine.analysisKind = it.analysisEngine } }
     }
 }

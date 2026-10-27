@@ -48,7 +48,7 @@ data class ReanalyzeRequest(
  */
 @Composable
 fun ReanalyzeDialog(settings: Settings, gameNumber: Int?, onDismiss: () -> Unit, onStart: (ReanalyzeRequest) -> Unit) {
-    var r by remember { mutableStateOf(ReanalyzeRequest(EngineKind.PURETD, settings.checkerDepth, settings.cubePlies, cpu = settings.cpuAnalysis)) }
+    var r by remember { mutableStateOf(ReanalyzeRequest(settings.analysisEngine, settings.checkerDepth, settings.cubePlies, cpu = settings.cpuAnalysis)) }
     AlertDialog(
         onDismissRequest = onDismiss,
         // Wider than the default, so that four depth buttons fit across.

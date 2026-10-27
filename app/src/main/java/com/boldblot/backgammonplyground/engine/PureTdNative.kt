@@ -27,28 +27,9 @@ object PureTdNative {
     /** Stops a running [nativeBench] after its current decision. */
     @JvmStatic external fun nativeBenchCancel()
 
-    private var loaded = false
-
     /** Loads the native library (by name on Android, or from an explicit path in host tests). */
-    @Synchronized
-    fun load(libraryPath: String? = null) {
-        if (loaded) return
-        if (libraryPath != null) System.load(libraryPath) else System.loadLibrary("ptdjni")
-        loaded = true
-    }
+    fun load(libraryPath: String? = null) = EngineFiles.load(libraryPath)
 
     /** Network files unpacked from the assets (copied once per app version). */
-    fun files(context: Context): File {
-        val dir = File(context.filesDir, "puretd")
-        val stamp = File(dir, ".version")
-        val version = context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime.toString()
-        if (stamp.takeIf { it.exists() }?.readText() != version) {
-            dir.mkdirs()
-            for (name in context.assets.list("puretd").orEmpty()) {
-                context.assets.open("puretd/$name").use { input -> File(dir, name).outputStream().use { input.copyTo(it) } }
-            }
-            stamp.writeText(version)
-        }
-        return dir
-    }
+    fun files(context: Context): File = EngineFiles.unpack(context, "puretd")
 }

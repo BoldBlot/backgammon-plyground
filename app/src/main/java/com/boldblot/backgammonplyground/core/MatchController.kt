@@ -44,10 +44,16 @@ data class Feedback(
  * from the engine thread.
  */
 class MatchController(
+    /** The analysis engine (and the human's side in autofinish). */
     private val engine: AnalysisEngine,
     private val dice: DiceSource,
     var settings: AnalysisSettings = AnalysisSettings(),
+    /** The computer's engine for a match's [MatchState.engine]. */
+    private val opponents: (EngineKind) -> AnalysisEngine = { engine },
 ) {
+    /** The engine the computer plays [m] with. */
+    private fun cpu(m: MatchState): AnalysisEngine = opponents(m.engine)
+
     private val factorCache = HashMap<Int, Float>()
 
     private fun factor(m: MatchState) = factorCache.getOrPut(m.rules.length) { XgRules.errorFactor(m.rules.length) }
@@ -315,9 +321,9 @@ class MatchController(
         val g = m.game
         val highest = Resignation.highestCounted(m.rules, g.cube, m.score, Player.HUMAN)
         // A cheap 0-ply look first; the analysis depth only confirms hopeless positions.
-        val quick = engine.cubeDecision(g.board, m.ctx(Player.CPU), 0).probs
+        val quick = cpu(m).cubeDecision(g.board, m.ctx(Player.CPU), 0).probs
         if (quick[0] > PRE_RESIGN_WIN) return null
-        val probs = if (Depth.of(settings.cubePlies).plies > 1) engine.cubeDecision(g.board, m.ctx(Player.CPU), settings.cubePlies).probs else quick
+        val probs = if (Depth.of(settings.cubePlies).plies > 1) cpu(m).cubeDecision(g.board, m.ctx(Player.CPU), settings.cubePlies).probs else quick
         val type = Resignation.offer(probs, highest) ?: return null
         val rejected = g.resignRejected[Player.CPU]
         return if (rejected != null && type <= rejected) null else type
@@ -326,8 +332,8 @@ class MatchController(
     /** The computer's cube view at its playing strength (the mistake-rate opponent at its own cube depth). */
     private fun cpuCubeView(m: MatchState): CubeEval {
         val rate = m.mistakes?.takeIf { m.cpuLevel == CpuLevel.MISTAKES }
-        return if (rate != null) engine.cubeDecision(m.game.board, m.ctx(), rate.cubeDepth)
-        else engine.cubeDecisionAtLevel(m.game.board, m.ctx(), m.cpuLevel)
+        return if (rate != null) cpu(m).cubeDecision(m.game.board, m.ctx(), rate.cubeDepth)
+        else cpu(m).cubeDecisionAtLevel(m.game.board, m.ctx(), m.cpuLevel)
     }
 
     /** Autofinish: the human's checker play, chosen by the engine at [AUTOFINISH_LEVEL]. */
@@ -381,8 +387,8 @@ class MatchController(
                 val d = requireNotNull(g.dice)
                 val maker = mistakeMaker(m)
                 val move = if (maker != null) {
-                    maker.checker(engine.rankMoves(g.board, m.ctx(), d.d1, d.d2, requireNotNull(m.mistakes).checkerDepth, null).candidates, factor(m))
-                } else engine.chooseMove(g.board, m.ctx(), d.d1, d.d2, m.cpuLevel)
+                    maker.checker(cpu(m).rankMoves(g.board, m.ctx(), d.d1, d.d2, requireNotNull(m.mistakes).checkerDepth, null).candidates, factor(m))
+                } else cpu(m).chooseMove(g.board, m.ctx(), d.d1, d.d2, m.cpuLevel)
                 val (next, _) = recordChecker(m, move, hinted = false, plies = settings.cpuPlies)
                 next to CpuAction.Moved(move)
             }

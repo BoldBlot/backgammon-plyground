@@ -5,6 +5,7 @@ import com.boldblot.backgammonplyground.core.CpuLevel
 import com.boldblot.backgammonplyground.core.DecisionRecord
 import com.boldblot.backgammonplyground.core.DiceTotals
 import com.boldblot.backgammonplyground.core.Elo
+import com.boldblot.backgammonplyground.core.EngineKind
 import com.boldblot.backgammonplyground.core.MistakeRate
 import com.boldblot.backgammonplyground.core.Opponent
 import com.boldblot.backgammonplyground.core.GameState
@@ -91,9 +92,9 @@ class Repository(private val db: AppDatabase) {
 
     private val dao = db.matches()
 
-    suspend fun createMatch(rules: MatchRules, level: CpuLevel, mistakes: MistakeRate?): Long = dao.insertMatch(
+    suspend fun createMatch(rules: MatchRules, level: CpuLevel, mistakes: MistakeRate?, engine: EngineKind = EngineKind.PURETD): Long = dao.insertMatch(
         MatchEntity(
-            startedAt = System.currentTimeMillis(), length = rules.length, cpuLevel = Opponent.key(level, mistakes),
+            startedAt = System.currentTimeMillis(), length = rules.length, cpuLevel = Opponent.key(level, mistakes, engine),
             useCube = rules.useCube, jacoby = rules.jacoby, crawford = rules.crawford,
         ),
     )

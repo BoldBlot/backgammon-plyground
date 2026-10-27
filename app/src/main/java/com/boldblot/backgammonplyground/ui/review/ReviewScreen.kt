@@ -206,7 +206,7 @@ class ReviewViewModel(
         val match = s.match ?: return
         if (reanalysis?.isActive == true) return
         val targets = if (r.wholeMatch) s.games.indices.toList() else listOf(s.gameIndex)
-        val re = Reanalysis(app.engine.analysis, r.checker.code, Depth(r.cubePlies).code)
+        val re = Reanalysis(app.engine.of(r.engine), r.checker.code, Depth(r.cubePlies).code)
         val total = targets.sumOf { i -> s.games[i].second.decisions.count { re.wanted(it, r.cpu) } }
         reanalysis = viewModelScope.launch {
             var done = 0

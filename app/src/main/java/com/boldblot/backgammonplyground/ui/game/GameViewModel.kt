@@ -14,6 +14,7 @@ import com.boldblot.backgammonplyground.core.CubeEval
 import com.boldblot.backgammonplyground.core.DecisionKind
 import com.boldblot.backgammonplyground.core.Dice
 import com.boldblot.backgammonplyground.core.DiceSource
+import com.boldblot.backgammonplyground.core.EngineKind
 import com.boldblot.backgammonplyground.core.Feedback
 import com.boldblot.backgammonplyground.core.FirstTry
 import com.boldblot.backgammonplyground.core.XgRules
@@ -163,7 +164,9 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     private val secureDice = DiceSource.secure()
     /** Debug builds only: dice values queued for the next rolls. */
     private val forcedDice = ArrayDeque<Int>()
-    private val controller = MatchController(app.engine.analysis, DiceSource { forcedDice.removeFirstOrNull() ?: secureDice.die() })
+    private val controller = MatchController(
+        app.engine.analysis, DiceSource { forcedDice.removeFirstOrNull() ?: secureDice.die() }, opponents = { app.engine.of(it) },
+    )
 
     private val _state = MutableStateFlow(GameUiState())
     val state: StateFlow<GameUiState> = _state.asStateFlow()
@@ -207,14 +210,14 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
 
     // ---- lifecycle of a match ----------------------------------------------------------
 
-    fun newMatch(rules: MatchRules, level: CpuLevel, mistakes: MistakeRate?) {
+    fun newMatch(rules: MatchRules, level: CpuLevel, mistakes: MistakeRate?, engine: EngineKind) {
         cpuJob?.cancel()
         stopAutoFinish()
         viewModelScope.launch {
             _state.value.match?.let { old -> if (!old.isOver) repo.finishMatch(old, abandoned = true) }
             val rate = mistakes?.takeIf { level == CpuLevel.MISTAKES }
-            val id = repo.createMatch(rules, level, rate)
-            val m = MatchState(id = id, rules = rules, cpuLevel = level, mistakes = rate)
+            val id = repo.createMatch(rules, level, rate, engine)
+            val m = MatchState(id = id, rules = rules, cpuLevel = level, mistakes = rate, engine = engine)
             pendingNext = null
             _state.update { GameUiState(loading = false, settings = it.settings) }
             startGame(m)
@@ -911,7 +914,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                     val move = when {
                         auto -> engine { controller.autoMove(m) }
                         rnd.nextFloat() < 0.25f -> MoveGenerator.legalMoves(g.board, Player.HUMAN, d.d1, d.d2).random(rnd)
-                        else -> engine { app.engine.engine.chooseMove(g.board, m.ctx(), d.d1, d.d2, CpuLevel.EXPERT) }
+                        else -> engine { app.engine.analysis.chooseMove(g.board, m.ctx(), d.d1, d.d2, CpuLevel.EXPERT) }
                     }
                     if (auto) animateHumanMove(g.board, move)
                     applyHuman(engine { controller.humanMove(m, move, hinted = false, auto = auto) }, before = m)

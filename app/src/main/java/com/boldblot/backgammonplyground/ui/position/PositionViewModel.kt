@@ -49,10 +49,12 @@ data class PositionState(
     /** Whether there is an edit to undo. */
     val canUndo: Boolean = false,
     /** Engine and level chosen on this screen; null = the analysis depths in Settings. */
-    val engine: EngineKind = EngineKind.PURETD,
+    /** The engine picked on this screen (null: the analysis engine from Settings). */
+    val engineChoice: EngineKind? = null,
     val level: Pair<Depth, Int>? = null,
 ) {
     /** Checker depth and cube plies used by the next analysis. */
+    val engine: EngineKind get() = engineChoice ?: settings.analysisEngine
     val checkerDepth: Depth get() = level?.first ?: settings.checkerDepth
     val cubePlies: Int get() = level?.second ?: settings.cubePlies
 
@@ -260,7 +262,7 @@ class PositionViewModel(private val app: PlyGroundApp) : ViewModel() {
         return if (xgid) PositionIds.toXgid(s) else PositionIds.toGnu(s)
     }
 
-    fun setEngine(e: EngineKind) = _state.update { it.copy(engine = e) }
+    fun setEngine(e: EngineKind) = _state.update { it.copy(engineChoice = e) }
 
     /** Sets the level of the next analysis (not an edit: the position and its results stay). */
     fun setLevel(checker: Depth, cubePlies: Int) = _state.update { it.copy(level = checker to cubePlies) }
@@ -276,7 +278,7 @@ class PositionViewModel(private val app: PlyGroundApp) : ViewModel() {
             val ctx = st.ctx()
             val dice = if (st.hasDice) Dice(st.dice[0]!!, st.dice[1]!!) else null
             val result = runCatching {
-                app.engine.run {
+                app.engine.run(st.engine) {
                     if (dice != null) MatchController(this, DiceSource.secure(), AnalysisSettings(plies = plies, cubePlies = cubePlies))
                         .analyzeChecker(st.board, ctx, dice, null, plies) to null
                     else null to cubeDecision(st.board, ctx, cubePlies)

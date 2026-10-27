@@ -199,7 +199,7 @@ private const val MAX_LENGTH = 99
 /** New match options. Remembers the choices in settings. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun NewMatchScreen(app: PlyGroundApp, hasMatch: Boolean, onStart: (MatchRules, CpuLevel, MistakeRate?) -> Unit, onBack: () -> Unit) {
+fun NewMatchScreen(app: PlyGroundApp, hasMatch: Boolean, onStart: (MatchRules, CpuLevel, MistakeRate?, EngineKind) -> Unit, onBack: () -> Unit) {
     val settings by app.settings.settings.collectAsState(initial = null)
     val s = settings ?: return
     var length by remember(s) { mutableStateOf(s.matchLength) }
@@ -211,7 +211,7 @@ fun NewMatchScreen(app: PlyGroundApp, hasMatch: Boolean, onStart: (MatchRules, C
     var beavers by remember(s) { mutableStateOf(s.beavers) }
     var raccoons by remember(s) { mutableStateOf(s.raccoons) }
     var mistakes by remember(s) { mutableStateOf(s.mistakes) }
-    var engine by remember { mutableStateOf(EngineKind.PURETD) }
+    var engine by remember(s) { mutableStateOf(s.opponentEngine) }
     var confirm by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -220,10 +220,10 @@ fun NewMatchScreen(app: PlyGroundApp, hasMatch: Boolean, onStart: (MatchRules, C
             app.settings.update {
                 it.copy(
                     matchLength = length, cpuLevel = level, useCube = cube, jacoby = jacoby, crawford = crawford,
-                    beavers = beavers, raccoons = raccoons, mistakes = mistakes,
+                    beavers = beavers, raccoons = raccoons, mistakes = mistakes, opponentEngine = engine,
                 )
             }
-            onStart(MatchRules(length = length, useCube = cube, jacoby = jacoby, crawford = crawford, beavers = beavers, raccoons = raccoons), level, mistakes)
+            onStart(MatchRules(length = length, useCube = cube, jacoby = jacoby, crawford = crawford, beavers = beavers, raccoons = raccoons), level, mistakes, engine)
         }
     }
 
@@ -669,13 +669,20 @@ fun SettingsScreen(app: PlyGroundApp, onBack: () -> Unit, onSpeedTest: () -> Uni
                 value = name,
                 onValueChange = { v -> name = v.take(30); update { it.copy(playerName = name) } },
                 label = { Text("Your name in exported files") },
-                supportingText = { Text("Shown in .mat files for eXtreme Gammon and GNU Backgammon; the computer is named after its engine and PR, e.g. \"PureTD PR 4\".") },
+                supportingText = { Text("Shown in .mat files for eXtreme Gammon and GNU Backgammon; the computer is named after its engine and PR, e.g. \"PureTD PR 4\" or \"GNU BG PR <1\".") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             Header("Analysis")
-            Text("Checker play depth", style = MaterialTheme.typography.bodyMedium)
+            Text("Engine", style = MaterialTheme.typography.bodyMedium)
+            EngineChips(s.analysisEngine, { e -> update { it.copy(analysisEngine = e) } }, Modifier.padding(vertical = 4.dp))
+            Text(
+                "Analyzes your games, hints and positions, and gives PR, errors and luck. The computer plays with " +
+                    "the engine chosen in New match. Analyze again in the review can use another engine.",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text("Checker play depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 items((1..4).toList()) { n ->
                     FilterChip(selected = s.checkerPlies == n, onClick = { update { it.copy(checkerPlies = n) } }, label = { Text("$n-ply") })
@@ -859,9 +866,16 @@ fun AboutScreen(onBack: () -> Unit, onSpeedTest: () -> Unit = {}) {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "The computer opponent and all analysis use the PureTD backgammon engine by Alexander Strehl " +
-                    "(its neural networks and move generator; licence below), with Bold Blot's own search, bear-off " +
-                    "database, cube handling and match equity table.",
+                "Three backgammon engines play and analyze, each with its own neural networks and cube handling:",
+            )
+            Text(
+                "• PureTD by Alexander Strehl: its neural networks and move generator, with Bold Blot's own search, " +
+                    "bear-off database, cube handling and match equity table.\n" +
+                    "• GNU Backgammon by the GNU Backgammon authors: its neural networks, bear-off database, cubeful " +
+                    "evaluation and the Kazaross XG2 match equity table.\n" +
+                    "• Open Sage by Mark Higgins: its production networks (stage 11), bear-off database, cubeful " +
+                    "search and match equity table.\n" +
+                    "Licences below.",
             )
             Spacer(Modifier.height(8.dp))
             Text(
@@ -890,11 +904,35 @@ fun AboutScreen(onBack: () -> Unit, onSpeedTest: () -> Unit = {}) {
                     "CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
                 style = MaterialTheme.typography.bodySmall,
             )
+            Spacer(Modifier.height(16.dp))
+            Text("GNU Backgammon", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "GNU Backgammon (gnu.org/software/gnubg), copyright © 1998-2003 Gary Wong and © 2000-2022 the GNU " +
+                    "Backgammon authors: Joseph Heled, Oystein Johansen, Jonathan Kinsey, David Montgomery, Jim " +
+                    "Segrave, Joern Thyssen, Gary Wong, Christian Anthon, Michael Petch, Philippe Michel and many " +
+                    "contributors. Free software under the GNU General Public License, version 3 or later. This app " +
+                    "uses its evaluation code, neural network weights and one-sided bear-off database, and the " +
+                    "Kazaross XG2 match equity table distributed with it.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(16.dp))
+            Text("Open Sage", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Open Sage backgammon engine by Mark Higgins (github.com/markbgsage/bgsage), copyright © 2026 Mark " +
+                    "Higgins, Mozilla Public License 2.0 (mozilla.org/MPL/2.0), covering its code, trained networks " +
+                    "and bear-off database. The source of the version used, unmodified, is in this app's source code " +
+                    "(github.com/BoldBlot/backgammon-plyground, folder engine/sage).",
+                style = MaterialTheme.typography.bodySmall,
+            )
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onSpeedTest) { Text("Engine speed test") }
             Spacer(Modifier.height(16.dp))
             Text(
-                "Backgammon PlyGround is made by Bold Blot (boldblot.com, support@boldblot.com). Titles use the Archivo " +
+                "Backgammon PlyGround is made by Bold Blot (boldblot.com, support@boldblot.com), free software under " +
+                    "the GNU General Public License, version 3 or later; source code at " +
+                    "github.com/BoldBlot/backgammon-plyground. Titles use the Archivo " +
                     "typeface, copyright The Archivo Project Authors, under the SIL Open Font License 1.1 (included " +
                     "in the app as licenses/archivo-OFL.txt).",
                 style = MaterialTheme.typography.bodySmall,

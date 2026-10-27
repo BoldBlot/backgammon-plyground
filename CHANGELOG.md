@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7 — 2026-10-27 (build 36)
+
+Three engines: GNU Backgammon and Open Sage join PureTD.
+- New match → Engine: play PureTD, GNU Backgammon or Open Sage, at every PR level. The engine is
+  saved with the match and shown in its name, e.g. "GNU BG PR <1".
+- Settings → Analysis → Engine: the engine that analyzes your games, hints, PR, errors and luck
+  (PureTD by default). Analyze again in the review and Analyze Position can use any of the three.
+- Each engine uses its own networks, bear-off database, cube handling and match equity table;
+  checker play goes through the same depths and move filters.
+- About: credits and licences for GNU Backgammon (GPL v3) and Open Sage (MPL 2.0).
+
 Build 35 — 2026-10-27:
 - Roll and Double fit between the checkers in portrait: smaller where the board is narrow, and
   kept within the four middle points, clear of the stacks on the 6- and 19-points.

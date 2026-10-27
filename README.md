@@ -1,7 +1,7 @@
 # Backgammon PlyGround
 
-An Android backgammon trainer built on the
-**PureTD** engine with Bold Blot's own search, cube handling and match equity table.
+An Android backgammon trainer with three engines: **PureTD** (with Bold Blot's own search,
+cube handling and match equity table), **GNU Backgammon** and **Open Sage**.
 The name is written exactly so: "Backgammon PlyGround", capital P and G.
 Play against the computer, get prompted when you make a mistake, see how big
 the mistake was and what the best plays were, track your statistics, and
@@ -12,11 +12,11 @@ Errors and the Performance Rating (PR) follow the definitions published by
 
 ## Features
 
-- **Play the computer** (the PureTD engine) at a chosen PR, from PR <2 (World class) to
+- **Play the computer** (PureTD, GNU Backgammon or Open Sage) at a chosen PR, from PR <2 (World class) to
   PR 15, or a custom mistake rate; money sessions (Jacoby, beavers and raccoons optional) or
   matches of 1–99 points (Crawford rule), with the doubling cube.
 - **Practice prompts.** After each of your checker plays and cube decisions the
-  game analyses it (XG ply numbering: checker play 3-ply searching moves within ±0.16 and cube
+  game analyses it with the engine chosen in Settings (XG ply numbering: checker play 3-ply searching moves within ±0.16 and cube
   decisions 4-ply by default, 1- to 4-ply selectable; the computer's decisions can be left
   unanalyzed so it moves sooner). If it is an XG *Error* (> 0.020) or
   *Blunder* (> 0.080), a panel shows the error, your play versus the best play as
@@ -33,7 +33,8 @@ Errors and the Performance Rating (PR) follow the definitions published by
 - **Analyze Position**: set up any position by tapping the board (or import an XGID / GNU ID),
   choose who is on roll, the dice (ranked best moves with arrows) or none (cube decision,
   with the take / pass view when your opponent is on roll), money or match score, Crawford
-  and the cube, choose the engine (PureTD) and the depths, and analyze it.
+  and the cube, choose the engine (PureTD, GNU Backgammon or Open Sage) and the depths, and
+  analyze it: the engines often disagree, and seeing where is part of the training.
 - **Autofinish**: the engine (3-ply, moves within ±0.04) plays your side to the end of the game
   (pause per move configurable); tap anywhere to stop. Not counted in statistics.
 - **Hint** button for checker plays and cube decisions (hinted decisions are not
@@ -125,7 +126,8 @@ is signed with the debug key. On Google Play this key is the upload key: Play Ap
 Signing re-signs the bundle with Google's app signing key.
 
 **16 KB pages.** Google Play requires 64-bit native libraries aligned to 16 KB pages. The
-only native library is the engine's JNI bridge (no C++ runtime, `ANDROID_STL=none`). After
+only native library is the engines' JNI bridge (`libbgjni`, with the C++ runtime linked in
+statically for Open Sage). After
 changing native code, check with `llvm-readelf -lW` that every arm64-v8a and x86_64 library
 has `LOAD` alignment `0x4000`.
 
@@ -134,17 +136,23 @@ has `LOAD` alignment `0x4000`.
 `cubeful_wide.ptw` (cubeful equity, used at the leaves of the cube search). They are exported
 from PureTD's checkpoints with `engine/tools/export_puretd.py`. The bear-off database is built
 on the phone at first start and cached; the match equity table is computed by the app
-(`core/CubeMath.kt`).
+(`core/CubeMath.kt`). `assets/gnubg` holds GNU Backgammon's networks (`gnubg.wd`), one-sided
+bear-off database and the Kazaross XG2 match equity table; the two-sided bear-off database is
+left out to keep the app small. `assets/sage` holds Open Sage's production model (stage 11: 21
+network files, some shared between game plans) and its one-sided bear-off database, unchanged
+from its release.
 
 ## Project layout
 
 | Path | Contents |
 | --- | --- |
 | `engine/puretd/` | PureTD's move generator and board encoding (unchanged, MIT) and our network evaluation and search (`ptd.c`); see its README |
+| `engine/gnubg/`, `engine/compat/`, `engine/src/` | GNU Backgammon's evaluation code (unchanged, GPL v3), a small glib shim, and our C API over it (`bgengine.c`) |
+| `engine/sage/` | Open Sage's engine library (unchanged, MPL 2.0, from bgsage commit 98a6d84) |
 | `engine/tools/` | `export_puretd.py`: PureTD checkpoints to the app's `.ptw` network files |
-| `app/src/main/cpp/` | JNI bridge (`libptdjni`) |
+| `app/src/main/cpp/` | JNI bridges for the three engines (one library, `libbgjni`) |
 | `app/src/main/java/com/boldblot/backgammonplyground/core/` | Pure Kotlin: board, move generation, rules, match state machine, XG analysis and PR, statistics |
-| `app/src/main/java/com/boldblot/backgammonplyground/engine/` | Kotlin side of the engine, single engine thread |
+| `app/src/main/java/com/boldblot/backgammonplyground/engine/` | Kotlin side of the engines (one search over each engine's evaluation), single engine thread |
 | `app/src/main/java/com/boldblot/backgammonplyground/data/` | Room database, settings, statistics queries |
 | `app/src/main/java/com/boldblot/backgammonplyground/ui/` | Jetpack Compose screens |
 | `docs/` | Design notes |
@@ -155,7 +163,13 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details and
 ## Licence
 
 Backgammon PlyGround is free software under the GNU General Public License v3 or later (see
-[LICENSE](LICENSE)). It includes the PureTD engine by Alexander Strehl (MIT licence,
-`engine/puretd/LICENSE-PureTD`) and the Archivo typeface (SIL Open Font License,
+[LICENSE](LICENSE)). It includes:
+
+- the PureTD engine by Alexander Strehl (MIT licence, `engine/puretd/LICENSE-PureTD`);
+- GNU Backgammon's evaluation code, networks, bear-off database and match equity table, by
+  the GNU Backgammon authors (GPL v3 or later, `engine/gnubg/COPYING`, `engine/gnubg/AUTHORS`);
+- the Open Sage engine, networks and bear-off database by Mark Higgins (Mozilla Public
+  License 2.0, `engine/sage/LICENSE-OpenSage`; source: github.com/markbgsage/bgsage);
+- the Archivo typeface (SIL Open Font License,
 `app/src/main/assets/licenses/archivo-OFL.txt`). eXtreme Gammon is a trademark of GameSite
 2000 Ltd.; this project is not affiliated with it.

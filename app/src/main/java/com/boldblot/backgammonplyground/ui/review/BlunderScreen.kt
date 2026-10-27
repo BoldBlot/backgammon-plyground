@@ -180,7 +180,7 @@ class BlunderViewModel(private val app: PlyGroundApp, private val startId: Long)
         viewModelScope.launch {
             val result = runCatching {
                 val jacoby = app.repository.match(b.entity.matchId)?.jacoby ?: true
-                val re = Reanalysis(app.engine.analysis, r.checker.code, Depth(r.cubePlies).code)
+                val re = Reanalysis(app.engine.of(r.engine), r.checker.code, Depth(r.cubePlies).code)
                 val d = app.engine.run { re.decision(b.decision, b.entity.matchLength, jacoby) }
                 SavedBlunder(app.repository.saveReanalyzedBlunder(b.entity, d), d)
             }

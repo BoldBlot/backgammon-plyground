@@ -147,10 +147,17 @@ class MistakeMaker(private val rate: MistakeRate, private val rng: Random = Rand
 
 /**
  * The opponent as stored with a match: a [CpuLevel] name, or "MISTAKES:<errors>:<blunders>" for a
- * mistake-rate opponent.
+ * mistake-rate opponent, after "<engine>@" for an engine other than PureTD ("GNUBG@MAXIMUM").
  */
 object Opponent {
-    fun key(level: CpuLevel, rate: MistakeRate?): String = when {
+    fun key(level: CpuLevel, rate: MistakeRate?, engine: EngineKind = EngineKind.PURETD): String =
+        (if (engine == EngineKind.PURETD) "" else "${engine.name}@") + levelKey(level, rate)
+
+    /** The engine of a stored opponent. */
+    fun engine(key: String): EngineKind =
+        key.substringBefore('@', "").let { e -> EngineKind.entries.firstOrNull { it.name == e } } ?: EngineKind.PURETD
+
+    private fun levelKey(level: CpuLevel, rate: MistakeRate?): String = when {
         level != CpuLevel.MISTAKES || rate == null -> level.name
         rate.checkerPlies == MistakeRate.DEFAULT_PLIES && rate.cubePlies == MistakeRate.DEFAULT_PLIES &&
             rate.maxMistake == MistakeRate.DEFAULT_MAX_MISTAKE -> "${level.name}:${rate.errors}:${rate.blunders}"
@@ -158,7 +165,7 @@ object Opponent {
     }
 
     fun parse(key: String): Pair<CpuLevel, MistakeRate?> {
-        val parts = key.split(':')
+        val parts = key.substringAfter('@').split(':')
         val level = CpuLevel.entries.firstOrNull { it.name == parts[0] } ?: CpuLevel.WORLD_CLASS
         val rate = if (parts.size == 3 || parts.size == 6) {
             val e = parts[1].toFloatOrNull()
@@ -182,7 +189,7 @@ object Opponent {
      * "PureTD PR 4", "PureTD PR <1" / "PureTD PR <2" (3-ply / 2-ply, no mistakes), or a custom
      * opponent's estimated PR, "PureTD PR 7.3".
      */
-    fun name(key: String, engine: EngineKind = EngineKind.PURETD): String = parse(key).let { (l, r) -> name(l, r, engine) }
+    fun name(key: String): String = parse(key).let { (l, r) -> name(l, r, engine(key)) }
 
     fun name(level: CpuLevel, rate: MistakeRate?, engine: EngineKind = EngineKind.PURETD): String {
         val pr = when {

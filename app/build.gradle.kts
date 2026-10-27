@@ -23,8 +23,8 @@ android {
         applicationId = "com.boldblot.backgammonplyground"
         minSdk = 26
         targetSdk = 36
-        versionCode = 35
-        versionName = "0.6"
+        versionCode = 36
+        versionName = "0.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
@@ -32,7 +32,7 @@ android {
         }
         externalNativeBuild {
             cmake {
-                arguments += listOf("-DANDROID_STL=none")
+                arguments += listOf("-DANDROID_STL=c++_static")
             }
         }
     }
