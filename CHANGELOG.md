@@ -11,7 +11,7 @@ Three engines: GNU Backgammon and Open Sage join PureTD.
   checker play goes through the same depths and move filters.
 - PureTD's match play cube decisions use a cube-aware search, like its money ones: every cube
   state is followed through the tree, both sides deciding at every turn. Short races at 2-away and
-  the last rolls of a match are now right; at 3-ply its cube error on FlashBack's match-score cards
+  the last rolls of a match are now right; at 3-ply its cube error on FlashBack's match-score positions
   fell from 22.8 to 0.6 thousandths of a point.
 - Match play: a player too good to double plays on for the gammon (the match cube model's values
   above the cash point now rise to the full win, as in money play).
