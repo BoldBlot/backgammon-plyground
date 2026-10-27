@@ -1,12 +1,18 @@
 package com.boldblot.backgammonplyground.ui.review
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -19,10 +25,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.boldblot.backgammonplyground.PlyGroundApp
+import com.boldblot.backgammonplyground.core.GameResult
 import com.boldblot.backgammonplyground.core.GameSummary
 import com.boldblot.backgammonplyground.core.Opponent
 import com.boldblot.backgammonplyground.core.Player
@@ -53,7 +62,8 @@ fun SavedSummaryDialog(
         report = runCatching { app.repository.matchReport(matchId) }.getOrNull()
     }
     val m = match
-    val game = games.firstOrNull { it.first.number == gameNumber } ?: games.lastOrNull()
+    var shown by remember(games) { mutableStateOf(games.indexOfFirst { it.first.number == gameNumber }.takeIf { it >= 0 } ?: games.lastIndex) }
+    val game = games.getOrNull(shown)
     var showMatch by remember(games) { mutableStateOf(startWithMatch && games.size > 1) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -88,9 +98,12 @@ fun SavedSummaryDialog(
                             Text("Game ${game.first.number}", maxLines = 1)
                         }
                         SegmentedButton(selected = showMatch, onClick = { showMatch = true }, shape = SegmentedButtonDefaults.itemShape(1, 2)) {
-                            Text("${if (m.length == 0) "Session" else "Match"} (${r.games} games)", maxLines = 1)
+                            Text(if (m.length == 0) "Session" else "Match", maxLines = 1)
                         }
                     }
+                }
+                if (games.size > 1 && !(showMatch && r != null)) {
+                    GameStepper(game.first.number, shown, games.size) { shown = it }
                 }
                 HorizontalDivider(Modifier.padding(vertical = 6.dp))
                 if (showMatch && r != null) {
@@ -107,21 +120,7 @@ fun SavedSummaryDialog(
                         )
                     }
                 } else {
-                    val (e, s) = game
-                    val res = s.result
-                    val won = res.winner == Player.HUMAN
-                    val kind = when (res.type) {
-                        WinType.SINGLE -> if (res.byPass) "by a pass" else "a single game"
-                        WinType.GAMMON -> "a gammon"
-                        WinType.BACKGAMMON -> "a backgammon"
-                    }
-                    Text(
-                        "Game ${e.number} (${e.scoreBeforeHuman}-${e.scoreBeforeCpu}): ${if (won) "you win" else "computer wins"} $kind, " +
-                            "+${res.points} point${if (res.points > 1) "s" else ""}" + if (res.resigned) " (resigned)" else "",
-                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 4.dp),
-                    )
-                    SummaryRow("Game ${e.number}", "You", "Computer", header = true)
-                    PerformanceRows(s.performance[0], s.performance[1])
+                    SavedGameRows(game.first, game.second)
                 }
                 Text(
                     "Luck: each player's rolls compared with the average roll in the same position, so both " +
@@ -138,4 +137,39 @@ fun SavedSummaryDialog(
             }
         },
     )
+}
+
+/** "‹ Game 3 of 7 ›": steps through the games of a summary ([index] in a list of [count]). */
+@Composable
+internal fun GameStepper(number: Int, index: Int, count: Int, onStep: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = { onStep(index - 1) }, enabled = index > 0) {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous game")
+        }
+        Text("Game $number of $count", Modifier.weight(1f), textAlign = TextAlign.Center, style = MaterialTheme.typography.titleSmall)
+        IconButton(onClick = { onStep(index + 1) }, enabled = index < count - 1) {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next game")
+        }
+    }
+}
+
+/** A saved game's result line and its rows (PR, rating, luck, errors). */
+@Composable
+internal fun SavedGameRows(e: GameEntity, s: GameSummary) {
+    Text(
+        "Game ${e.number} (${e.scoreBeforeHuman}-${e.scoreBeforeCpu}): " + resultText(s.result),
+        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 4.dp),
+    )
+    SummaryRow("Game ${e.number}", "You", "Computer", header = true)
+    PerformanceRows(s.performance[0], s.performance[1])
+}
+
+private fun resultText(res: GameResult): String {
+    val kind = when (res.type) {
+        WinType.SINGLE -> if (res.byPass) "by a pass" else "a single game"
+        WinType.GAMMON -> "a gammon"
+        WinType.BACKGAMMON -> "a backgammon"
+    }
+    return "${if (res.winner == Player.HUMAN) "you win" else "computer wins"} $kind, " +
+        "+${res.points} point${if (res.points > 1) "s" else ""}" + if (res.resigned) " (resigned)" else ""
 }

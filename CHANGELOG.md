@@ -2,6 +2,13 @@
 
 ## 0.6 — 2026-10-25
 
+Build 34:
+- Game summaries: arrows step through the games of a match or session, in the review, in History
+  and at the end of a match.
+- Settings → After each game: the switch for the summary after each game now has its own section.
+  When it is off, the end of a match offers to turn it back on, and the game's ⋮ menu has "Last
+  game's summary".
+
 Build 33:
 - Training mode "Show mistakes after the match" (was "after the game"): your errors and blunders
   are shown when the match ends, with "Review my mistakes"; in a money session, when you end it.

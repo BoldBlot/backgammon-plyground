@@ -646,7 +646,6 @@ fun SettingsScreen(app: PlyGroundApp, onBack: () -> Unit, onSpeedTest: () -> Uni
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Toggle("Show the summary after each game", s.gameSummary) { v -> update { it.copy(gameSummary = v) } }
             if (!during) {
                 Text(
                     "After the match, the review lists your errors and blunders.",
@@ -655,6 +654,12 @@ fun SettingsScreen(app: PlyGroundApp, onBack: () -> Unit, onSpeedTest: () -> Uni
             }
             Text(
                 "Errors and blunders use eXtreme Gammon's thresholds: more than 0.020 and 0.080 equity (×1.5 in 1-point matches).",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Header("After each game")
+            Toggle("Show the summary after each game", s.gameSummary) { v -> update { it.copy(gameSummary = v) } }
+            Text(
+                "PR, rating, luck and errors for both players. The end of a match always shows it, and the game's ⋮ menu has the last game's summary.",
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             HorizontalDivider(Modifier.padding(vertical = 12.dp))

@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -63,6 +64,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -86,6 +88,7 @@ import com.boldblot.backgammonplyground.core.CubeState
 import com.boldblot.backgammonplyground.core.DecisionKind
 import com.boldblot.backgammonplyground.core.Feedback
 import com.boldblot.backgammonplyground.core.GameState
+import com.boldblot.backgammonplyground.core.GameSummary
 import com.boldblot.backgammonplyground.core.MatchState
 import com.boldblot.backgammonplyground.core.MoveNotation
 import com.boldblot.backgammonplyground.core.PerformanceTotals
@@ -94,6 +97,7 @@ import com.boldblot.backgammonplyground.core.Player
 import com.boldblot.backgammonplyground.core.Severity
 import com.boldblot.backgammonplyground.core.WinType
 import com.boldblot.backgammonplyground.core.XgRules
+import com.boldblot.backgammonplyground.data.GameEntity
 import com.boldblot.backgammonplyground.data.TrainingMode
 import com.boldblot.backgammonplyground.ui.board.ArrowColors
 import com.boldblot.backgammonplyground.ui.board.BoardGeometry
@@ -110,6 +114,8 @@ import com.boldblot.backgammonplyground.ui.components.eq
 import com.boldblot.backgammonplyground.ui.components.fmt
 import com.boldblot.backgammonplyground.ui.components.pct
 import com.boldblot.backgammonplyground.ui.components.scrollIndicator
+import com.boldblot.backgammonplyground.ui.review.GameStepper
+import com.boldblot.backgammonplyground.ui.review.SavedGameRows
 import com.boldblot.backgammonplyground.ui.review.SavedSummaryDialog
 import kotlin.math.roundToInt
 
@@ -232,6 +238,8 @@ private fun NoMatch(onBack: () -> Unit) {
 @Composable
 private fun GameMenu(st: GameUiState, m: MatchState, vm: GameViewModel, onAbandon: () -> Unit, onResign: () -> Unit) {
     var open by remember { mutableStateOf(false) }
+    var summary by remember { mutableStateOf(false) }
+    if (summary) SavedSummaryDialog(vm.app, m.id, gameNumber = null, startWithMatch = false, onDismiss = { summary = false })
     Box {
         IconButton(onClick = { open = true }) { Icon(Icons.Default.MoreVert, "Game options") }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
@@ -245,6 +253,13 @@ private fun GameMenu(st: GameUiState, m: MatchState, vm: GameViewModel, onAbando
                 leadingIcon = { Icon(Icons.Default.FastForward, null) },
                 onClick = { open = false; vm.startAutoFinish() },
             )
+            if (m.gameNumber > 1) {
+                DropdownMenuItem(
+                    text = { Text("Last game's summary") },
+                    leadingIcon = { Icon(Icons.Default.Summarize, null) },
+                    onClick = { open = false; summary = true },
+                )
+            }
             DropdownMenuItem(
                 text = { Text(if (st.inStats) "Exclude from statistics" else "Count in statistics again") },
                 leadingIcon = { Icon(Icons.Default.BarChart, null) },
@@ -992,6 +1007,12 @@ private fun GameOverDialog(
     val report = info.match?.takeIf { it.games > 1 }
     val matchName = if (info.isMoney) "Session" else "Match"
     var showMatch by remember(info) { mutableStateOf(info.matchOver && report != null) }
+    // The match's saved games, for stepping through their summaries; this game is shown from [info].
+    var saved by remember(info) { mutableStateOf<List<Pair<GameEntity, GameSummary>>>(emptyList()) }
+    LaunchedEffect(info) { if (report != null) saved = vm.app.repository.gameSummaries(info.matchId) }
+    var shown by remember(info) { mutableStateOf(info.gameNumber) }
+    // At the end of a match with the summary after each game turned off: a box to turn it back on.
+    val offerSummary = remember(info) { info.matchOver && !gameSummary }
     Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false, usePlatformDefaultWidth = false)) {
         Surface(
             shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -1019,12 +1040,16 @@ private fun GameOverDialog(
                             SegmentedButton(
                                 selected = !showMatch, onClick = { showMatch = false },
                                 shape = SegmentedButtonDefaults.itemShape(0, 2),
-                            ) { Text("Game ${info.gameNumber}", maxLines = 1) }
+                            ) { Text("Game $shown", maxLines = 1) }
                             SegmentedButton(
                                 selected = showMatch, onClick = { showMatch = true },
                                 shape = SegmentedButtonDefaults.itemShape(1, 2),
                             ) { Text("$matchName (${report.games} games)", maxLines = 1) }
                         }
+                    }
+                    val index = saved.indexOfFirst { it.first.number == shown }
+                    if (report != null && !showMatch && saved.size > 1 && index >= 0) {
+                        GameStepper(shown, index, saved.size) { shown = saved[it].first.number }
                     }
                     if (info.afterMatch) {
                         Text(
@@ -1044,6 +1069,8 @@ private fun GameOverDialog(
                         )
                         SummaryRow("Games won", report.gamesWon[0].toString(), report.gamesWon[1].toString(), strong = true)
                         PerformanceRows(report.human, report.cpu)
+                    } else if (shown != info.gameNumber && index >= 0) {
+                        SavedGameRows(saved[index].first, saved[index].second)
                     } else {
                         SummaryRow(if (report != null) "Game ${info.gameNumber}" else "This game", "You", "Computer", header = true)
                         PerformanceRows(info.gamePerformance, info.cpuPerformance)
@@ -1077,7 +1104,18 @@ private fun GameOverDialog(
                         ) {
                             Checkbox(checked = !gameSummary, onCheckedChange = null)
                             Text(
-                                "Don't show this after each game (Settings → Training mode)",
+                                "Don't show this after each game (Settings → After each game)",
+                                style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
+                    } else if (offerSummary) {
+                        Row(
+                            Modifier.fillMaxWidth().toggleable(gameSummary, role = Role.Checkbox) { vm.setGameSummary(it) },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = gameSummary, onCheckedChange = null)
+                            Text(
+                                "Show the summary after each game",
                                 style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp),
                             )
                         }
