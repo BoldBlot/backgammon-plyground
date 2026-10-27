@@ -76,11 +76,13 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.boldblot.backgammonplyground.core.Board
@@ -460,8 +462,9 @@ private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifie
     val previewing = st.preview != null
     val dice = buildList {
         if (previewing) return@buildList
-        // The computer's last roll stays visible (greyed) until the human rolls or doubles.
-        st.cpuLastDice?.let { add(DiceView(Player.CPU, it.highFirst, greyed = true)) }
+        // The computer's last roll stays visible (greyed) until the human rolls or doubles, or the
+        // computer doubles.
+        if (g.offeredCube == null) st.cpuLastDice?.let { add(DiceView(Player.CPU, it.highFirst, greyed = true)) }
         if (g.phase == Phase.MOVING && g.dice != null) {
             if (g.turn == Player.HUMAN) {
                 add(DiceView(Player.HUMAN, st.diceOrder, st.diceDim, error = st.diceError))
@@ -481,6 +484,7 @@ private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifie
                 dice = dice,
                 cube = offeredCube(g),
                 cubeOffered = g.offeredCube != null,
+                cubeAside = passShown(st, m),
                 movable = if (interactive) st.movable else emptySet(),
                 lastCpuSteps = if (previewing) emptyList() else st.lastCpuSteps,
                 pips = if (st.settings.showPips) listOf(showBoard.pipCount(Player.HUMAN), showBoard.pipCount(Player.CPU)) else null,
@@ -497,10 +501,21 @@ private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifie
             val pointW = (w - tray - margin * 2 - bar) / 12
             val mirrored = st.settings.mirrorBoard
             val halfLeft = if (mirrored) margin + tray else margin + pointW * 6 + bar
+            val buttonH = buttonHeight(w, maxHeight)
             Box(
                 Modifier.offset(x = halfLeft).width(pointW * 6).fillMaxHeight(),
                 contentAlignment = Alignment.Center,
-            ) { OnBoardButtons(st, m, vm, pointW) }
+            ) { OnBoardButtons(st, m, vm, pointW, buttonH) }
+            // Pass to a double goes in the computer's half, next to the offered cube.
+            if (passShown(st, m)) {
+                val geo = BoardGeometry(w.value, maxHeight.value, mirrored)
+                Box(Modifier.offset(x = geo.cubeAside().second.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    FilledTonalButton(
+                        onClick = { vm.respond(false) }, modifier = Modifier.width(geo.passW.dp).height(buttonH),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 0.dp),
+                    ) { Text("Pass", style = buttonLabel(pointW), maxLines = 1) }
+                }
+            }
             // Signs in the middle of the board, centred on the bar: a cube mistake, or a turn without
             // a choice. They go just below the centre line, or to the nearest free spot so that they
             // cover neither the Roll / Double buttons nor checkers, dice or the cube.
@@ -518,7 +533,8 @@ private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifie
                             val geo = BoardGeometry(boardW.toPx(), boardH.toPx(), mirrored)
                             val top = signTop(
                                 geo, showBoard, dice, offeredCube(g), g.offeredCube != null, buttonsShown,
-                                p.width.toFloat(), p.height.toFloat(), ((40.dp + BUTTON_GAP) * buttonRows(m) - BUTTON_GAP).toPx() / 2, 4.dp.toPx(),
+                                p.width.toFloat(), p.height.toFloat(),
+                                buttonH.toPx() / 2, 4.dp.toPx(),
                             )
                             layout(p.width, p.height) { p.place(0, (top - (geo.height - p.height) / 2).roundToInt()) }
                         },
@@ -535,49 +551,64 @@ private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifie
 }
 
 @Composable
-private fun OnBoardButtons(st: GameUiState, m: MatchState, vm: GameViewModel, pointW: Dp) {
+private fun OnBoardButtons(st: GameUiState, m: MatchState, vm: GameViewModel, pointW: Dp, height: Dp) {
     val g = m.game
     if (st.busy || st.preview != null || hasPanel(st) || st.autoFinishing) return
-    val mod = Modifier.widthIn(min = pointW * 1.8f).height(40.dp)
-    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 0.dp)
+    // A pair of buttons stays within the four middle points, clear of the stacks on the outer
+    // ones (the 6- and 19-points at the start); on a narrow board with a smaller label.
+    val pairMod = Modifier.width(pointW * 2 - 4.dp).height(height)
+    // Small side padding unless the buttons have room to spare (a big landscape board).
+    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = if (pointW < 48.dp) 2.dp else 14.dp, vertical = 0.dp)
+    val label = buttonLabel(pointW)
     when {
         g.phase == Phase.PRE_ROLL && g.turn == Player.HUMAN -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (g.mayDouble(m.rules, m.score)) FilledTonalButton(onClick = vm::double, modifier = mod, contentPadding = pad) { Text("Double") }
-            Button(onClick = vm::roll, modifier = mod, contentPadding = pad) { Text("Roll") }
+            if (g.mayDouble(m.rules, m.score)) {
+                FilledTonalButton(onClick = vm::double, modifier = pairMod, contentPadding = pad) { Text("Double", style = label, maxLines = 1) }
+            }
+            Button(onClick = vm::roll, modifier = pairMod, contentPadding = pad) { Text("Roll", style = label, maxLines = 1) }
         }
-        // With a beaver the buttons take two rows (three do not fit across half a portrait board).
-        g.phase == Phase.DOUBLED && g.responder == Player.HUMAN -> Column(
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(BUTTON_GAP),
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(onClick = { vm.respond(false) }, modifier = mod, contentPadding = pad) { Text("Pass") }
-                Button(onClick = { vm.respond(true) }, modifier = mod, contentPadding = pad) { Text("Take ${g.cube.value * 2}") }
+        // Pass is in the computer's half (see BoardArea).
+        g.phase == Phase.DOUBLED && g.responder == Player.HUMAN -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { vm.respond(true) }, modifier = pairMod, contentPadding = pad) {
+                Text("Take ${g.cube.value * 2}", style = label, maxLines = 1)
             }
             if (m.rules.beaversAllowed) {
-                FilledTonalButton(onClick = { vm.respond(true, beaver = true) }, modifier = mod, contentPadding = pad) {
-                    Text("Beaver ${g.cube.value * 4}", maxLines = 1)
+                FilledTonalButton(onClick = { vm.respond(true, beaver = true) }, modifier = pairMod, contentPadding = pad) {
+                    Text("Beaver ${g.cube.value * 4}", style = label, maxLines = 1)
                 }
             }
         }
-        g.phase == Phase.BEAVERED && g.turn == Player.HUMAN -> Column(
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(BUTTON_GAP),
-        ) {
-            Button(onClick = { vm.answerBeaver(false) }, modifier = mod, contentPadding = pad) { Text("Play on ${g.cube.value * 4}", maxLines = 1) }
-            FilledTonalButton(onClick = { vm.answerBeaver(true) }, modifier = mod, contentPadding = pad) { Text("Raccoon ${g.cube.value * 8}", maxLines = 1) }
+        // The cube on the board shows the value at stake.
+        g.phase == Phase.BEAVERED && g.turn == Player.HUMAN -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { vm.answerBeaver(false) }, modifier = pairMod, contentPadding = pad) { Text("Play on", style = label, maxLines = 1) }
+            FilledTonalButton(onClick = { vm.answerBeaver(true) }, modifier = pairMod, contentPadding = pad) {
+                Text("Raccoon", style = label, maxLines = 1)
+            }
         }
         else -> Unit
     }
 }
 
-/** Space between stacked on-board buttons. */
-private val BUTTON_GAP = 6.dp
-
-/** Rows of on-board buttons: two when the human may beaver or raccoon. */
-private fun buttonRows(m: MatchState): Int {
-    val g = m.game
-    return if ((g.phase == Phase.DOUBLED && g.responder == Player.HUMAN && m.rules.beaversAllowed) ||
-        (g.phase == Phase.BEAVERED && g.turn == Player.HUMAN)) 2 else 1
+/**
+ * Height of the on-board buttons on a board [w] × [h]: 40 dp, or less (down to 24 dp) to fit
+ * between two five-checker stacks, as on a portrait board.
+ */
+private fun buttonHeight(w: Dp, h: Dp): Dp {
+    val geo = BoardGeometry(w.value, h.value)
+    val gap = geo.surfaceBottom - geo.surfaceTop - 20 * geo.radius
+    return (gap - 4f).dp.coerceIn(24.dp, 40.dp)
 }
+
+/** The on-board buttons' label: smaller, without letter spacing, on a narrow (portrait) board. */
+@Composable
+private fun buttonLabel(pointW: Dp): TextStyle =
+    if (pointW < 36.dp) MaterialTheme.typography.labelMedium.copy(letterSpacing = 0.sp) else MaterialTheme.typography.labelLarge
+
+/** The computer doubles the human: Pass shows in the computer's half, the offered cube beside it. */
+private fun passShown(st: GameUiState, m: MatchState): Boolean =
+    !st.busy && st.preview == null && !hasPanel(st) && !st.autoFinishing && m.game.phase == Phase.DOUBLED && m.game.responder == Player.HUMAN
+
+
 
 /** The cube to draw: while a double (or beaver) is offered, the value before the offer (the board shows it doubled). */
 private fun offeredCube(g: GameState): CubeState = g.offeredCube?.let { CubeState(it / 2, g.cube.owner) } ?: g.cube

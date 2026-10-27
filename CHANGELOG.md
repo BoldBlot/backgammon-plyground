@@ -2,6 +2,14 @@
 
 ## 0.6 — 2026-10-25
 
+Build 35:
+- Roll and Double fit between the checkers in portrait: smaller where the board is narrow, and
+  kept within the four middle points, clear of the stacks on the 6- and 19-points.
+- When the computer doubles: Pass sits in the computer's half beside the offered cube; Take and
+  Beaver share one row in yours. The computer's faded last roll is hidden meanwhile. With the home
+  board on the left, the offered cube no longer sits in your half.
+- After a beaver: Play on and Raccoon on one row (the cube shows the value).
+
 Build 34:
 - Game summaries: arrows step through the games of a match or session, in the review, in History
   and at the end of a match.

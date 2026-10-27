@@ -106,6 +106,23 @@ class BoardGeometry(val width: Float, val height: Float, val mirrored: Boolean =
     val trayLeft = if (mirrored) 0f else width - trayW
 
     fun columnLeft(col: Int): Float = playLeft + col * pointW + if (col >= 6) barW else 0f
+    val cubeSize = barW * 0.86f
+    /** Width of the Pass button drawn beside the offered cube (see [cubeAside]). */
+    val passW = pointW * 1.85f
+
+    /**
+     * Left edges of the offered cube and of Pass when the computer doubles: spaced evenly across
+     * the computer's half (edge, cube, Pass, bar; mirrored: bar, Pass, cube, edge).
+     */
+    fun cubeAside(): Pair<Float, Float> {
+        val gap = (6 * pointW - cubeSize - passW) / 3
+        return if (mirrored) {
+            val left = columnLeft(6)
+            (left + 2 * gap + passW) to (left + gap)
+        } else {
+            (playLeft + gap) to (playLeft + 2 * gap + cubeSize)
+        }
+    }
 
     fun isTop(index: Int) = index >= 12
     fun column(index: Int): Int {
@@ -195,6 +212,8 @@ fun BoardView(
     dice: List<DiceView> = emptyList(),
     cube: CubeState = CubeState(),
     cubeOffered: Boolean = false,
+    /** The offered cube to the outer side of the computer's half (Pass sits in the middle). */
+    cubeAside: Boolean = false,
     movable: Set<Int> = emptySet(),
     selected: Int? = null,
     destinations: Set<Int> = emptySet(),
@@ -320,7 +339,7 @@ fun BoardView(
             drawArrows(g, board, arrowsFor(Player.CPU, com.boldblot.backgammonplyground.core.Move(lastCpuSteps), colors.lastMove), postMove = true)
         }
         drawHighlights(g, colors, board, movable, selected, destinations)
-        drawCube(g, colors, cube, cubeOffered, measurer)
+        drawCube(g, colors, cube, cubeOffered, cubeAside, measurer)
         pips?.let { drawPips(g, colors, it, measurer) }
         dice.forEach { drawDice(g, colors, it) }
         drawArrows(g, board, arrows, postMove = false)
@@ -466,8 +485,8 @@ private fun DrawScope.drawHighlights(
     }
 }
 
-private fun DrawScope.drawCube(g: BoardGeometry, c: BoardColors, cube: CubeState, offered: Boolean, measurer: TextMeasurer) {
-    val s = g.barW * 0.86f
+private fun DrawScope.drawCube(g: BoardGeometry, c: BoardColors, cube: CubeState, offered: Boolean, aside: Boolean, measurer: TextMeasurer) {
+    val s = g.cubeSize
     val value = if (offered) cube.value * 2 else cube.value
     val label = if (value == 1) "64" else value.toString()
     val y = when {
@@ -476,7 +495,13 @@ private fun DrawScope.drawCube(g: BoardGeometry, c: BoardColors, cube: CubeState
         cube.owner == Player.CPU -> g.vMargin
         else -> size.height / 2 - s / 2
     }
-    val x = if (offered) g.columnLeft(3) - s / 2 else g.barCenterX - s / 2
+    // Offered: in the middle of the computer's half (the left one unless mirrored), or [aside]
+    // beside Pass.
+    val x = when {
+        !offered -> g.barCenterX - s / 2
+        aside -> g.cubeAside().first
+        else -> g.columnLeft(if (g.mirrored) 9 else 3) - s / 2
+    }
     drawRoundRect(Color(0xFFF7F3EA), Offset(x, y), Size(s, s), CornerRadius(s * 0.15f, s * 0.15f))
     drawRoundRect(Color(0xFF555555), Offset(x, y), Size(s, s), CornerRadius(s * 0.15f, s * 0.15f), style = Stroke(2f))
     val t = measurer.measure(label, TextStyle(color = Color(0xFF222222), fontSize = (s / density * 0.42f).sp, fontWeight = FontWeight.Bold))
