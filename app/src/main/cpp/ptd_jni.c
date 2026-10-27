@@ -151,3 +151,32 @@ FN(nativeBenchCancel)(JNIEnv *env, jclass cls)
 {
     ptd_bench_cancel();
 }
+
+/* The match cube search tree (ptd_cube_tree): float[nodes + 7 * leaves], the points of every node
+ * first, then the leaves' data. */
+JNIEXPORT jfloatArray JNICALL
+FN(nativeCubeTree)(JNIEnv *env, jclass cls, jlong ptr, jintArray state, jint levels)
+{
+    handle *h = (handle *)(intptr_t)ptr;
+    if (!h || levels < 1 || levels > PTD_MAX_PLIES - 1 || (*env)->GetArrayLength(env, state) != STATE_INTS) return NULL;
+    jint v[STATE_INTS];
+    (*env)->GetIntArrayRegion(env, state, 0, STATE_INTS, v);
+    BoardState s;
+    to_state(v, &s);
+    long nodes = 0, leaves = 1;
+    for (int k = 0; k < levels; k++) { leaves *= 21; nodes += leaves; }
+    int *pts = malloc(sizeof(int) * (size_t)nodes);
+    float *leaf = malloc(sizeof(float) * 7 * (size_t)leaves);
+    ptd_cube_tree(&h->e, &s, levels, pts, leaf);
+    jfloatArray out = (*env)->NewFloatArray(env, (jsize)(nodes + 7 * leaves));
+    if (out) {
+        float *buf = malloc(sizeof(float) * (size_t)nodes);
+        for (long i = 0; i < nodes; i++) buf[i] = (float)pts[i];
+        (*env)->SetFloatArrayRegion(env, out, 0, (jsize)nodes, buf);
+        (*env)->SetFloatArrayRegion(env, out, (jsize)nodes, (jsize)(7 * leaves), leaf);
+        free(buf);
+    }
+    free(pts);
+    free(leaf);
+    return out;
+}

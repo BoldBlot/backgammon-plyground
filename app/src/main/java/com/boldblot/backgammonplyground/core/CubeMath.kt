@@ -189,9 +189,16 @@ class MatchCube(
         if (!canDouble(isP, v)) return q * winValueOf(isP, v) + (1 - q) * lose
         val cp = cashPoint(isP, v)
         val cash = cashValue(isP, v)
-        if (q >= cp) return cash
+        if (q >= cp) return tooGood(cash, winValueOf(isP, v), q, cp)
         return lose + (cash - lose) * (if (cp > 0) q / cp else 1.0)
     }
+
+    /**
+     * Above the cash point: the cash, rising to the full value of a win (gammons included) at
+     * certainty, as in money Janowski, where a player too good to double plays on for the gammon.
+     */
+    private fun tooGood(cash: Double, win: Double, q: Double, cp: Double): Double =
+        if (win <= cash || cp >= 1) cash else cash + (win - cash) * (q - cp) / (1 - cp)
 
     private fun live(owner: CubeView, v: Int): Double = when (owner) {
         CubeView.MINE -> ownedLive(true, v, w)
@@ -204,8 +211,8 @@ class MatchCube(
             if (canDouble(false, v)) { lp = 1 - cashPoint(false, v); lv = after(0, v) }
             if (canDouble(true, v)) { rp = cashPoint(true, v); rv = after(v, 0) }
             when {
-                w <= lp -> lv
-                w >= rp -> rv
+                w <= lp -> if (canDouble(false, v)) 1 - tooGood(1 - lv, 1 - lossValue(v), 1 - w, 1 - lp) else lv
+                w >= rp -> if (canDouble(true, v)) tooGood(rv, winValue(v), w, rp) else rv
                 else -> lv + (rv - lv) * (w - lp) / (rp - lp)
             }
         }

@@ -16,6 +16,11 @@ object PureTdNative {
     @JvmStatic external fun nativePostProbs(handle: Long, states: IntArray, plies: Int): FloatArray?
     /** Money cube decision for the side on roll: {nd, dt, 5 cubeless probabilities}. */
     @JvmStatic external fun nativeCube(handle: Long, state: IntArray, plies: Int, owner: Int, jacoby: Boolean): FloatArray?
+    /**
+     * The match cube search tree from [state], [levels] rolls deep (see ptd_cube_tree): the points
+     * won at every node (level 1 first), then 7 floats per leaf (on-roll probabilities, race, average pips).
+     */
+    @JvmStatic external fun nativeCubeTree(handle: Long, state: IntArray, levels: Int): FloatArray?
     /** Resulting positions (int[29] each) of every legal play with dice (d1, d2). */
     @JvmStatic external fun nativeLegalStates(state: IntArray, d1: Int, d2: Int): IntArray?
     /**

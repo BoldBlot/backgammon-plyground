@@ -76,6 +76,17 @@ int ptd_cube(const ptd_engine *e, const BoardState *s, int plies, int owner, int
              float *nd, float *dt, float probs[5]);
 
 /*
+ * The tree of the match cube search from s (s->turn on roll), `levels` rolls deep (1 to
+ * PTD_MAX_PLIES - 1): at every node the side to roll plays its 1-ply cubeless best move for each
+ * of the 21 rolls. The 21^k nodes of level k are numbered by their rolls, the first roll most
+ * significant. pts gets, level 1 first, for every node the points (1-3) won by the side that just
+ * moved if its move ended the game, else 0 (also below a finished game). leaf gets 7 floats per
+ * node of the last level: the cubeless probabilities for the side on roll there (5), 1 if it is a
+ * race (else 0), and the average pip count of the two sides (zeros below a finished game).
+ */
+void ptd_cube_tree(const ptd_engine *e, const BoardState *s, int levels, int *pts, float *leaf);
+
+/*
  * Speed test on positions from a fixed self-play game (1-ply play from the start, every third
  * decision timed; a new game when one ends). kind 0 = checker play, 1 = cube decision, 2 = checker
  * play with doubles only; `within` is the checker root filter (see ptd_best_move). Stops early,

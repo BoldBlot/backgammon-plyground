@@ -16,8 +16,8 @@ import com.boldblot.backgammonplyground.core.moneyJanowski
  * [AnalysisEngine] on PureTD's networks ([PureTdNative]). Depth `plies` is a [Depth] code: XG plies
  * 1-4 and, for checker play, the root filter (moves within a 1-ply equity window of the best go to
  * the full depth). Money cube decisions come from the cube-aware search with PureTD's cubeful
- * network; match cube decisions from our match Janowski and our own match equity table on
- * probabilities at the same depth. The checker search, levels and luck are [SearchEngine]'s.
+ * network; match cube decisions from the cube-aware match search ([MatchCubeSearch]: our match
+ * Janowski and our own match equity table at its leaves), or that Janowski alone at 1-ply. The checker search, levels and luck are [SearchEngine]'s.
  */
 class PureTdEngine(private val handle: Long, private val met: MatchEquityTable = MatchEquityTable.DEFAULT) : SearchEngine() {
 
@@ -104,13 +104,23 @@ class PureTdEngine(private val handle: Long, private val met: MatchEquityTable =
             probs = List(5) { r[2 + it] }
             available = owner != CubeView.THEIRS
         } else {
-            probs = preProbs(board, me, depth)
+            // Deeper than 1-ply: the cube-aware search, with cube decisions at every node of the tree.
+            val search = if (depth >= 2) matchSearch(board, ctx, depth) else null
+            probs = search?.probs() ?: preProbs(board, me, depth)
             val mc = MatchCube(met, probs, away(ctx, me), away(ctx, Player.other(me)), ctx.crawford, cubeLife(board))
-            val (a, b, c) = mc.decision(owner, v)
+            val (a, b, c) = search?.root(owner, v) ?: mc.decision(owner, v)
             nd = mc.toEmg(a, v); dt = mc.toEmg(b, v); dp = mc.toEmg(c, v)
             available = mc.canDoubleNow(owner, v)
         }
         return evalOf(nd, dt, dp, available, probs)
+    }
+
+    /** The match cube search for the player on roll, [depth] XG plies (depth - 1 rolls deep). */
+    private fun matchSearch(board: Board, ctx: CubeContext, depth: Int): MatchCubeSearch {
+        val me = ctx.onRoll
+        val levels = depth - 1
+        val tree = PureTdNative.nativeCubeTree(handle, state(board, me, 0), levels) ?: error("PureTD cube search failed")
+        return MatchCubeSearch(met, tree, levels, away(ctx, me), away(ctx, Player.other(me)), ctx.crawford)
     }
 
     /** PureTD's own move generator, as resulting boards (used to cross-check the Kotlin one in tests). */

@@ -637,6 +637,81 @@ int ptd_cube(const ptd_engine *e, const BoardState *s, int plies, int owner, int
     return 0;
 }
 
+/* ── the tree of the match cube search ────────────────────────────── */
+
+/* Race (no contact, nobody on the bar) and the average pip count of the two sides. */
+static void race_and_pips(const BoardState *s, float *race, float *pips) {
+    int white = 25 * s->bar[WHITE], black = 25 * s->bar[BLACK], hiw = -1, lob = NUM_POINTS;
+    for (int i = 0; i < NUM_POINTS; i++) {
+        int c = s->points[i];
+        if (c > 0) { white += c * (i + 1); if (i > hiw) hiw = i; }
+        else if (c < 0) { black += -c * (NUM_POINTS - i); if (i < lob) lob = i; }
+    }
+    *race = !s->bar[WHITE] && !s->bar[BLACK] && hiw < lob ? 1.0f : 0.0f;
+    *pips = (white + black) / 2.0f;
+}
+
+static long level_offset(int k) { long o = 0, n = 21; for (int j = 1; j < k; j++) { o += n; n *= 21; } return o; }
+
+typedef struct { int levels; int *pts; float *leaf; } tree_out;
+
+/* The 21 children (level `level`) of the node `idx` one level up, holding s; dead: below a finished game. */
+static void tree_rec(const ptd_engine *e, scratch *sc, const tree_out *t, const BoardState *s, int level, long idx, int dead) {
+    BoardState kids[21];
+    int pts[21];
+    for (int r = 0; r < 21; r++) {
+        pts[r] = 0;
+        kids[r] = *s;
+        if (dead) continue;
+        best_1ply(e, sc, s, D1[r], D2[r], &kids[r], NULL);
+        pts[r] = game_points(&kids[r]);
+    }
+    long base = level_offset(level) + idx * 21;
+    for (int r = 0; r < 21; r++) t->pts[base + r] = pts[r];
+    if (level < t->levels) {
+        for (int r = 0; r < 21; r++) tree_rec(e, sc, t, &kids[r], level + 1, idx * 21 + r, dead || pts[r]);
+        return;
+    }
+    float *out = t->leaf + 7 * idx * 21;
+    memset(out, 0, 7 * 21 * sizeof(float));
+    BoardState live[21];
+    int at[21], m = 0;
+    for (int r = 0; r < 21; r++) if (!dead && !pts[r]) { live[m] = kids[r]; at[m++] = r; }
+    if (!m) return;
+    float q[21 * 5];
+    onroll_probs(e, sc, live, m, q);
+    for (int j = 0; j < m; j++) {
+        float *o = out + 7 * at[j];
+        memcpy(o, q + 5 * j, 5 * sizeof(float));
+        race_and_pips(&live[j], &o[5], &o[6]);
+    }
+}
+
+typedef struct { pool p; tree_out t; } tree_pool;
+
+/* Task r: the subtree below our roll r at the root. */
+static void tree_task(pool *p, scratch *sc, int r) {
+    const tree_out *t = &((tree_pool *)p)->t;
+    const BoardState *s = p->roots;
+    BoardState s1 = *s;
+    best_1ply(p->e, sc, s, D1[r], D2[r], &s1, NULL);
+    int pts = game_points(&s1);
+    t->pts[r] = pts;
+    if (t->levels > 1) { tree_rec(p->e, sc, t, &s1, 2, r, pts); return; }
+    float *o = t->leaf + 7 * r;
+    memset(o, 0, 7 * sizeof(float));
+    if (pts) return;
+    onroll_probs(p->e, sc, &s1, 1, o);
+    race_and_pips(&s1, &o[5], &o[6]);
+}
+
+void ptd_cube_tree(const ptd_engine *e, const BoardState *s, int levels, int *pts, float *leaf) {
+    if (levels < 1) levels = 1;
+    if (levels > PTD_MAX_PLIES - 1) levels = PTD_MAX_PLIES - 1;
+    tree_pool tp = {.p = {.e = e, .fn = tree_task, .n_tasks = 21, .roots = s}, .t = {levels, pts, leaf}};
+    run_pool(&tp.p);
+}
+
 /* ── speed test ───────────────────────────────────────────────────── */
 
 static double now_ms(void) {

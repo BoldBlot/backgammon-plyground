@@ -9,6 +9,12 @@ Three engines: GNU Backgammon and Open Sage join PureTD.
   (PureTD by default). Analyze again in the review and Analyze Position can use any of the three.
 - Each engine uses its own networks, bear-off database, cube handling and match equity table;
   checker play goes through the same depths and move filters.
+- PureTD's match play cube decisions use a cube-aware search, like its money ones: every cube
+  state is followed through the tree, both sides deciding at every turn. Short races at 2-away and
+  the last rolls of a match are now right; at 3-ply its cube error on FlashBack's match-score cards
+  fell from 22.8 to 0.6 thousandths of a point.
+- Match play: a player too good to double plays on for the gammon (the match cube model's values
+  above the cash point now rise to the full win, as in money play).
 - About: credits and licences for GNU Backgammon (GPL v3) and Open Sage (MPL 2.0).
 
 Build 35 — 2026-10-27:
