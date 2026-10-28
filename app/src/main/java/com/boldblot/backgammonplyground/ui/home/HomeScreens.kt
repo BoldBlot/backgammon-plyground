@@ -99,6 +99,8 @@ import com.boldblot.backgammonplyground.data.Settings
 import com.boldblot.backgammonplyground.data.TrainingMode
 import com.boldblot.backgammonplyground.ui.components.EngineChips
 import com.boldblot.backgammonplyground.ui.components.FOUR_PLY_CHECKER_NOTE
+import com.boldblot.backgammonplyground.ui.components.PRUNING
+import com.boldblot.backgammonplyground.ui.components.PRUNING_NOTE
 import com.boldblot.backgammonplyground.ui.components.PlyChips
 import com.boldblot.backgammonplyground.ui.components.fmt
 import androidx.compose.foundation.text.KeyboardOptions
@@ -140,7 +142,7 @@ fun HomeScreen(
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "Version ${com.boldblot.backgammonplyground.BuildConfig.VERSION_NAME} (build ${com.boldblot.backgammonplyground.BuildConfig.VERSION_CODE}) · by Bold Blot · boldblot.com",
+                    "Version ${com.boldblot.backgammonplyground.BuildConfig.VERSION_NAME} (build ${com.boldblot.backgammonplyground.BuildConfig.BUILD_LABEL}) · by Bold Blot · boldblot.com",
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -695,15 +697,16 @@ fun SettingsScreen(app: PlyGroundApp, onBack: () -> Unit, onSpeedTest: () -> Uni
                 )
             }
             if (s.checkerPlies > 1) {
-                Text("Moves searched to that depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
+                Text("Pruning", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(MoveFilter.entries) { f ->
+                    items(PRUNING) { f ->
                         FilterChip(
                             selected = s.moveFilter == f, onClick = { update { it.copy(moveFilter = f) } },
-                            label = { Text(if (f == MoveFilter.ALL) "All" else f.label) },
+                            label = { Text(if (f == MoveFilter.ALL) "Off" else "On") },
                         )
                     }
                 }
+                Text(PRUNING_NOTE, style = MaterialTheme.typography.labelSmall)
             }
             Text("Cube decision depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -861,7 +864,7 @@ fun AboutScreen(onBack: () -> Unit, onSpeedTest: () -> Unit = {}) {
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
             Text("Backgammon PlyGround", style = MaterialTheme.typography.titleLarge)
             Text(
-                "Version ${com.boldblot.backgammonplyground.BuildConfig.VERSION_NAME}, build ${com.boldblot.backgammonplyground.BuildConfig.VERSION_CODE}",
+                "Version ${com.boldblot.backgammonplyground.BuildConfig.VERSION_NAME}, build ${com.boldblot.backgammonplyground.BuildConfig.BUILD_LABEL}",
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(8.dp))

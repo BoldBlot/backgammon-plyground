@@ -63,6 +63,8 @@ float ptd_eval(const ptd_engine *e, const BoardState *s, float probs[5]);
  * equity of the best is searched (within < 0: every legal move). Returns the index into
  * get_legal_plays()'s order, or -1 when there is no legal play.
  */
+/* Plays always searched deeper by a filtered search (core/AnalysisEngine.kt MIN_SEARCHED). */
+#define PTD_MIN_SEARCHED 5
 int ptd_best_move(const ptd_engine *e, const BoardState *s, int d1, int d2, int plies, float within, float *equity);
 
 /*

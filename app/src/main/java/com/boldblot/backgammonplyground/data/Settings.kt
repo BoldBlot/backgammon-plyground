@@ -127,6 +127,8 @@ data class Settings(
     val customSlot: Int = 0,
     /** Bear off to the left: your home board on the left (checkers move clockwise) instead of the right. */
     val mirrorBoard: Boolean = false,
+    /** The version name whose welcome screen was last seen ("" = none yet). */
+    val welcomeSeen: String = "",
 ) {
     val checkerDepth: Depth get() = Depth(checkerPlies, moveFilter)
     val cubeDepth: Depth get() = Depth(cubePlies)
@@ -151,6 +153,7 @@ class SettingsStore(private val context: Context) {
         val playerName = stringPreferencesKey("player_name")
         val checkerPlies = intPreferencesKey("checker_plies")
         val moveFilter = stringPreferencesKey("move_filter")
+        val welcomeSeen = stringPreferencesKey("welcome_seen_version")
         val cubePlies = intPreferencesKey("cube_plies")
         val errorRate = floatPreferencesKey("mistake_errors")
         val blunderRate = floatPreferencesKey("mistake_blunders")
@@ -202,8 +205,10 @@ class SettingsStore(private val context: Context) {
             analysisEngine = p.enum(Keys.analysisEngine, d.analysisEngine),
             playerName = p[Keys.playerName] ?: d.playerName,
             checkerPlies = (p[Keys.checkerPlies] ?: d.checkerPlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
-            moveFilter = p.enum(Keys.moveFilter, d.moveFilter),
+            // Pruning is on or off now; the older ±0.04 and ±0.08 settings become on.
+            moveFilter = p.enum(Keys.moveFilter, d.moveFilter).let { if (it == MoveFilter.ALL) it else MoveFilter.WIDE },
             cubePlies = (p[Keys.cubePlies] ?: d.cubePlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
+            welcomeSeen = p[Keys.welcomeSeen] ?: d.welcomeSeen,
             blunderSort = p.enum(Keys.blunderSort, d.blunderSort),
             autoFinishSpeed = p.enum(Keys.autoFinish, d.autoFinishSpeed),
             feedback = p.enum(Keys.feedback, d.feedback),
@@ -252,6 +257,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.playerName] = s.playerName
             p[Keys.checkerPlies] = s.checkerPlies
             p[Keys.moveFilter] = s.moveFilter.name
+            p[Keys.welcomeSeen] = s.welcomeSeen
             p[Keys.cubePlies] = s.cubePlies
             p[Keys.blunderSort] = s.blunderSort.name
             p[Keys.autoFinish] = s.autoFinishSpeed.name

@@ -33,7 +33,7 @@ object AppLog {
             error("CRASH on ${thread.name}", e)
             previous?.uncaughtException(thread, e)
         }
-        i("App started: ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})")
+        i("App started: ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_LABEL}, Play code ${BuildConfig.VERSION_CODE})")
     }
 
     fun i(message: String) = write("I", message)
@@ -70,13 +70,13 @@ object AppLog {
             |
             |
             |---
-            |Backgammon PlyGround ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})
+            |Backgammon PlyGround ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_LABEL}, Play code ${BuildConfig.VERSION_CODE})
             |${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}
         """.trimMargin()
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "message/rfc822"
             putExtra(Intent.EXTRA_EMAIL, arrayOf(SUPPORT_EMAIL))
-            putExtra(Intent.EXTRA_SUBJECT, "Backgammon PlyGround error report (${BuildConfig.VERSION_NAME} build ${BuildConfig.VERSION_CODE})")
+            putExtra(Intent.EXTRA_SUBJECT, "Backgammon PlyGround error report (${BuildConfig.VERSION_NAME} build ${BuildConfig.BUILD_LABEL})")
             putExtra(Intent.EXTRA_TEXT, body)
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

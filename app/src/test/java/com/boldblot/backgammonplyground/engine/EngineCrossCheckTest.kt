@@ -2,6 +2,7 @@ package com.boldblot.backgammonplyground.engine
 
 import com.boldblot.backgammonplyground.core.Board
 import com.boldblot.backgammonplyground.core.MAX_PLIES
+import com.boldblot.backgammonplyground.core.MIN_SEARCHED
 import com.boldblot.backgammonplyground.core.CubeContext
 import com.boldblot.backgammonplyground.core.CubeState
 import com.boldblot.backgammonplyground.core.MoveGenerator
@@ -148,10 +149,11 @@ class EngineCrossCheckTest {
                 slowest = maxOf(slowest, dt)
                 mostSearched = maxOf(mostSearched, rw.candidates.count { it.plies == 3 })
                 assertEquals(r1.candidates.size, r3.candidates.size)
-                // Every move within the window (by 1-ply equity) is searched.
+                // Every move within the window (by 1-ply equity) is searched, and at least the best few.
                 val bestOne = r1.candidates[0].equity
                 val inWindow = r1.candidates.count { it.equity >= bestOne - 0.08f }
-                if (r1.candidates.size > 1) assertEquals(inWindow, r3.candidates.count { it.plies == 2 })
+                val searched = minOf(maxOf(inWindow, MIN_SEARCHED), r1.candidates.size)
+                if (r1.candidates.size > 1) assertEquals(searched, r3.candidates.count { it.plies == 2 })
                 // With more than one legal play, the best candidate has been searched at 3-ply.
                 if (r3.candidates.size > 1) { assertEquals(2, r3.candidates[0].plies); deep++ }
                 // Maximum searches every legal play, and its best is at least as good at 3-ply as the window's.

@@ -58,11 +58,18 @@ data class CubeEval(
 /** Short depth code for 3-ply on every legal move ("Maximum"); see [Depth]. */
 const val MAX_PLIES = 4
 
-/** Root filter of the checker search: moves within [within] 1-ply equity of the best are searched deeper. */
+/** Moves always searched deeper by a pruned checker search, whatever their 1-ply gap to the best. */
+const val MIN_SEARCHED = 5
+
+/**
+ * Root filter of the checker search: the [MIN_SEARCHED] best moves at 1-ply and every move within
+ * [within] of the best are searched deeper. Settings offer pruning on ([WIDE]) or off ([ALL]);
+ * [NARROW] and [NORMAL] remain for the computer's levels and for analyses stored with them.
+ */
 enum class MoveFilter(val within: Float, val label: String) {
     NARROW(0.04f, "±0.04"),
     NORMAL(0.08f, "±0.08"),
-    WIDE(0.16f, "±0.16"),
+    WIDE(0.16f, "pruned"),
     ALL(Float.POSITIVE_INFINITY, "all moves"),
 }
 
@@ -75,10 +82,10 @@ enum class MoveFilter(val within: Float, val label: String) {
 data class Depth(val plies: Int, val filter: MoveFilter = MoveFilter.ALL) {
     val code: Int get() = 10 * plies + filter.ordinal
 
-    /** "1-ply", "3-ply ±0.16", "4-ply, all moves"; [cube] leaves the filter out. */
+    /** "1-ply", "3-ply, pruned", "4-ply, all moves", "3-ply ±0.04"; [cube] leaves the filter out. */
     fun label(cube: Boolean = false): String = when {
         plies <= 1 || cube -> "$plies-ply"
-        filter == MoveFilter.ALL -> "$plies-ply, all moves"
+        filter == MoveFilter.ALL || filter == MoveFilter.WIDE -> "$plies-ply, ${filter.label}"
         else -> "$plies-ply ${filter.label}"
     }
 

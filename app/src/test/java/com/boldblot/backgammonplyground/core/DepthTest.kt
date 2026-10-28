@@ -25,7 +25,7 @@ class DepthTest {
     @Test
     fun labels() {
         assertEquals("1-ply", plyLabel(0))
-        assertEquals("3-ply ±0.16", plyLabel(3))
+        assertEquals("3-ply, pruned", plyLabel(3))
         assertEquals("3-ply, all moves", plyLabel(MAX_PLIES))
         assertEquals("4-ply ±0.08", plyLabel(Depth(4, MoveFilter.NORMAL).code))
         assertEquals("2-ply", Depth(2, MoveFilter.WIDE).label(cube = true))

@@ -52,8 +52,8 @@ private const val CUBE_TARGET_MS = 1500.0
 /** Longest time spent on one measurement; it then reports the positions done so far. */
 private const val BUDGET_MS = 20_000.0
 
-/** Filters tried for checker play, widest first. */
-private val FILTERS = listOf(MoveFilter.ALL, MoveFilter.WIDE, MoveFilter.NORMAL)
+/** Checker play timed with pruning off, then on. */
+private val FILTERS = listOf(MoveFilter.ALL, MoveFilter.WIDE)
 
 /** Positions timed per depth (deeper is slower, so fewer). */
 private fun samples(plies: Int) = when (plies) { 1 -> 60; 2 -> 24; else -> 10 }

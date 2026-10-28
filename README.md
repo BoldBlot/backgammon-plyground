@@ -1,7 +1,8 @@
 # Backgammon PlyGround
 
-An Android backgammon trainer with three engines: **PureTD** (with Bold Blot's own search,
-cube handling and match equity table), **GNU Backgammon** and **Open Sage**.
+An Android backgammon trainer with three engines: **PureTD** (with Bold Blot's 4-ply search,
+cube-aware cube decisions and match play; see [what we added](engine/puretd/README.md#what-bold-blot-added-to-puretd)),
+**GNU Backgammon** and **Open Sage**.
 The name is written exactly so: "Backgammon PlyGround", capital P and G.
 Play against the computer, get prompted when you make a mistake, see how big
 the mistake was and what the best plays were, track your statistics, and
@@ -16,7 +17,7 @@ Errors and the Performance Rating (PR) follow the definitions published by
   PR 15, or a custom mistake rate; money sessions (Jacoby, beavers and raccoons optional) or
   matches of 1–99 points (Crawford rule), with the doubling cube.
 - **Practice prompts.** After each of your checker plays and cube decisions the
-  game analyses it with the engine chosen in Settings (XG ply numbering: checker play 3-ply searching moves within ±0.16 and cube
+  game analyses it with the engine chosen in Settings (XG ply numbering: checker play 3-ply with pruning, searching the 5 best moves and any within 0.16, and cube
   decisions 4-ply by default, 1- to 4-ply selectable; the computer's decisions can be left
   unanalyzed so it moves sooner). If it is an XG *Error* (> 0.020) or
   *Blunder* (> 0.080), a panel shows the error, your play versus the best play as

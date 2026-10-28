@@ -14,6 +14,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.EngineKind
+import com.boldblot.backgammonplyground.core.MIN_SEARCHED
 import com.boldblot.backgammonplyground.core.MoveFilter
 
 /** One chip per engine. */
@@ -64,13 +65,20 @@ fun AnalysisLevelPicker(
             Text(FOUR_PLY_CHECKER_NOTE, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
         }
         if (checker.plies > 1) {
-            Text("Moves searched to that depth", style = small, modifier = Modifier.padding(top = 4.dp))
-            EqualChips(MoveFilter.entries, checker.filter, { if (it == MoveFilter.ALL) "All" else it.label }, { onChange(checker.copy(filter = it), cubePlies) })
+            Text("Pruning", style = small, modifier = Modifier.padding(top = 4.dp))
+            EqualChips(PRUNING, if (checker.filter == MoveFilter.ALL) MoveFilter.ALL else MoveFilter.WIDE, { if (it == MoveFilter.ALL) "Off" else "On" }, { onChange(checker.copy(filter = it), cubePlies) })
+            Text(PRUNING_NOTE, style = MaterialTheme.typography.labelSmall)
         }
         Text("Cube depth", style = small, modifier = Modifier.padding(top = 4.dp))
         PlyChips(cubePlies, { onChange(checker, it) })
     }
 }
+
+/** The checker search's two root filters, as offered in Settings and Analyze. */
+val PRUNING = listOf(MoveFilter.WIDE, MoveFilter.ALL)
+
+const val PRUNING_NOTE = "On: the $MIN_SEARCHED best moves at 1-ply and any within 0.16 of the best are searched to full depth. " +
+    "Off: every move (slower)."
 
 /** Shown when 4-ply checker play is chosen (FlashBack tests, 2026-10-22). */
 const val FOUR_PLY_CHECKER_NOTE =

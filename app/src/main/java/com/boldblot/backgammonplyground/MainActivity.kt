@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.core.view.WindowCompat
@@ -30,6 +31,7 @@ import androidx.navigation.navArgument
 import com.boldblot.backgammonplyground.ui.game.GameScreen
 import com.boldblot.backgammonplyground.ui.game.GameViewModel
 import com.boldblot.backgammonplyground.ui.home.SpeedTestScreen
+import com.boldblot.backgammonplyground.ui.home.WelcomeScreen
 import com.boldblot.backgammonplyground.ui.home.AboutScreen
 import com.boldblot.backgammonplyground.ui.home.HistoryScreen
 import com.boldblot.backgammonplyground.ui.home.HomeScreen
@@ -44,6 +46,7 @@ import com.boldblot.backgammonplyground.ui.review.ReviewViewModel
 import com.boldblot.backgammonplyground.ui.stats.StatsScreen
 import com.boldblot.backgammonplyground.ui.stats.StatsViewModel
 import com.boldblot.backgammonplyground.ui.theme.GammonTheme
+import kotlinx.coroutines.flow.first
 
 class MainActivity : ComponentActivity() {
 
@@ -82,6 +85,21 @@ class MainActivity : ComponentActivity() {
         val nav = rememberNavController()
         val gameState by gameVm.state.collectAsState()
         val hasMatch = gameState.match != null && gameState.match?.isOver == false
+
+        // The welcome screen: on a new install, and again when the version name changes. Someone
+        // updating from a version without it (0.7 and earlier) is only recorded, not shown it.
+        val newInstall = remember {
+            val info = packageManager.getPackageInfo(packageName, 0)
+            info.firstInstallTime == info.lastUpdateTime
+        }
+        LaunchedEffect(Unit) {
+            val seen = app.settings.settings.first().welcomeSeen
+            when {
+                seen == BuildConfig.VERSION_NAME -> {}
+                seen.isEmpty() && !newInstall -> app.settings.update { it.copy(welcomeSeen = BuildConfig.VERSION_NAME) }
+                else -> nav.navigate("welcome")
+            }
+        }
 
         NavHost(nav, startDestination = "home") {
             composable("home") {
@@ -146,6 +164,13 @@ class MainActivity : ComponentActivity() {
             composable("settings") { SettingsScreen(app, onBack = { nav.popBackStack() }, onSpeedTest = { nav.navigate("speedtest") }) }
             composable("about") { AboutScreen(onBack = { nav.popBackStack() }, onSpeedTest = { nav.navigate("speedtest") }) }
             composable("speedtest") { SpeedTestScreen(app, onBack = { nav.popBackStack() }) }
+            composable("welcome") {
+                WelcomeScreen(
+                    app, newInstall,
+                    onSpeedTest = { nav.navigate("speedtest") { popUpTo("welcome") { inclusive = true } } },
+                    onDone = { nav.popBackStack() },
+                )
+            }
         }
     }
 }

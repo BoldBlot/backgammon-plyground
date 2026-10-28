@@ -5,31 +5,33 @@ Compose UI (ui/*)  ──>  GameViewModel  ──>  MatchController (core, pure 
                                               │      │
                                               │      └── AnalysisEngine interface
                                               ▼             │
-                          Repository (Room, data/*)      PureTdEngine (engine/*)
-                                                            │ JNI (libptdjni)
+                          Repository (Room, data/*)      EngineService (engine/*): PureTdEngine,
+                                                            │  GnubgEngine, SageEngine
+                                                            │ JNI (libbgjni)
                                                             ▼
-                                         ptd.c search + PureTD move generator
-                                         (engine/puretd)
+                                         engine/puretd, engine/gnubg, engine/sage
 ```
 
 ## Engine
 
+- Three engines share one checker search (`SearchEngine.kt`) over each engine's own evaluation:
+  PureTD, GNU Backgammon and Open Sage. Each has its own networks, bear-off database, cube
+  handling and match equity table.
 - `engine/puretd/bg_engine.c` and `bg_engine.h` are PureTD's move generator and board
   encoding, copied unchanged (MIT licence, version in `PURETD_VERSION`).
-- `engine/puretd/ptd.c` is ours: the network evaluation (PureTD's wide networks, stored in
-  half precision as `assets/puretd/*.ptw`), 1- to 4-ply checker search with a root move
-  filter (±0.04 / 0.08 / 0.16 / all), and the cube-aware money cube search with PureTD's
-  cubeful network at the leaves (moves inside the tree are picked by the cubeless network).
-  Centred-cube values are capped when the Jacoby rule applies. The search spreads its work
-  over all cores.
-- The bear-off database is built at first start (about a second) and cached in the app's
-  files. Match play uses our own match equity table and match cube formulas
-  (`core/CubeMath.kt`), not copied from any other program.
-- Every engine call runs on one dedicated thread (`EngineService`), since the engine keeps
-  state between calls.
-- The same CMake project builds for Android (via the app's `externalNativeBuild`, with no C++
-  runtime) and for the host, where a host `libptdjni.so` lets the JVM unit tests use the real
-  engine (`scripts/host-tests.sh`).
+- `engine/puretd/ptd.c` is ours: the network evaluation (PureTD's wide networks at full
+  precision, `assets/puretd/*.ptw`), the bear-off database, and the cube-aware money and match
+  cube searches. The full list of what we added is in `engine/puretd/README.md`.
+- Match play for PureTD uses our own match equity table and match cube formulas
+  (`core/CubeMath.kt`), not copied from any other program; the match cube search is
+  `engine/MatchCubeSearch.kt` over a tree from `ptd_cube_tree`.
+- GNU Backgammon (`engine/gnubg`, our C API in `engine/src/bgengine.c`) and Open Sage
+  (`engine/sage`) are unchanged; the JNI bridges are in `app/src/main/cpp`.
+- Every engine call runs on one dedicated thread (`EngineService`), since the engines keep
+  state between calls. GNU Backgammon and Open Sage are loaded the first time they are used.
+- The same CMake project builds for Android (via the app's `externalNativeBuild`, with the C++
+  runtime linked in statically) and for the host, where a host `libbgjni.so` lets the JVM unit
+  tests use the real engines (`scripts/host-tests.sh`).
 
 ## Core (pure Kotlin, JVM-testable)
 

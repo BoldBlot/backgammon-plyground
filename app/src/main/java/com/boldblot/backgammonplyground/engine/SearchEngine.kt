@@ -9,6 +9,7 @@ import com.boldblot.backgammonplyground.core.CubeEval
 import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.MAX_PLIES
 import com.boldblot.backgammonplyground.core.Move
+import com.boldblot.backgammonplyground.core.MIN_SEARCHED
 import com.boldblot.backgammonplyground.core.MoveFilter
 import com.boldblot.backgammonplyground.core.MoveGenerator
 import com.boldblot.backgammonplyground.core.RankResult
@@ -21,7 +22,8 @@ class PostEval(val equity: Float, val probs: List<Float>)
 
 /**
  * What every engine shares: the checker search over an engine's [evaluate] (every legal play at
- * 1-ply, then the plays within the [Depth]'s window of the best at full depth), the computer's
+ * 1-ply, then the [MIN_SEARCHED] best and the plays within the [Depth]'s window of the best at full
+ * depth), the computer's
  * levels as depth plus noise, and luck at 1-ply. Engines are not thread-safe: use one thread
  * ([EngineService]).
  */
@@ -68,8 +70,11 @@ abstract class SearchEngine : AnalysisEngine {
         if (depthOf.plies >= 2 && posts.size > 1) {
             val within = depthOf.filter.within
             val best = eq.max()
-            // Every move whose 1-ply equity is within the window of the best is searched deeper.
+            // Every move whose 1-ply equity is within the window of the best is searched deeper, and
+            // always the best few: a window alone can drop the right move by a hair (FlashBack Boot
+            // Camp 6-2, 16/10 5/3: 0.164 behind at 1-ply, best by 0.29 at 3-ply).
             val deep = eq.indices.filter { eq[it] >= best - within }.toMutableSet()
+            deep += eq.indices.sortedByDescending { eq[it] }.take(MIN_SEARCHED)
             if (playedIdx >= 0) deep += playedIdx
             val list = deep.toList()
             val evals = evaluate(board, ctx, list.map { posts[it] }, depthOf.plies)

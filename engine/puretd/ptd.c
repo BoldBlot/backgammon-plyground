@@ -475,7 +475,12 @@ int ptd_best_move(const ptd_engine *e, const BoardState *s, int d1, int d2, int 
     for (int k = 1; k < n; k++) if (v[k] > v[best]) best = k;
     if (plies >= 2 && n > 1) {
         int *cand = malloc(n * sizeof *cand), nc = 0;
-        for (int k = 0; k < n; k++) if (within < 0 || v[k] >= v[best] - within) cand[nc++] = k;
+        /* The PTD_MIN_SEARCHED best plays and those within `within` of the best (as the app's search). */
+        for (int k = 0; k < n; k++) {
+            int better = 0;
+            for (int j = 0; j < n && better < PTD_MIN_SEARCHED; j++) better += v[j] > v[k];
+            if (within < 0 || v[k] >= v[best] - within || better < PTD_MIN_SEARCHED) cand[nc++] = k;
+        }
         BoardState *roots = malloc(nc * sizeof *roots);
         float *q = malloc((size_t)nc * 5 * sizeof(float));
         for (int i = 0; i < nc; i++) roots[i] = sc->plays[cand[i]].resulting_state;
