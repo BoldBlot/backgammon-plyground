@@ -153,7 +153,7 @@ class SettingsStore(private val context: Context) {
         val playerName = stringPreferencesKey("player_name")
         val checkerPlies = intPreferencesKey("checker_plies")
         val moveFilter = stringPreferencesKey("move_filter")
-        val welcomeSeen = stringPreferencesKey("welcome_seen_version")
+        val welcomeSeen = stringPreferencesKey("welcome_shown_version")
         val cubePlies = intPreferencesKey("cube_plies")
         val errorRate = floatPreferencesKey("mistake_errors")
         val blunderRate = floatPreferencesKey("mistake_blunders")

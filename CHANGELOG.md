@@ -1,5 +1,16 @@
 # Changelog
 
+Build 37 — 2026-10-28:
+- Welcome screen, shown once on a new install or after an update, and again for each new version:
+  what a ply is, and how long you want to wait for analysis during the game. Zero wait (1-ply),
+  Almost zero wait (2-ply), Minimum wait (3-ply) or Put me on hold (4-ply cube decisions, 3-ply
+  checker play). Without a choice, a new install analyzes at 1-ply and an update keeps your
+  settings. About → Welcome screen opens it again.
+- Checker play analysis: pruning is now on or off (Settings → Analysis, Analyze Position). When on,
+  moves within 0.16 of the best at 1-ply are searched, and now always at least the five best: the
+  filter could cut the best play when it looked more than 0.16 worse at 1-ply.
+- About shows the build number.
+
 ## 0.7 — 2026-10-27 (build 36)
 
 Three engines: GNU Backgammon and Open Sage join PureTD.

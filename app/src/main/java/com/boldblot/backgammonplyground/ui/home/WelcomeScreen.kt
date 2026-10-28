@@ -46,9 +46,10 @@ private val WAIT_CHOICES = listOf(
 )
 
 /**
- * Shown on a new install and again when the version name changes (not for builds within a
- * version), and from About: what a ply is, and a starting depth picked by how long the player will wait.
- * Without a choice, a new install gets 1-ply, the quickest; otherwise the player's depths are kept.
+ * Shown once: on a new install or the first start after an update, and again when the version name
+ * changes (not for builds within a version); About opens it any time. What a ply is, and a starting
+ * depth picked by how long the player will wait. Without a choice, a new install gets 1-ply, the
+ * quickest; otherwise the player's depths are kept.
  */
 @Composable
 fun WelcomeScreen(app: PlyGroundApp, newInstall: Boolean, onSpeedTest: () -> Unit, onDone: () -> Unit) {
@@ -122,8 +123,8 @@ fun WelcomeScreen(app: PlyGroundApp, newInstall: Boolean, onSpeedTest: () -> Uni
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
-                "You can change the depths any time in Settings → Analysis, or let the speed test measure your " +
-                    "phone (about a minute). About has the speed test and this screen too.",
+                "You'll see this screen once. To read it again or run the speed test (about a minute), go to " +
+                    "About. You can change the depths any time in Settings → Analysis.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(8.dp))

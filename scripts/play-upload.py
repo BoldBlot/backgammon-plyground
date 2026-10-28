@@ -53,7 +53,8 @@ def main():
     ap.add_argument("bundle")
     ap.add_argument("--track", default="internal")
     ap.add_argument("--name", help="release name, e.g. '0.6 (29)'")
-    ap.add_argument("--notes", default="", help="release notes (en-US)")
+    ap.add_argument("--notes", default="", help="release notes")
+    ap.add_argument("--lang", default="en-US", help="language of the notes, e.g. en-CA")
     a = ap.parse_args()
     key = json.load(open(os.environ.get("PLAY_KEY", os.path.expanduser("~/.config/boldblot/play-service-account.json"))))
     tok = token(key)
@@ -65,7 +66,7 @@ def main():
     code = str(up["versionCode"])
     release = {"name": a.name or code, "versionCodes": [code], "status": "completed"}
     if a.notes:
-        release["releaseNotes"] = [{"language": "en-US", "text": a.notes}]
+        release["releaseNotes"] = [{"language": a.lang, "text": a.notes}]
     call("PUT", f"{base}/{edit}/tracks/{a.track}", tok, json.dumps({"track": a.track, "releases": [release]}).encode())
     call("POST", f"{base}/{edit}:commit", tok, b"")
     print(f"Uploaded version code {code} to the {a.track} track and published it there.")

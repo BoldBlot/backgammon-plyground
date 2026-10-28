@@ -86,8 +86,8 @@ class MainActivity : ComponentActivity() {
         val gameState by gameVm.state.collectAsState()
         val hasMatch = gameState.match != null && gameState.match?.isOver == false
 
-        // The welcome screen: on a new install, and again when the version name changes. Someone
-        // updating from a version without it (0.7 and earlier) is only recorded, not shown it.
+        // The welcome screen: on a new install, after an update from a build without it, and again
+        // when the version name changes.
         val newInstall = remember {
             val info = packageManager.getPackageInfo(packageName, 0)
             info.firstInstallTime == info.lastUpdateTime
@@ -96,7 +96,6 @@ class MainActivity : ComponentActivity() {
             val seen = app.settings.settings.first().welcomeSeen
             when {
                 seen == BuildConfig.VERSION_NAME -> {}
-                seen.isEmpty() && !newInstall -> app.settings.update { it.copy(welcomeSeen = BuildConfig.VERSION_NAME) }
                 else -> nav.navigate("welcome")
             }
         }
