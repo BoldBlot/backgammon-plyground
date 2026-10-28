@@ -852,7 +852,7 @@ private fun Radio(label: String, selected: Boolean, enabled: Boolean = true, onC
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AboutScreen(onBack: () -> Unit, onSpeedTest: () -> Unit = {}) {
+fun AboutScreen(onBack: () -> Unit, onSpeedTest: () -> Unit = {}, onWelcome: () -> Unit = {}) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -867,6 +867,8 @@ fun AboutScreen(onBack: () -> Unit, onSpeedTest: () -> Unit = {}) {
                 "Version ${com.boldblot.backgammonplyground.BuildConfig.VERSION_NAME}, build ${com.boldblot.backgammonplyground.BuildConfig.BUILD_LABEL}",
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onWelcome) { Text("Welcome screen") }
             Spacer(Modifier.height(8.dp))
             Text(
                 "Three backgammon engines play and analyze, each with its own neural networks and cube handling:",

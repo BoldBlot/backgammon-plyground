@@ -162,12 +162,26 @@ class MainActivity : ComponentActivity() {
                 PositionScreen(positionVm, onBack = { nav.popBackStack() })
             }
             composable("settings") { SettingsScreen(app, onBack = { nav.popBackStack() }, onSpeedTest = { nav.navigate("speedtest") }) }
-            composable("about") { AboutScreen(onBack = { nav.popBackStack() }, onSpeedTest = { nav.navigate("speedtest") }) }
+            composable("about") {
+                AboutScreen(
+                    onBack = { nav.popBackStack() },
+                    onSpeedTest = { nav.navigate("speedtest") },
+                    onWelcome = { nav.navigate("welcome-again") },
+                )
+            }
             composable("speedtest") { SpeedTestScreen(app, onBack = { nav.popBackStack() }) }
             composable("welcome") {
                 WelcomeScreen(
                     app, newInstall,
                     onSpeedTest = { nav.navigate("speedtest") { popUpTo("welcome") { inclusive = true } } },
+                    onDone = { nav.popBackStack() },
+                )
+            }
+            // Opened again from About: never a new install, so Skip keeps the player's settings.
+            composable("welcome-again") {
+                WelcomeScreen(
+                    app, newInstall = false,
+                    onSpeedTest = { nav.navigate("speedtest") { popUpTo("welcome-again") { inclusive = true } } },
                     onDone = { nav.popBackStack() },
                 )
             }
