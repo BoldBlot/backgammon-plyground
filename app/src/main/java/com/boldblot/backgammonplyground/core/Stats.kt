@@ -118,9 +118,12 @@ object Elo {
 /** The human's blunders, kept in a list for later study. */
 object Blunders {
 
-    /** True if [d] is one of the human's blunders (hinted decisions excluded). [weightedError] includes the 1-point factor. */
-    fun isBlunder(d: DecisionRecord, weightedError: Float): Boolean =
-        d.player == Player.HUMAN && !d.hinted && XgRules.severity(weightedError) == Severity.BLUNDER
+    /**
+     * True if [d] is one of the human's mistakes of at least [min] (hinted decisions excluded), for the
+     * blunder list. [weightedError] includes the 1-point factor.
+     */
+    fun isBlunder(d: DecisionRecord, weightedError: Float, min: Severity = Severity.BLUNDER): Boolean =
+        d.player == Player.HUMAN && !d.hinted && XgRules.severity(weightedError).atLeast(min)
 
     /** Indices into [game]'s decisions of the human's blunders, with their weighted errors. */
     fun of(game: GameState, matchLength: Int): List<Pair<Int, Float>> {

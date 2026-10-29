@@ -45,7 +45,7 @@ class SageEngine(private val handle: Long) : SearchEngine() {
         return List(posts.size) { k -> PostEval(r[6 * k], List(5) { r[6 * k + 1 + it] }) }
     }
 
-    override fun cubeDecision(board: Board, ctx: CubeContext, plies: Int): CubeEval {
+    override fun computeCube(board: Board, ctx: CubeContext, plies: Int): CubeEval {
         val r = SageNative.nativeCube(handle, sage(board, ctx.onRoll), cube(ctx), Depth.of(plies).plies)
             ?: error("Open Sage cube evaluation failed")
         return evalOf(r[0].toDouble(), r[1].toDouble(), r[2].toDouble(), r[7] != 0f, List(5) { r[8 + it] })

@@ -67,6 +67,8 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.boldblot.backgammonplyground.core.StudyPosition
+import com.boldblot.backgammonplyground.ui.positions.SaveToPositionsDialog
 import com.boldblot.backgammonplyground.core.BAR
 import com.boldblot.backgammonplyground.core.DecisionKind
 import com.boldblot.backgammonplyground.core.Player
@@ -136,6 +138,7 @@ fun PositionScreen(vm: PositionViewModel, onBack: () -> Unit) {
 private fun TopRow(vm: PositionViewModel, canUndo: Boolean, onBack: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf<StudyPosition?>(null) }
     val clipboard = LocalClipboardManager.current
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
@@ -154,9 +157,14 @@ private fun TopRow(vm: PositionViewModel, canUndo: Boolean, onBack: () -> Unit) 
                 DropdownMenuItem(text = { Text("Swap sides") }, onClick = { menu = false; vm.swapSides() })
                 DropdownMenuItem(text = { Text("Copy XGID") }, onClick = { menu = false; clipboard.setText(AnnotatedString(vm.exportId(xgid = true))) })
                 DropdownMenuItem(text = { Text("Copy GNU ID") }, onClick = { menu = false; clipboard.setText(AnnotatedString(vm.exportId(xgid = false))) })
+                DropdownMenuItem(
+                    text = { Text("Save to My positions") }, enabled = vm.state.value.problem == null,
+                    onClick = { menu = false; saving = vm.study() },
+                )
             }
         }
     }
+    saving?.let { SaveToPositionsDialog(vm.app, it, "Analyze Position") { saving = null } }
     if (importing) ImportDialog(vm, onDismiss = { importing = false })
 }
 

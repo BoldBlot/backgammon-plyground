@@ -60,6 +60,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.boldblot.backgammonplyground.PlyGroundApp
+import com.boldblot.backgammonplyground.core.StudyPosition
+import com.boldblot.backgammonplyground.ui.positions.SaveToPositionsDialog
+import androidx.compose.material.icons.filled.BookmarkAdd
 import com.boldblot.backgammonplyground.core.Board
 import com.boldblot.backgammonplyground.core.CpuLevel
 import com.boldblot.backgammonplyground.core.CubeState
@@ -472,6 +475,9 @@ private fun ReviewBoard(st: ReviewState, modifier: Modifier) {
 @Composable
 private fun BottomBar(st: ReviewState, vm: ReviewViewModel) {
     val d = st.current
+    var saving by remember { mutableStateOf(false) }
+    val study = remember(d, st.match) { st.match?.let { m -> d?.let { StudyPosition.of(it, m.length, m.jacoby) } } }
+    if (saving && study != null) SaveToPositionsDialog(vm.app, study, "Game review") { saving = false }
     val a = d?.checker
     if (d != null && a != null && a.candidates.isNotEmpty()) {
         val played = a.candidates.getOrNull(a.playedIndex)
@@ -492,6 +498,7 @@ private fun BottomBar(st: ReviewState, vm: ReviewViewModel) {
         IconButton(onClick = { vm.go(st.position + 1) }, enabled = st.position < n - 1) { Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next") }
         TextButton(onClick = vm::nextMistake) { Text("Next mistake") }
         if (d?.move != null) TextButton(onClick = vm::toggleAfter) { Text(if (st.showAfter) "Show arrows" else "After move") }
+        if (study != null) IconButton(onClick = { saving = true }) { Icon(Icons.Default.BookmarkAdd, "Save to My positions") }
     }
 }
 

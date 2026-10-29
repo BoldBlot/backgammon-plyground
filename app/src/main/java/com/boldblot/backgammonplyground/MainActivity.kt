@@ -1,6 +1,8 @@
 package com.boldblot.backgammonplyground
 
+import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -36,8 +38,14 @@ import com.boldblot.backgammonplyground.ui.home.AboutScreen
 import com.boldblot.backgammonplyground.ui.home.HistoryScreen
 import com.boldblot.backgammonplyground.ui.home.HomeScreen
 import com.boldblot.backgammonplyground.ui.home.NewMatchScreen
+import com.boldblot.backgammonplyground.ui.home.SettingsGroup
 import com.boldblot.backgammonplyground.ui.home.SettingsScreen
 import com.boldblot.backgammonplyground.ui.position.PositionScreen
+import com.boldblot.backgammonplyground.ui.positions.CategoryPositionsScreen
+import com.boldblot.backgammonplyground.ui.positions.MyPositionsScreen
+import com.boldblot.backgammonplyground.ui.positions.PositionDetailScreen
+import com.boldblot.backgammonplyground.ui.positions.QuizScreen
+import com.boldblot.backgammonplyground.ui.positions.QuizViewModel
 import com.boldblot.backgammonplyground.ui.position.PositionViewModel
 import com.boldblot.backgammonplyground.ui.review.BlunderScreen
 import com.boldblot.backgammonplyground.ui.review.BlunderViewModel
@@ -47,6 +55,9 @@ import com.boldblot.backgammonplyground.ui.stats.StatsScreen
 import com.boldblot.backgammonplyground.ui.stats.StatsViewModel
 import com.boldblot.backgammonplyground.ui.theme.GammonTheme
 import kotlinx.coroutines.flow.first
+
+/** Route id of "All positions" (category ids are positive, "no category" is -1). */
+private const val ALL_POSITIONS = 0L
 
 class MainActivity : ComponentActivity() {
 
@@ -60,8 +71,26 @@ class MainActivity : ComponentActivity() {
     private val gameVm: GameViewModel by viewModels { factory { GameViewModel(app) } }
     private val positionVm: PositionViewModel by viewModels { factory { PositionViewModel(app) } }
 
+    /** A positions file opened with PlyGround from another app (Files, Bluetooth, email, Quick Share). */
+    private fun readImport(intent: Intent?) {
+        val uri: Uri? = when (intent?.action) {
+            Intent.ACTION_VIEW -> intent.data
+            Intent.ACTION_SEND -> @Suppress("DEPRECATION") (intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
+            else -> null
+        }
+        val text = uri?.let { runCatching { contentResolver.openInputStream(it)?.bufferedReader()?.readText() }.getOrNull() }
+            ?: intent?.takeIf { it.action == Intent.ACTION_SEND }?.getStringExtra(Intent.EXTRA_TEXT)
+        if (text != null) app.pendingImport.value = text
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        readImport(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) readImport(intent)
         enableEdgeToEdge()
         setContent {
             // Landscape is played full screen (system bars appear on a swipe), like dedicated board game apps.
@@ -85,6 +114,11 @@ class MainActivity : ComponentActivity() {
         val nav = rememberNavController()
         val gameState by gameVm.state.collectAsState()
         val hasMatch = gameState.match != null && gameState.match?.isOver == false
+        // A positions file to import opens My positions, which shows the import dialog.
+        val pendingImport by app.pendingImport.collectAsState()
+        LaunchedEffect(pendingImport != null) {
+            if (pendingImport != null && nav.currentDestination?.route != "positions") nav.navigate("positions")
+        }
 
         // The welcome screen: on a new install, after an update from a build without it, and again
         // when the version name changes.
@@ -107,6 +141,7 @@ class MainActivity : ComponentActivity() {
                     onContinue = { nav.navigate("game") },
                     onNewMatch = { nav.navigate("new") },
                     onPosition = { nav.navigate("position") },
+                    onMyPositions = { nav.navigate("positions") },
                     onStats = { nav.navigate("stats") },
                     onHistory = { nav.navigate("history") },
                     onSettings = { nav.navigate("settings") },
@@ -124,6 +159,7 @@ class MainActivity : ComponentActivity() {
                     gameVm, onBack = { nav.popBackStack("home", inclusive = false) },
                     onReview = { id -> nav.navigate("review/$id") },
                     onReviewMistakes = { id, game -> nav.navigate("review/$id?game=$game&mistakes=true") },
+                    onSettings = { nav.navigate("settings") },
                 )
             }
             composable(
@@ -160,7 +196,40 @@ class MainActivity : ComponentActivity() {
             composable("position") {
                 PositionScreen(positionVm, onBack = { nav.popBackStack() })
             }
-            composable("settings") { SettingsScreen(app, onBack = { nav.popBackStack() }, onSpeedTest = { nav.navigate("speedtest") }) }
+            composable("positions") {
+                MyPositionsScreen(
+                    app, onBack = { nav.popBackStack() },
+                    onCategory = { id -> nav.navigate("positions/category/${id ?: ALL_POSITIONS}") },
+                    onQuiz = { ids -> nav.navigate("positions/quiz/${ids.joinToString(",")}") },
+                )
+            }
+            composable("positions/category/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
+                val id = entry.arguments?.getLong("id")?.takeIf { it != ALL_POSITIONS }
+                CategoryPositionsScreen(
+                    app, id, onBack = { nav.popBackStack() },
+                    onOpen = { p -> nav.navigate("positions/item/$p") },
+                    onQuiz = { ids -> nav.navigate("positions/quiz/${ids.joinToString(",")}") },
+                )
+            }
+            composable("positions/item/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
+                PositionDetailScreen(app, entry.arguments?.getLong("id") ?: 0L, onBack = { nav.popBackStack() })
+            }
+            composable("positions/quiz/{ids}") { entry ->
+                val key = entry.arguments?.getString("ids").orEmpty()
+                val ids = key.split(',').mapNotNull { it.toLongOrNull() }
+                val vm: QuizViewModel = viewModel(key = "quiz-$key", factory = factory { QuizViewModel(app, ids) })
+                QuizScreen(vm, onBack = { nav.popBackStack() })
+            }
+            composable("settings") {
+                SettingsScreen(
+                    app, onBack = { nav.popBackStack() }, onSpeedTest = { nav.navigate("speedtest") },
+                    onGroup = { g -> nav.navigate("settings/${g.name}") },
+                )
+            }
+            composable("settings/{group}") { entry ->
+                val group = SettingsGroup.entries.firstOrNull { it.name == entry.arguments?.getString("group") }
+                SettingsScreen(app, onBack = { nav.popBackStack() }, onSpeedTest = { nav.navigate("speedtest") }, group = group)
+            }
             composable("about") {
                 AboutScreen(
                     onBack = { nav.popBackStack() },

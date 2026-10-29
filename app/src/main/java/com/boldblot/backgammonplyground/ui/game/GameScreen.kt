@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -43,6 +44,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -72,6 +74,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
@@ -100,6 +103,7 @@ import com.boldblot.backgammonplyground.core.Severity
 import com.boldblot.backgammonplyground.core.WinType
 import com.boldblot.backgammonplyground.core.XgRules
 import com.boldblot.backgammonplyground.data.GameEntity
+import com.boldblot.backgammonplyground.data.MeterMode
 import com.boldblot.backgammonplyground.data.TrainingMode
 import com.boldblot.backgammonplyground.ui.board.ArrowColors
 import com.boldblot.backgammonplyground.ui.board.BoardGeometry
@@ -120,6 +124,7 @@ import com.boldblot.backgammonplyground.ui.review.GameStepper
 import com.boldblot.backgammonplyground.ui.review.SavedGameRows
 import com.boldblot.backgammonplyground.ui.review.SavedSummaryDialog
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 @Composable
 fun GameScreen(
@@ -128,6 +133,8 @@ fun GameScreen(
     onReview: (matchId: Long) -> Unit,
     /** Opens the review on [gameNumber]'s errors and blunders. */
     onReviewMistakes: (matchId: Long, gameNumber: Int) -> Unit = { id, _ -> onReview(id) },
+    /** Opens Settings; Back returns to the match. */
+    onSettings: () -> Unit = {},
 ) {
     val st by vm.state.collectAsState()
     val m = st.match
@@ -144,7 +151,7 @@ fun GameScreen(
         when {
             st.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             m == null -> NoMatch(onBack)
-            else -> GameContent(st, m, vm, onBack, onAbandon = { confirmAbandon = true }, onResign = { chooseResign = true })
+            else -> GameContent(st, m, vm, onBack, onAbandon = { confirmAbandon = true }, onResign = { chooseResign = true }, onSettings = onSettings)
         }
         if (st.autoFinishing) AutoFinishOverlay(vm::stopAutoFinishAndPlay)
     }
@@ -185,7 +192,7 @@ fun GameScreen(
     }
 
     st.gameOver?.let { info ->
-        GameOverDialog(info, st.inStats, st.settings.gameSummary, vm, onReview, onReviewMistakes, onBack) {
+        GameOverDialog(info, st.inStats, st.settings.gameSummary, st.analysisLeft, vm, onReview, onReviewMistakes, onBack) {
             endSession(info.matchId, true, vm::endSession)
         }
     }
@@ -238,7 +245,7 @@ private fun NoMatch(onBack: () -> Unit) {
 }
 
 @Composable
-private fun GameMenu(st: GameUiState, m: MatchState, vm: GameViewModel, onAbandon: () -> Unit, onResign: () -> Unit) {
+private fun GameMenu(st: GameUiState, m: MatchState, vm: GameViewModel, onAbandon: () -> Unit, onResign: () -> Unit, onSettings: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     var summary by remember { mutableStateOf(false) }
     if (summary) SavedSummaryDialog(vm.app, m.id, gameNumber = null, startWithMatch = false, onDismiss = { summary = false })
@@ -266,6 +273,11 @@ private fun GameMenu(st: GameUiState, m: MatchState, vm: GameViewModel, onAbando
                 text = { Text(if (st.inStats) "Exclude from statistics" else "Count in statistics again") },
                 leadingIcon = { Icon(Icons.Default.BarChart, null) },
                 onClick = { open = false; vm.toggleInStats() },
+            )
+            DropdownMenuItem(
+                text = { Text("Settings") },
+                leadingIcon = { Icon(Icons.Default.Settings, null) },
+                onClick = { open = false; onSettings() },
             )
             DropdownMenuItem(
                 text = { Text(if (m.rules.isMoney) "End session" else "Abandon match") },
@@ -312,7 +324,9 @@ private fun AutoFinishOverlay(onStop: () -> Unit) {
 private fun hasPanel(st: GameUiState) = st.feedback != null || st.hint != null || st.cubeHint != null
 
 @Composable
-private fun GameContent(st: GameUiState, m: MatchState, vm: GameViewModel, onBack: () -> Unit, onAbandon: () -> Unit, onResign: () -> Unit) {
+private fun GameContent(
+    st: GameUiState, m: MatchState, vm: GameViewModel, onBack: () -> Unit, onAbandon: () -> Unit, onResign: () -> Unit, onSettings: () -> Unit,
+) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth > maxHeight) {
             // Landscape: side column | board. The board always has the same size and place (the
@@ -329,7 +343,7 @@ private fun GameContent(st: GameUiState, m: MatchState, vm: GameViewModel, onBac
                     if (hasPanel(st)) {
                         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { Panels(st, m, vm) }
                     } else {
-                        Rail(st, m, vm, onBack, onAbandon, onResign, Modifier.widthIn(max = RAIL_MAX_WIDTH).fillMaxSize())
+                        Rail(st, m, vm, onBack, onAbandon, onResign, onSettings, Modifier.widthIn(max = RAIL_MAX_WIDTH).fillMaxSize())
                     }
                 }
                 Spacer(Modifier.width(gap))
@@ -345,12 +359,13 @@ private fun GameContent(st: GameUiState, m: MatchState, vm: GameViewModel, onBac
                         Text(title(m), style = MaterialTheme.typography.titleMedium)
                         Text(subtitle(m, st.inStats), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    GameMenu(st, m, vm, onAbandon, onResign)
+                    GameMenu(st, m, vm, onAbandon, onResign, onSettings)
                 }
                 Column(Modifier.padding(horizontal = 6.dp)) {
                     PlayerStrip(st, m, Player.CPU)
                     BoardArea(st, m, vm, Modifier.fillMaxWidth().aspectRatio(BOARD_ASPECT))
                     PlayerStrip(st, m, Player.HUMAN)
+                    Meter(st, vm, twoLines = false)
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 6.dp)) {
                     StatusText(st)
@@ -378,12 +393,15 @@ private val RAIL_MAX_WIDTH = 240.dp
 
 /** Landscape side rail: players, match info and controls (Backgammon Galaxy style). */
 @Composable
-private fun Rail(st: GameUiState, m: MatchState, vm: GameViewModel, onBack: () -> Unit, onAbandon: () -> Unit, onResign: () -> Unit, modifier: Modifier) {
+private fun Rail(
+    st: GameUiState, m: MatchState, vm: GameViewModel, onBack: () -> Unit, onAbandon: () -> Unit, onResign: () -> Unit,
+    onSettings: () -> Unit, modifier: Modifier,
+) {
     Column(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             MenuButton(onBack)
             Spacer(Modifier.weight(1f))
-            GameMenu(st, m, vm, onAbandon, onResign)
+            GameMenu(st, m, vm, onAbandon, onResign, onSettings)
         }
         PlayerCard(st, m, Player.CPU)
         Spacer(Modifier.height(6.dp))
@@ -391,7 +409,7 @@ private fun Rail(st: GameUiState, m: MatchState, vm: GameViewModel, onBack: () -
         Text(subtitle(m, st.inStats), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.Center) {
             StatusText(st)
-            if (st.settings.showMeter) st.meter?.let { Meter(it) }
+            Meter(st, vm, twoLines = true)
             Actions(st, m, vm, vertical = true, onResign = onResign)
         }
         PlayerCard(st, m, Player.HUMAN)
@@ -510,10 +528,15 @@ private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifie
             if (passShown(st, m)) {
                 val geo = BoardGeometry(w.value, maxHeight.value, mirrored)
                 Box(Modifier.offset(x = geo.cubeAside().second.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                    FilledTonalButton(
-                        onClick = { vm.respond(false) }, modifier = Modifier.width(geo.passW.dp).height(buttonH),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 0.dp),
-                    ) { Text("Pass", style = buttonLabel(pointW), maxLines = 1) }
+                    AskTwice(
+                        st.settings.confirmPass, "Pass", "Pass?", onAct = { vm.respond(false) },
+                        onStopAsking = { vm.stopConfirming(double = false) },
+                    ) { text, onClick ->
+                        FilledTonalButton(
+                            onClick = onClick, modifier = Modifier.width(geo.passW.dp).height(buttonH),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 0.dp),
+                        ) { Text(text, style = buttonLabel(pointW), maxLines = 1) }
+                    }
                 }
             }
             // Signs in the middle of the board, centred on the bar: a cube mistake, or a turn without
@@ -563,7 +586,13 @@ private fun OnBoardButtons(st: GameUiState, m: MatchState, vm: GameViewModel, po
     when {
         g.phase == Phase.PRE_ROLL && g.turn == Player.HUMAN -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (g.mayDouble(m.rules, m.score)) {
-                FilledTonalButton(onClick = vm::double, modifier = pairMod, contentPadding = pad) { Text("Double", style = label, maxLines = 1) }
+                AskTwice(
+                    // On a narrow (portrait) board the value does not fit; the cube shows it.
+                    st.settings.confirmDouble, "Double", if (pointW < 48.dp) "Double?" else "Double to ${g.cube.value * 2}?", onAct = vm::double,
+                    onStopAsking = { vm.stopConfirming(double = true) },
+                ) { text, onClick ->
+                    FilledTonalButton(onClick = onClick, modifier = pairMod, contentPadding = pad) { Text(text, style = label, maxLines = 1) }
+                }
             }
             Button(onClick = vm::roll, modifier = pairMod, contentPadding = pad) { Text("Roll", style = label, maxLines = 1) }
         }
@@ -586,6 +615,55 @@ private fun OnBoardButtons(st: GameUiState, m: MatchState, vm: GameViewModel, po
             }
         }
         else -> Unit
+    }
+}
+
+/**
+ * Double and Pass: with [confirm] the first tap turns the button into [question] and a second tap
+ * within 3 seconds acts; meanwhile a small "Don't ask again" line under it turns the question off
+ * (the second tap is still needed).
+ */
+@Composable
+private fun AskTwice(
+    confirm: Boolean, label: String, question: String, onAct: () -> Unit, onStopAsking: () -> Unit,
+    button: @Composable (text: String, onClick: () -> Unit) -> Unit,
+) {
+    var armed by remember { mutableStateOf(false) }
+    LaunchedEffect(armed) {
+        if (armed) {
+            delay(3000)
+            armed = false
+        }
+    }
+    // The button keeps its size and place; the "Don't ask again" line hangs below it, centred.
+    androidx.compose.ui.layout.Layout(
+        content = {
+            button(if (armed) question else label) {
+                if (confirm && !armed) armed = true else {
+                    armed = false
+                    onAct()
+                }
+            }
+            if (armed && confirm) {
+                Row(
+                    Modifier
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), RoundedCornerShape(6.dp))
+                        .toggleable(false, role = Role.Checkbox) { onStopAsking() }
+                        .padding(end = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = false, onCheckedChange = null, modifier = Modifier.size(28.dp).padding(4.dp))
+                    Text("Don't ask again", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
+                }
+            }
+        },
+    ) { measurables, constraints ->
+        val b = measurables[0].measure(constraints)
+        val line = measurables.getOrNull(1)?.measure(androidx.compose.ui.unit.Constraints())
+        layout(b.width, b.height) {
+            b.place(0, 0)
+            line?.place((b.width - line.width) / 2, b.height + 2.dp.roundToPx())
+        }
     }
 }
 
@@ -853,6 +931,10 @@ private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical:
                 IconButton(onClick = onResign) { Icon(Icons.Default.Flag, "Resign", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
+        // "Keep rolling": shown where the human could double, and while it is on (to switch it off).
+        if (st.keepRolling || (g.phase == Phase.PRE_ROLL && humanTurn && g.mayDouble(m.rules, m.score))) {
+            FilterChip(selected = st.keepRolling, onClick = vm::toggleKeepRolling, label = { Text("Keep rolling") })
+        }
         if (st.canAutoFinish && humanTurn) {
             TextButton(onClick = vm::startAutoFinish, modifier = if (vertical) Modifier.fillMaxWidth() else Modifier) {
                 Icon(Icons.Default.FastForward, null)
@@ -898,14 +980,44 @@ private fun QueuedResign(st: GameUiState, vm: GameViewModel, onResign: () -> Uni
     }
 }
 
+/**
+ * Winning chances as XG shows them: one bar, from the left your backgammons, gammons and single
+ * wins, then the computer's single wins, gammons and backgammons to the right edge. The numbers
+ * show with [MeterMode.BAR_AND_NUMBERS], or in [MeterMode.BAR] after a tap until your next decision.
+ */
 @Composable
-private fun Meter(probs: List<Float>) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp)) {
-        Text(
-            "Win ${pct(probs[0])} · gammon ${pct(probs[1])} · lose gammon ${pct(probs[3])}",
-            style = MaterialTheme.typography.labelMedium,
-        )
-        LinearProgressIndicator(progress = { probs[0] }, modifier = Modifier.fillMaxWidth().height(6.dp).padding(top = 2.dp))
+private fun Meter(st: GameUiState, vm: GameViewModel, twoLines: Boolean) {
+    val mode = st.settings.meter
+    val p = st.meter ?: return
+    if (mode == MeterMode.OFF) return
+    val colors = boardColorsFor(st.settings)
+    val win = p[0]
+    val lose = 1 - p[0]
+    val mine = listOf(p[2] to 1f, p[1] - p[2] to 0.75f, win - p[1] to 0.45f)
+    val theirs = listOf(lose - p[3] to 0.45f, p[3] - p[4] to 0.75f, p[4] to 1f)
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 3.dp)
+            .then(if (mode == MeterMode.BAR) Modifier.clickable(onClick = vm::toggleMeterNumbers) else Modifier),
+    ) {
+        Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
+            for ((w, a) in mine) if (w > 0.0005f) Box(Modifier.weight(w).fillMaxHeight().background(colors.human.copy(alpha = a)))
+            Box(Modifier.width(2.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surface))
+            for ((w, a) in theirs) if (w > 0.0005f) Box(Modifier.weight(w).fillMaxHeight().background(colors.cpu.copy(alpha = a)))
+        }
+        if (mode == MeterMode.BAR_AND_NUMBERS || st.meterNumbers) {
+            val you = "You ${pct(win)} (G ${pct(p[1])}, B ${pct(p[2])})"
+            val cpu = "Computer ${pct(lose)} (G ${pct(p[3])}, B ${pct(p[4])})"
+            val style = MaterialTheme.typography.labelSmall
+            if (twoLines) {
+                Text(you, style = style, modifier = Modifier.padding(top = 2.dp))
+                Text(cpu, style = style)
+            } else {
+                Row(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+                    Text(you, style = style, modifier = Modifier.weight(1f))
+                    Text(cpu, style = style, textAlign = TextAlign.End)
+                }
+            }
+        }
     }
 }
 
@@ -1021,7 +1133,7 @@ private fun TryAgainCard(fb: Feedback, vm: GameViewModel) {
  */
 @Composable
 private fun GameOverDialog(
-    info: GameOverInfo, inStats: Boolean, gameSummary: Boolean, vm: GameViewModel, onReview: (Long) -> Unit,
+    info: GameOverInfo, inStats: Boolean, gameSummary: Boolean, analysisLeft: Int, vm: GameViewModel, onReview: (Long) -> Unit,
     onReviewMistakes: (matchId: Long, gameNumber: Int) -> Unit, onBack: () -> Unit, onEndSession: () -> Unit,
 ) {
     val won = info.result.winner == Player.HUMAN
@@ -1082,7 +1194,27 @@ private fun GameOverDialog(
                     if (report != null && !showMatch && saved.size > 1 && index >= 0) {
                         GameStepper(shown, index, saved.size) { shown = saved[it].first.number }
                     }
-                    if (info.afterMatch) {
+                    if (analysisLeft > 0) {
+                        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "$analysisLeft decision${if (analysisLeft > 1) "s" else ""} still to analyze. " +
+                                    if (info.matchOver) "PR and mistakes fill in when done." else "You can play on; they fill in when done.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                    if (info.offerAnalysis && analysisLeft == 0) {
+                        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "Played without analysis (Settings → Training).",
+                                style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f),
+                            )
+                            OutlinedButton(onClick = { vm.analyzeMatchNow(info.matchId) }) { Text("Analyze now") }
+                        }
+                    }
+                    if (info.afterMatch && analysisLeft == 0 && !info.offerAnalysis) {
                         Text(
                             when (info.mistakes) {
                                 0 -> "No errors or blunders this match. Well played!"
@@ -1153,8 +1285,8 @@ private fun GameOverDialog(
                     }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.End) {
-                    if (info.afterMatch && info.mistakes > 0) {
-                        TextButton(onClick = { onReviewMistakes(info.matchId, info.reviewGame) }) { Text("Review my mistakes") }
+                    if (info.afterMatch && (info.mistakes > 0 || analysisLeft > 0)) {
+                        TextButton(onClick = { onReviewMistakes(info.matchId, info.reviewGame) }, enabled = analysisLeft == 0) { Text("Review my mistakes") }
                     } else {
                         TextButton(onClick = { onReview(info.matchId) }) { Text("Review") }
                     }

@@ -1,6 +1,7 @@
 package com.boldblot.backgammonplyground.data
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
@@ -72,6 +73,47 @@ data class GameEntity(
     val scoreBeforeHuman: Int,
     val scoreBeforeCpu: Int,
 )
+
+/**
+ * A position in My positions (schema 2): an XGID with the player who decides at the bottom
+ * (see core/SavedPositions.kt), and with [doubled] their opponent has doubled.
+ */
+@Entity(tableName = "positions")
+data class PositionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val xgid: String,
+    val doubled: Boolean = false,
+    /** Money game with beavers allowed. */
+    val beavers: Boolean = false,
+    val note: String = "",
+    /** Where it came from: "Blunder list", "Game review", "Analyze Position", "Imported". */
+    val source: String = "",
+    val savedAt: Long,
+    /** JSON of PositionAnalysis; null until analyzed. */
+    val analysis: String? = null,
+    /** JSON of MyAnswer; null = the engine's best is the right answer. */
+    val myAnswer: String? = null,
+    /** The last quiz answer: null = not tried yet. */
+    val lastRight: Boolean? = null,
+)
+
+/** A category of My positions, in the player's order ([sort]). */
+@Entity(tableName = "categories")
+data class CategoryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val sort: Int = 0,
+)
+
+/** A position's place in a category (a position can be in several). */
+@Entity(tableName = "position_categories", primaryKeys = ["positionId", "categoryId"], indices = [Index("categoryId")])
+data class PositionCategoryEntity(val positionId: Long, val categoryId: Long)
+
+/** A category with its number of positions. */
+data class CategoryCount(val id: Long, val name: String, val sort: Int, val count: Int)
+
+/** A game by its match and number. */
+data class GameKey(val matchId: Long, val number: Int)
 
 /** The match in progress, so it can be resumed after the app is closed. */
 @Entity(tableName = "current_match")
@@ -161,6 +203,13 @@ interface MatchDao {
     @Query("SELECT * FROM games WHERE matchId = :matchId ORDER BY number")
     suspend fun games(matchId: Long): List<GameEntity>
 
+    @Query("SELECT * FROM games WHERE matchId = :matchId AND number = :number")
+    suspend fun game(matchId: Long, number: Int): GameEntity?
+
+    /** Games with decisions waiting for the background analysis ("pending":true in the record). */
+    @Query("SELECT matchId, number FROM games WHERE record LIKE '%\"pending\":true%' ORDER BY finishedAt")
+    suspend fun gamesWithPending(): List<GameKey>
+
     @Query("SELECT id, matchId, number, finishedAt, winner, winType, points, summary, '' AS record, scoreBeforeHuman, scoreBeforeCpu FROM games")
     suspend fun allGameSummaries(): List<GameEntity>
 
@@ -204,13 +253,81 @@ interface MatchDao {
     suspend fun deleteAllBlunders()
 }
 
+@Dao
+interface PositionDao {
+    @Insert
+    suspend fun insert(p: PositionEntity): Long
+
+    @Update
+    suspend fun update(p: PositionEntity)
+
+    @Query("SELECT * FROM positions WHERE id = :id")
+    suspend fun position(id: Long): PositionEntity?
+
+    @Query("SELECT * FROM positions ORDER BY savedAt DESC")
+    suspend fun all(): List<PositionEntity>
+
+    @Query("SELECT p.* FROM positions p JOIN position_categories c ON c.positionId = p.id WHERE c.categoryId = :categoryId ORDER BY p.savedAt DESC")
+    suspend fun inCategory(categoryId: Long): List<PositionEntity>
+
+    @Query("SELECT DISTINCT p.* FROM positions p JOIN position_categories c ON c.positionId = p.id WHERE c.categoryId IN (:ids)")
+    suspend fun inCategories(ids: List<Long>): List<PositionEntity>
+
+    @Query("SELECT * FROM positions WHERE xgid = :xgid AND doubled = :doubled LIMIT 1")
+    suspend fun find(xgid: String, doubled: Boolean): PositionEntity?
+
+    @Query("DELETE FROM positions WHERE id = :id")
+    suspend fun deletePosition(id: Long)
+
+    @Query("SELECT c.id, c.name, c.sort, (SELECT COUNT(*) FROM position_categories pc WHERE pc.categoryId = c.id) AS count FROM categories c ORDER BY c.sort, c.id")
+    suspend fun categories(): List<CategoryCount>
+
+    @Insert
+    suspend fun insertCategory(c: CategoryEntity): Long
+
+    @Query("UPDATE categories SET name = :name WHERE id = :id")
+    suspend fun renameCategory(id: Long, name: String)
+
+    @Query("UPDATE categories SET sort = :sort WHERE id = :id")
+    suspend fun setSort(id: Long, sort: Int)
+
+    @Query("DELETE FROM categories WHERE id = :id")
+    suspend fun deleteCategory(id: Long)
+
+    @Query("SELECT categoryId FROM position_categories WHERE positionId = :positionId")
+    suspend fun categoriesOf(positionId: Long): List<Long>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun link(l: PositionCategoryEntity)
+
+    @Query("DELETE FROM position_categories WHERE positionId = :positionId AND categoryId = :categoryId")
+    suspend fun unlink(positionId: Long, categoryId: Long)
+
+    @Query("DELETE FROM position_categories WHERE positionId = :positionId")
+    suspend fun unlinkPosition(positionId: Long)
+
+    @Query("DELETE FROM position_categories WHERE categoryId = :categoryId")
+    suspend fun unlinkCategory(categoryId: Long)
+
+    @Query("SELECT COUNT(*) FROM positions p WHERE NOT EXISTS (SELECT 1 FROM position_categories c WHERE c.positionId = p.id)")
+    suspend fun uncategorized(): Int
+
+    @Query("SELECT * FROM positions p WHERE NOT EXISTS (SELECT 1 FROM position_categories c WHERE c.positionId = p.id) ORDER BY savedAt DESC")
+    suspend fun uncategorizedPositions(): List<PositionEntity>
+}
+
 @Database(
-    entities = [MatchEntity::class, GameEntity::class, CurrentMatchEntity::class, BlunderEntity::class],
-    version = 1,
+    entities = [
+        MatchEntity::class, GameEntity::class, CurrentMatchEntity::class, BlunderEntity::class,
+        PositionEntity::class, CategoryEntity::class, PositionCategoryEntity::class,
+    ],
+    version = 2,
     exportSchema = true,
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun matches(): MatchDao
+    abstract fun positions(): PositionDao
 
     companion object {
         fun create(context: Context): AppDatabase =

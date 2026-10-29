@@ -41,6 +41,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,6 +54,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.boldblot.backgammonplyground.PlyGroundApp
+import com.boldblot.backgammonplyground.core.StudyPosition
+import com.boldblot.backgammonplyground.ui.positions.SaveToPositionsDialog
+import androidx.compose.material.icons.filled.BookmarkAdd
 import com.boldblot.backgammonplyground.core.CpuLevel
 import com.boldblot.backgammonplyground.core.Opponent
 import com.boldblot.backgammonplyground.core.DecisionKind
@@ -151,7 +155,7 @@ data class BlunderState(
     val factor: Float get() = XgRules.errorFactor(current?.entity?.matchLength ?: 0)
 }
 
-class BlunderViewModel(private val app: PlyGroundApp, private val startId: Long) : ViewModel() {
+class BlunderViewModel(val app: PlyGroundApp, private val startId: Long) : ViewModel() {
 
     private val _state = MutableStateFlow(BlunderState())
     val state: StateFlow<BlunderState> = _state.asStateFlow()
@@ -249,12 +253,17 @@ fun BlunderScreen(vm: BlunderViewModel, onBack: () -> Unit) {
 
 @Composable
 private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewModel, onBack: () -> Unit, onRemove: () -> Unit) {
+    var saving by remember { mutableStateOf(false) }
+    val jacoby by produceState(true, b.entity.matchId) { value = vm.app.repository.match(b.entity.matchId)?.jacoby ?: true }
+    val study = remember(b, jacoby) { StudyPosition.of(b.decision, b.entity.matchLength, jacoby) }
+    if (saving && study != null) SaveToPositionsDialog(vm.app, study, "Blunder list") { saving = false }
+    val onSave = { saving = true }.takeIf { study != null }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth > maxHeight) {
             val sideWidth = minOf(390.dp, maxWidth * 0.42f)
             Row(Modifier.fillMaxSize().padding(6.dp)) {
                 Column(Modifier.width(sideWidth).fillMaxHeight()) {
-                    TopRow(onBack, onRemove)
+                    TopRow(onBack, onRemove, onSave)
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { Detail(st, b, vm) }
                 }
                 Spacer(Modifier.width(8.dp))
@@ -267,7 +276,7 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
             }
         } else {
             Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
-                TopRow(onBack, onRemove)
+                TopRow(onBack, onRemove, onSave)
                 Board(st, b.decision, Modifier.fillMaxWidth().aspectRatio(1.38f))
                 Bar(st, b.decision, vm)
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { Detail(st, b, vm) }
@@ -277,10 +286,11 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
 }
 
 @Composable
-private fun TopRow(onBack: () -> Unit, onRemove: () -> Unit) {
+private fun TopRow(onBack: () -> Unit, onRemove: () -> Unit, onSave: (() -> Unit)?) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
         Text("My blunders", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        if (onSave != null) IconButton(onClick = onSave) { Icon(Icons.Default.BookmarkAdd, "Save to My positions") }
         OutlinedButton(onClick = onRemove) {
             Icon(Icons.Default.Delete, null, Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))

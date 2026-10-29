@@ -19,7 +19,7 @@ class GnubgEngine : SearchEngine() {
         return List(posts.size) { k -> PostEval(r[6 * k], List(5) { r[6 * k + 1 + it] }) }
     }
 
-    override fun cubeDecision(board: Board, ctx: CubeContext, plies: Int): CubeEval {
+    override fun computeCube(board: Board, ctx: CubeContext, plies: Int): CubeEval {
         val r = GnubgNative.nativeCubeDecision(board.toEngine(ctx.onRoll), ctx.toEngine(), Depth.of(plies).plies - 1)
             ?: error("GNU Backgammon cube evaluation failed")
         return CubeEval(

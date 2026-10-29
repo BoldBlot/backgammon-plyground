@@ -34,6 +34,30 @@ enum class TrainingMode(val label: String, val description: String) {
     TRY_AGAIN("Try again", "You are told only that it was an error or a blunder. Try the decision again, or show the answer. Your first try counts in PR."),
 }
 
+/**
+ * How the player's decisions are analyzed when nothing is shown during play ("after the match"
+ * training, or immediate training with the practice prompt off).
+ */
+enum class AnalysisTiming(val label: String, val description: String) {
+    BACKGROUND("In the background", "PR and mistakes are ready when the match ends; play never waits for the analysis."),
+    NONE("None", "Play at full speed and analyze later: Analyze now at the end of the match, or Analyze again in the review."),
+}
+
+/** Which of the human's mistakes go on the blunder list. */
+enum class BlunderListLevel(val label: String, val minSeverity: Severity) {
+    BLUNDERS("Blunders only", Severity.BLUNDER),
+    ERRORS("Errors and blunders", Severity.ERROR),
+}
+
+/** How long the arrows of the computer's last move stay on the board. */
+enum class CpuArrows(val label: String) { UNTIL_MOVE("Until my move"), ONE_SECOND("1 second"), OFF("Off") }
+
+/** The winning chances meter during play. */
+enum class MeterMode(val label: String) { OFF("Off"), BAR("Bar"), BAR_AND_NUMBERS("Bar and numbers") }
+
+/** What counts as a right answer in the My positions quiz. */
+enum class QuizCorrect(val label: String) { NOT_ERROR("Not an error"), BEST_ONLY("Best play only") }
+
 /** Order of the blunder list. */
 enum class BlunderSort(val label: String) { BIGGEST("Biggest first"), NEWEST("Newest first") }
 
@@ -117,8 +141,20 @@ data class Settings(
     val autoForced: Boolean = true,
     val animation: AnimationSpeed = AnimationSpeed.NORMAL,
     val showPips: Boolean = true,
-    /** Show win/gammon chances meter during play (off by default: it is a hint). */
-    val showMeter: Boolean = false,
+    /** Win/gammon chances meter during play (off by default: it is a hint). */
+    val meter: MeterMode = MeterMode.OFF,
+    /** Analysis while nothing is shown during play ([analyzesInBackground]). */
+    val analysisTiming: AnalysisTiming = AnalysisTiming.BACKGROUND,
+    /** Play the human's bear-off for them once contact is broken (the analysis engine's best play). */
+    val autoBearOff: Boolean = false,
+    val cpuArrows: CpuArrows = CpuArrows.UNTIL_MOVE,
+    /** Double and Pass ask for a second tap. */
+    val confirmDouble: Boolean = true,
+    val confirmPass: Boolean = true,
+    val blunderList: BlunderListLevel = BlunderListLevel.BLUNDERS,
+    val quizCorrect: QuizCorrect = QuizCorrect.NOT_ERROR,
+    /** The quiz brings missed positions back until each has been answered right. */
+    val quizRepeat: Boolean = false,
     val boardTheme: BoardTheme = BoardTheme.GRAY,
     val checkerSide: CheckerSide = CheckerSide.FIRST,
     val checkerStyle: CheckerStyle = CheckerStyle.RIMMED,
@@ -132,6 +168,12 @@ data class Settings(
 ) {
     val checkerDepth: Depth get() = Depth(checkerPlies, moveFilter)
     val cubeDepth: Depth get() = Depth(cubePlies)
+
+    /**
+     * Nothing about the player's decisions is shown during play, so they need not be analyzed on the
+     * spot: "after the match" training, or immediate training with the practice prompt off.
+     */
+    val quietPlay: Boolean get() = trainingMode == TrainingMode.AFTER_GAME || (trainingMode == TrainingMode.IMMEDIATE && feedback == FeedbackLevel.OFF)
 }
 
 private val Context.dataStore by preferencesDataStore("settings")
@@ -172,7 +214,17 @@ class SettingsStore(private val context: Context) {
         val autoForced = booleanPreferencesKey("auto_forced")
         val animation = stringPreferencesKey("animation")
         val pips = booleanPreferencesKey("show_pips")
-        val meter = booleanPreferencesKey("show_meter")
+        /** Build 37 and earlier: the meter on or off (on showed the numbers). */
+        val oldMeter = booleanPreferencesKey("show_meter")
+        val meter = stringPreferencesKey("meter_mode")
+        val analysisTiming = stringPreferencesKey("analysis_timing")
+        val autoBearOff = booleanPreferencesKey("auto_bear_off")
+        val cpuArrows = stringPreferencesKey("cpu_arrows")
+        val confirmDouble = booleanPreferencesKey("confirm_double")
+        val confirmPass = booleanPreferencesKey("confirm_pass")
+        val blunderList = stringPreferencesKey("blunder_list_level")
+        val quizCorrect = stringPreferencesKey("quiz_correct")
+        val quizRepeat = booleanPreferencesKey("quiz_repeat")
         val theme = stringPreferencesKey("board_theme")
         val checker = stringPreferencesKey("checker_color")
         val checkerStyle = stringPreferencesKey("checker_style")
@@ -221,7 +273,16 @@ class SettingsStore(private val context: Context) {
             autoForced = p[Keys.autoForced] ?: d.autoForced,
             animation = p.enum(Keys.animation, d.animation),
             showPips = p[Keys.pips] ?: d.showPips,
-            showMeter = p[Keys.meter] ?: d.showMeter,
+            meter = p[Keys.meter]?.let { v -> MeterMode.entries.firstOrNull { it.name == v } }
+                ?: if (p[Keys.oldMeter] == true) MeterMode.BAR_AND_NUMBERS else d.meter,
+            analysisTiming = p.enum(Keys.analysisTiming, d.analysisTiming),
+            autoBearOff = p[Keys.autoBearOff] ?: d.autoBearOff,
+            cpuArrows = p.enum(Keys.cpuArrows, d.cpuArrows),
+            confirmDouble = p[Keys.confirmDouble] ?: d.confirmDouble,
+            confirmPass = p[Keys.confirmPass] ?: d.confirmPass,
+            blunderList = p.enum(Keys.blunderList, d.blunderList),
+            quizCorrect = p.enum(Keys.quizCorrect, d.quizCorrect),
+            quizRepeat = p[Keys.quizRepeat] ?: d.quizRepeat,
             boardTheme = p.enum(Keys.theme, d.boardTheme),
             // build 31 and earlier stored the grey board's colour, YELLOW (first) or RED (second)
             checkerSide = if (p[Keys.checker] in setOf("RED", "SECOND")) CheckerSide.SECOND else CheckerSide.FIRST,
@@ -271,7 +332,15 @@ class SettingsStore(private val context: Context) {
             p[Keys.autoForced] = s.autoForced
             p[Keys.animation] = s.animation.name
             p[Keys.pips] = s.showPips
-            p[Keys.meter] = s.showMeter
+            p[Keys.meter] = s.meter.name
+            p[Keys.analysisTiming] = s.analysisTiming.name
+            p[Keys.autoBearOff] = s.autoBearOff
+            p[Keys.cpuArrows] = s.cpuArrows.name
+            p[Keys.confirmDouble] = s.confirmDouble
+            p[Keys.confirmPass] = s.confirmPass
+            p[Keys.blunderList] = s.blunderList.name
+            p[Keys.quizCorrect] = s.quizCorrect.name
+            p[Keys.quizRepeat] = s.quizRepeat
             p[Keys.theme] = s.boardTheme.name
             p[Keys.checker] = s.checkerSide.name
             p[Keys.checkerStyle] = s.checkerStyle.name

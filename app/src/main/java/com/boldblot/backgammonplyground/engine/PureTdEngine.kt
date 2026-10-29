@@ -87,7 +87,7 @@ class PureTdEngine(private val handle: Long, private val met: MatchEquityTable =
 
     // ---- cube -----------------------------------------------------------------------------------
 
-    override fun cubeDecision(board: Board, ctx: CubeContext, plies: Int): CubeEval {
+    override fun computeCube(board: Board, ctx: CubeContext, plies: Int): CubeEval {
         val me = ctx.onRoll
         val v = ctx.cube.value
         val owner = view(ctx, me)

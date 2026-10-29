@@ -87,13 +87,18 @@ import com.boldblot.backgammonplyground.core.MoveFilter
 import com.boldblot.backgammonplyground.core.Opponent
 import com.boldblot.backgammonplyground.core.Elo
 import com.boldblot.backgammonplyground.core.PerformanceTotals
+import com.boldblot.backgammonplyground.data.AnalysisTiming
 import com.boldblot.backgammonplyground.data.AnimationSpeed
 import com.boldblot.backgammonplyground.data.AppJson
 import com.boldblot.backgammonplyground.data.AutoFinishSpeed
+import com.boldblot.backgammonplyground.data.BlunderListLevel
 import com.boldblot.backgammonplyground.data.BlunderSort
+import com.boldblot.backgammonplyground.data.CpuArrows
 import com.boldblot.backgammonplyground.data.FeedbackLevel
 import com.boldblot.backgammonplyground.data.MatchEntity
 import com.boldblot.backgammonplyground.data.MatchStatus
+import com.boldblot.backgammonplyground.data.MeterMode
+import com.boldblot.backgammonplyground.data.QuizCorrect
 import com.boldblot.backgammonplyground.data.SavedBlunder
 import com.boldblot.backgammonplyground.data.Settings
 import com.boldblot.backgammonplyground.data.TrainingMode
@@ -118,6 +123,7 @@ fun HomeScreen(
     onContinue: () -> Unit,
     onNewMatch: () -> Unit,
     onPosition: () -> Unit,
+    onMyPositions: () -> Unit = {},
     onStats: () -> Unit,
     onHistory: () -> Unit,
     onSettings: () -> Unit,
@@ -160,6 +166,8 @@ fun HomeScreen(
                 }
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(onClick = onPosition, modifier = w) { Text("Analyze Position") }
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(onClick = onMyPositions, modifier = w) { Text("My positions (experimental)") }
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(onClick = onStats, modifier = w) { Text("Statistics") }
                 Spacer(Modifier.height(10.dp))
@@ -614,9 +622,40 @@ private fun HistoryRow(
     }
 }
 
+/** The pages of Settings, each opened from the Settings list. */
+enum class SettingsGroup(val title: String) {
+    TRAINING("Training"), ANALYSIS("Analysis"), PLAY("Play"), DISPLAY("Display"), DATA("Data and help"),
+}
+
+/** One line under a group's name in the Settings list: its main values. */
+private fun SettingsGroup.summary(s: Settings): String = when (this) {
+    SettingsGroup.TRAINING -> listOf(
+        s.trainingMode.label,
+        if (s.quietPlay) "analysis ${s.analysisTiming.label.lowercase()}" else s.feedback.label.lowercase(),
+    ).joinToString(" · ")
+    SettingsGroup.ANALYSIS -> "${s.analysisEngine.label} · ${s.checkerPlies}-ply checker play · ${s.cubePlies}-ply cube"
+    SettingsGroup.PLAY -> listOfNotNull(
+        "auto-roll".takeIf { s.autoRoll }, "forced moves".takeIf { s.autoForced }, "bear-off".takeIf { s.autoBearOff },
+        when {
+            s.confirmDouble && s.confirmPass -> "confirm double and pass"
+            s.confirmDouble -> "confirm double"
+            s.confirmPass -> "confirm pass"
+            else -> null
+        },
+    ).joinToString(" · ").replaceFirstChar { it.uppercase() }.ifEmpty { "Nothing automatic" }
+    SettingsGroup.DISPLAY -> listOfNotNull(
+        s.boardTheme.label, "pip counts".takeIf { s.showPips }, "meter: ${s.meter.label.lowercase()}".takeIf { s.meter != MeterMode.OFF },
+    ).joinToString(" · ")
+    SettingsGroup.DATA -> "Your name in exported files, clearing data, error report"
+}
+
+/** Settings: the list of groups ([group] null) or one group's page. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(app: PlyGroundApp, onBack: () -> Unit, onSpeedTest: () -> Unit = {}) {
+fun SettingsScreen(
+    app: PlyGroundApp, onBack: () -> Unit, onSpeedTest: () -> Unit = {},
+    group: SettingsGroup? = null, onGroup: (SettingsGroup) -> Unit = {},
+) {
     val settings by app.settings.settings.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
     var clear by remember { mutableStateOf<ClearKind?>(null) }
@@ -624,157 +663,27 @@ fun SettingsScreen(app: PlyGroundApp, onBack: () -> Unit, onSpeedTest: () -> Uni
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(group?.title ?: "Settings") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             )
         },
     ) { padding ->
         val s = settings ?: return@Scaffold
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-            Header("Training mode")
-            TrainingMode.entries.forEach { t ->
-                LevelRow(t.label, t.description, s.trainingMode == t) { update { it.copy(trainingMode = t) } }
-            }
-            Header("Which mistakes")
-            val during = s.trainingMode != TrainingMode.AFTER_GAME
-            FeedbackLevel.entries.forEach { f -> Radio(f.label, s.feedback == f, enabled = during) { update { it.copy(feedback = f) } } }
-            if (s.trainingMode == TrainingMode.IMMEDIATE) {
-                Toggle("Wait for me before the computer continues", s.pauseOnMistake) { v -> update { it.copy(pauseOnMistake = v) } }
-            }
-            if (during) {
-                Toggle("Show the best move's arrows with my move", s.bestMoveArrows) { v -> update { it.copy(bestMoveArrows = v) } }
-                Text(
-                    "Otherwise the board shows only your move; pick the best move in the list to see it.",
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (!during) {
-                Text(
-                    "After the match, the review lists your errors and blunders.",
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Text(
-                "Errors and blunders use eXtreme Gammon's thresholds: more than 0.020 and 0.080 equity (×1.5 in 1-point matches).",
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Header("After each game")
-            Toggle("Show the summary after each game", s.gameSummary) { v -> update { it.copy(gameSummary = v) } }
-            Text(
-                "PR, rating, luck and errors for both players. The end of a match always shows it, and the game's ⋮ menu has the last game's summary.",
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            HorizontalDivider(Modifier.padding(vertical = 12.dp))
-            Header("Exported files")
-            var name by remember { mutableStateOf(s.playerName) }
-            OutlinedTextField(
-                value = name,
-                onValueChange = { v -> name = v.take(30); update { it.copy(playerName = name) } },
-                label = { Text("Your name in exported files") },
-                supportingText = { Text("Shown in .mat files for eXtreme Gammon and GNU Backgammon; the computer is named after its engine and PR, e.g. \"PureTD PR 4\" or \"GNU BG PR <1\".") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            HorizontalDivider(Modifier.padding(vertical = 12.dp))
-            Header("Analysis")
-            Text("Engine", style = MaterialTheme.typography.bodyMedium)
-            EngineChips(s.analysisEngine, { e -> update { it.copy(analysisEngine = e) } }, Modifier.padding(vertical = 4.dp))
-            Text(
-                "Analyzes your games, hints and positions, and gives PR, errors and luck. The computer plays with " +
-                    "the engine chosen in New match. Analyze again in the review can use another engine.",
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text("Checker play depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items((1..4).toList()) { n ->
-                    FilterChip(selected = s.checkerPlies == n, onClick = { update { it.copy(checkerPlies = n) } }, label = { Text("$n-ply") })
-                }
-            }
-            if (s.checkerPlies == 4) {
-                Text(
-                    FOUR_PLY_CHECKER_NOTE,
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error,
-                )
-            }
-            if (s.checkerPlies > 1) {
-                Text("Pruning", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(PRUNING) { f ->
-                        FilterChip(
-                            selected = s.moveFilter == f, onClick = { update { it.copy(moveFilter = f) } },
-                            label = { Text(if (f == MoveFilter.ALL) "Off" else "On") },
-                        )
+            when (group) {
+                null -> SettingsGroup.entries.forEach { g ->
+                    Column(Modifier.fillMaxWidth().clickable { onGroup(g) }.padding(vertical = 12.dp)) {
+                        Text(g.title, style = MaterialTheme.typography.titleMedium)
+                        Text(g.summary(s), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    HorizontalDivider()
                 }
-                Text(PRUNING_NOTE, style = MaterialTheme.typography.labelSmall)
+                SettingsGroup.TRAINING -> TrainingSettings(s, ::update)
+                SettingsGroup.ANALYSIS -> AnalysisSettings(s, ::update, onSpeedTest)
+                SettingsGroup.PLAY -> PlaySettings(s, ::update)
+                SettingsGroup.DISPLAY -> DisplaySettings(s, ::update)
+                SettingsGroup.DATA -> DataSettings(s, ::update) { clear = it }
             }
-            Text("Cube decision depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items((1..4).toList()) { n ->
-                    FilterChip(selected = s.cubePlies == n, onClick = { update { it.copy(cubePlies = n) } }, label = { Text("$n-ply") })
-                }
-            }
-            Text(
-                "XG's ply numbering: 1-ply is the network alone, each further ply looks one roll deeper. " +
-                    "±0.04 / ±0.08 / ±0.16: only moves within that equity of the best at 1-ply are searched " +
-                    "deeper (much faster on doubles, rarely a different answer). Deeper is stronger but " +
-                    "slower; the speed test times each depth on this phone and recommends one.",
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedButton(onClick = onSpeedTest, modifier = Modifier.padding(top = 4.dp)) { Text("Speed test and recommendation") }
-            Toggle("Analyze the computer's decisions too", s.cpuAnalysis) { v -> update { it.copy(cpuAnalysis = v) } }
-            Text(
-                "Used for the computer's PR and its moves in review. Off (the default) makes the computer move " +
-                    "sooner and the phone stay cooler; it then has no PR. Analyze again in the review can still " +
-                    "analyze its moves later.",
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            HorizontalDivider(Modifier.padding(vertical = 12.dp))
-            Header("Play")
-            Toggle("Roll automatically when I can't double, or I'm on the bar against a closed board", s.autoRoll) { v -> update { it.copy(autoRoll = v) } }
-            Toggle("Submit my move as soon as it is complete", s.autoConfirm) { v -> update { it.copy(autoConfirm = v) } }
-            Toggle("Play forced moves automatically", s.autoForced) { v -> update { it.copy(autoForced = v) } }
-            Toggle("Show pip counts", s.showPips) { v -> update { it.copy(showPips = v) } }
-            Toggle("Show winning chances meter (a hint!)", s.showMeter) { v -> update { it.copy(showMeter = v) } }
-            Text("Computer move animation", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(AnimationSpeed.entries) { a ->
-                    FilterChip(selected = s.animation == a, onClick = { update { it.copy(animation = a) } }, label = { Text(a.label) })
-                }
-            }
-            Text("Autofinish: pause after each move", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(AutoFinishSpeed.entries) { a ->
-                    FilterChip(selected = s.autoFinishSpeed == a, onClick = { update { it.copy(autoFinishSpeed = a) } }, label = { Text(a.label) })
-                }
-            }
-            Text(
-                "Autofinish (in the game) lets the engine at 3-ply play your side to the end of the game; " +
-                    "tap the screen to stop. Its moves are not counted in your statistics.",
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            HorizontalDivider(Modifier.padding(vertical = 12.dp))
-            Header("Board")
-            BoardSettings(s, ::update)
-            HorizontalDivider(Modifier.padding(vertical = 12.dp))
-            Header("Data")
-            ClearKind.entries.forEach { k ->
-                OutlinedButton(onClick = { clear = k }, modifier = Modifier.padding(vertical = 2.dp)) {
-                    Icon(Icons.Default.DeleteSweep, null)
-                    Spacer(Modifier.width(6.dp))
-                    Text(k.title)
-                }
-            }
-            HorizontalDivider(Modifier.padding(vertical = 12.dp))
-            Header("Problems")
-            val context = LocalContext.current
-            OutlinedButton(onClick = { AppLog.sendReport(context) }) { Text("Send error report") }
-            Text(
-                "Opens your email app with a message to ${AppLog.SUPPORT_EMAIL} and the app's log attached " +
-                    "(recent game events, engine problems and crashes, kept only on this phone). " +
-                    "Nothing is sent until you send the email.",
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
     clear?.let { kind ->
@@ -783,6 +692,156 @@ fun SettingsScreen(app: PlyGroundApp, onBack: () -> Unit, onSpeedTest: () -> Uni
             scope.launch { kind.run(app, days) }
         }
     }
+}
+
+@Composable
+private fun Note(text: String) =
+    Text(text, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+/** A label and a row of chips, one per choice. */
+@Composable
+private fun <T> Chips(label: String, options: List<T>, selected: T, name: (T) -> String, onPick: (T) -> Unit) {
+    Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        items(options) { o -> FilterChip(selected = selected == o, onClick = { onPick(o) }, label = { Text(name(o)) }) }
+    }
+}
+
+@Composable
+private fun TrainingSettings(s: Settings, update: (f: (Settings) -> Settings) -> Unit) {
+    Header("Training mode")
+    TrainingMode.entries.forEach { t ->
+        LevelRow(t.label, t.description, s.trainingMode == t) { update { it.copy(trainingMode = t) } }
+    }
+    Header("Which mistakes")
+    val during = s.trainingMode != TrainingMode.AFTER_GAME
+    FeedbackLevel.entries.forEach { f -> Radio(f.label, s.feedback == f, enabled = during) { update { it.copy(feedback = f) } } }
+    if (s.trainingMode == TrainingMode.IMMEDIATE) {
+        Toggle("Wait for me before the computer continues", s.pauseOnMistake) { v -> update { it.copy(pauseOnMistake = v) } }
+    }
+    if (during) {
+        Toggle("Show the best move's arrows with my move", s.bestMoveArrows) { v -> update { it.copy(bestMoveArrows = v) } }
+        Note("Otherwise the board shows only your move; pick the best move in the list to see it.")
+    }
+    if (!during) Note("After the match, the review lists your errors and blunders.")
+    Note("Errors and blunders use eXtreme Gammon's thresholds: more than 0.020 and 0.080 equity (×1.5 in 1-point matches).")
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Header("Analysis during play")
+    if (s.quietPlay) {
+        AnalysisTiming.entries.forEach { t ->
+            LevelRow(t.label, t.description, s.analysisTiming == t) { update { it.copy(analysisTiming = t) } }
+        }
+    }
+    Note(
+        if (s.quietPlay) "Applies while nothing is shown during play: after the match, or immediately with Which mistakes set to Off."
+        else "Your decisions are analyzed as you play, to show your mistakes. With \"Show mistakes after the match\", or " +
+            "Which mistakes set to Off, the analysis can run in the background instead, or not at all.",
+    )
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Header("Blunder list")
+    Chips("Add to my blunder list", BlunderListLevel.entries, s.blunderList, { it.label }) { v -> update { it.copy(blunderList = v) } }
+    Note("Applies to your decisions from now on; the list keeps what it has.")
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Header("After each game")
+    Toggle("Show the summary after each game", s.gameSummary) { v -> update { it.copy(gameSummary = v) } }
+    Note("PR, rating, luck and errors for both players. The end of a match always shows it, and the game's ⋮ menu has the last game's summary.")
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Header("My positions quiz")
+    Chips("A right answer is", QuizCorrect.entries, s.quizCorrect, { it.label }) { v -> update { it.copy(quizCorrect = v) } }
+    Note("Not an error: anything within 0.020 of the best play (or your own answer, when you set one).")
+    Toggle("Repeat missed positions until all are right", s.quizRepeat) { v -> update { it.copy(quizRepeat = v) } }
+}
+
+@Composable
+private fun AnalysisSettings(s: Settings, update: (f: (Settings) -> Settings) -> Unit, onSpeedTest: () -> Unit) {
+    Text("Engine", style = MaterialTheme.typography.bodyMedium)
+    EngineChips(s.analysisEngine, { e -> update { it.copy(analysisEngine = e) } }, Modifier.padding(vertical = 4.dp))
+    Note(
+        "Analyzes your games, hints and positions, and gives PR, errors and luck. The computer plays with " +
+            "the engine chosen in New match. Analyze again in the review can use another engine.",
+    )
+    Chips("Checker play depth", (1..4).toList(), s.checkerPlies, { "$it-ply" }) { n -> update { it.copy(checkerPlies = n) } }
+    if (s.checkerPlies == 4) {
+        Text(FOUR_PLY_CHECKER_NOTE, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+    }
+    if (s.checkerPlies > 1) {
+        Chips("Pruning", PRUNING, s.moveFilter, { if (it == MoveFilter.ALL) "Off" else "On" }) { f -> update { it.copy(moveFilter = f) } }
+        Text(PRUNING_NOTE, style = MaterialTheme.typography.labelSmall)
+    }
+    Chips("Cube decision depth", (1..4).toList(), s.cubePlies, { "$it-ply" }) { n -> update { it.copy(cubePlies = n) } }
+    Note(
+        "XG's ply numbering: 1-ply is the network alone, each further ply looks one roll deeper. Deeper is " +
+            "stronger but slower; the speed test times each depth on this phone and recommends one.",
+    )
+    OutlinedButton(onClick = onSpeedTest, modifier = Modifier.padding(top = 4.dp)) { Text("Speed test and recommendation") }
+    Toggle("Analyze the computer's decisions too", s.cpuAnalysis) { v -> update { it.copy(cpuAnalysis = v) } }
+    Note(
+        "Used for the computer's PR and its moves in review. Off (the default) makes the computer move " +
+            "sooner and the phone stay cooler; it then has no PR. Analyze again in the review can still " +
+            "analyze its moves later.",
+    )
+}
+
+@Composable
+private fun PlaySettings(s: Settings, update: (f: (Settings) -> Settings) -> Unit) {
+    Toggle("Roll automatically when I can't double", s.autoRoll) { v -> update { it.copy(autoRoll = v) } }
+    Note("In a game, the \"Keep rolling\" switch under the board also rolls when you could double, until you turn it off, the cube changes hands or the game ends.")
+    Toggle("Submit my move as soon as it is complete", s.autoConfirm) { v -> update { it.copy(autoConfirm = v) } }
+    Toggle("Play forced moves automatically", s.autoForced) { v -> update { it.copy(autoForced = v) } }
+    Toggle("Bear off automatically when contact is broken", s.autoBearOff) { v -> update { it.copy(autoBearOff = v) } }
+    Note("Plays the analysis engine's best bear-off for you; these moves are not counted in your PR. Cube decisions stay yours.")
+    Toggle("Confirm before I double", s.confirmDouble) { v -> update { it.copy(confirmDouble = v) } }
+    Toggle("Confirm before I pass", s.confirmPass) { v -> update { it.copy(confirmPass = v) } }
+    Note("The first tap asks (\"Double to 2?\", \"Pass?\"), a second tap within 3 seconds confirms.")
+    Chips("Autofinish: pause after each move", AutoFinishSpeed.entries, s.autoFinishSpeed, { it.label }) { a -> update { it.copy(autoFinishSpeed = a) } }
+    Note(
+        "Autofinish (in the game) lets the engine at 3-ply play your side to the end of the game; " +
+            "tap the screen to stop. Its moves are not counted in your statistics.",
+    )
+}
+
+@Composable
+private fun DisplaySettings(s: Settings, update: (f: (Settings) -> Settings) -> Unit) {
+    Toggle("Show pip counts", s.showPips) { v -> update { it.copy(showPips = v) } }
+    Chips("Winning chances meter (a hint!)", MeterMode.entries, s.meter, { it.label }) { v -> update { it.copy(meter = v) } }
+    Note("Your chances on the left, the computer's on the right; the darker parts are gammons and backgammons. With Bar, tap it to see the numbers.")
+    Chips("Arrows for the computer's move", CpuArrows.entries, s.cpuArrows, { it.label }) { v -> update { it.copy(cpuArrows = v) } }
+    Chips("Computer move animation", AnimationSpeed.entries, s.animation, { it.label }) { a -> update { it.copy(animation = a) } }
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Header("Board")
+    BoardSettings(s) { f -> update(f) }
+}
+
+@Composable
+private fun DataSettings(s: Settings, update: (f: (Settings) -> Settings) -> Unit, onClear: (ClearKind) -> Unit) {
+    Header("Exported files")
+    var name by remember { mutableStateOf(s.playerName) }
+    OutlinedTextField(
+        value = name,
+        onValueChange = { v -> name = v.take(30); update { it.copy(playerName = name) } },
+        label = { Text("Your name in exported files") },
+        supportingText = { Text("Shown in .mat files for eXtreme Gammon and GNU Backgammon; the computer is named after its engine and PR, e.g. \"PureTD PR 4\" or \"GNU BG PR <1\".") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Header("Data")
+    ClearKind.entries.forEach { k ->
+        OutlinedButton(onClick = { onClear(k) }, modifier = Modifier.padding(vertical = 2.dp)) {
+            Icon(Icons.Default.DeleteSweep, null)
+            Spacer(Modifier.width(6.dp))
+            Text(k.title)
+        }
+    }
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Header("Problems")
+    val context = LocalContext.current
+    OutlinedButton(onClick = { AppLog.sendReport(context) }) { Text("Send error report") }
+    Note(
+        "Opens your email app with a message to ${AppLog.SUPPORT_EMAIL} and the app's log attached " +
+            "(recent game events, engine problems and crashes, kept only on this phone). " +
+            "Nothing is sent until you send the email.",
+    )
 }
 
 /** The "clear" actions, offered in Settings and in History. */
@@ -862,6 +921,15 @@ fun AboutScreen(onBack: () -> Unit, onSpeedTest: () -> Unit = {}, onWelcome: () 
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+            // The company logo, in the version made for the theme's background (brand kit), with clear space around it.
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(
+                    if (androidx.compose.foundation.isSystemInDarkTheme()) com.boldblot.backgammonplyground.R.drawable.bold_blot_logo_dark
+                    else com.boldblot.backgammonplyground.R.drawable.bold_blot_logo_light,
+                ),
+                contentDescription = "Bold Blot Software",
+                modifier = Modifier.padding(vertical = 16.dp).width(240.dp),
+            )
             Text("Backgammon PlyGround", style = MaterialTheme.typography.titleLarge)
             Text(
                 "Version ${com.boldblot.backgammonplyground.BuildConfig.VERSION_NAME}, build ${com.boldblot.backgammonplyground.BuildConfig.BUILD_LABEL}",

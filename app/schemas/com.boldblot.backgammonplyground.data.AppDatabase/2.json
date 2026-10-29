@@ -1,0 +1,462 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "6054704c4be509a2ebb90b8d80d80dab",
+    "entities": [
+      {
+        "tableName": "matches",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `startedAt` INTEGER NOT NULL, `finishedAt` INTEGER, `length` INTEGER NOT NULL, `cpuLevel` TEXT NOT NULL, `useCube` INTEGER NOT NULL, `jacoby` INTEGER NOT NULL, `crawford` INTEGER NOT NULL, `humanScore` INTEGER NOT NULL, `cpuScore` INTEGER NOT NULL, `winner` INTEGER, `status` INTEGER NOT NULL, `games` INTEGER NOT NULL, `eloBefore` REAL, `eloAfter` REAL, `humanPerformance` TEXT, `cpuPerformance` TEXT, `inStats` INTEGER NOT NULL DEFAULT 1, `recordsCleared` INTEGER NOT NULL DEFAULT 0)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "startedAt",
+            "columnName": "startedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "finishedAt",
+            "columnName": "finishedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "length",
+            "columnName": "length",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cpuLevel",
+            "columnName": "cpuLevel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "useCube",
+            "columnName": "useCube",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "jacoby",
+            "columnName": "jacoby",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "crawford",
+            "columnName": "crawford",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "humanScore",
+            "columnName": "humanScore",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cpuScore",
+            "columnName": "cpuScore",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "winner",
+            "columnName": "winner",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "games",
+            "columnName": "games",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eloBefore",
+            "columnName": "eloBefore",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "eloAfter",
+            "columnName": "eloAfter",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "humanPerformance",
+            "columnName": "humanPerformance",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "cpuPerformance",
+            "columnName": "cpuPerformance",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "inStats",
+            "columnName": "inStats",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "recordsCleared",
+            "columnName": "recordsCleared",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "games",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `matchId` INTEGER NOT NULL, `number` INTEGER NOT NULL, `finishedAt` INTEGER NOT NULL, `winner` INTEGER NOT NULL, `winType` TEXT NOT NULL, `points` INTEGER NOT NULL, `summary` TEXT NOT NULL, `record` TEXT NOT NULL, `scoreBeforeHuman` INTEGER NOT NULL, `scoreBeforeCpu` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "matchId",
+            "columnName": "matchId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "number",
+            "columnName": "number",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "finishedAt",
+            "columnName": "finishedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "winner",
+            "columnName": "winner",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "winType",
+            "columnName": "winType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "points",
+            "columnName": "points",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "summary",
+            "columnName": "summary",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "record",
+            "columnName": "record",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scoreBeforeHuman",
+            "columnName": "scoreBeforeHuman",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scoreBeforeCpu",
+            "columnName": "scoreBeforeCpu",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_games_matchId",
+            "unique": false,
+            "columnNames": [
+              "matchId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_games_matchId` ON `${TABLE_NAME}` (`matchId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "current_match",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`slot` INTEGER NOT NULL, `json` TEXT NOT NULL, PRIMARY KEY(`slot`))",
+        "fields": [
+          {
+            "fieldPath": "slot",
+            "columnName": "slot",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "json",
+            "columnName": "json",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "slot"
+          ]
+        }
+      },
+      {
+        "tableName": "blunders",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `matchId` INTEGER NOT NULL, `gameNumber` INTEGER NOT NULL, `decisionIndex` INTEGER NOT NULL, `playedAt` INTEGER NOT NULL, `matchLength` INTEGER NOT NULL, `cpuLevel` TEXT NOT NULL, `error` REAL NOT NULL, `record` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "matchId",
+            "columnName": "matchId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gameNumber",
+            "columnName": "gameNumber",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "decisionIndex",
+            "columnName": "decisionIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "playedAt",
+            "columnName": "playedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "matchLength",
+            "columnName": "matchLength",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cpuLevel",
+            "columnName": "cpuLevel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "error",
+            "columnName": "error",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "record",
+            "columnName": "record",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_blunders_matchId_gameNumber_decisionIndex",
+            "unique": true,
+            "columnNames": [
+              "matchId",
+              "gameNumber",
+              "decisionIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_blunders_matchId_gameNumber_decisionIndex` ON `${TABLE_NAME}` (`matchId`, `gameNumber`, `decisionIndex`)"
+          }
+        ]
+      },
+      {
+        "tableName": "positions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `xgid` TEXT NOT NULL, `doubled` INTEGER NOT NULL, `beavers` INTEGER NOT NULL, `note` TEXT NOT NULL, `source` TEXT NOT NULL, `savedAt` INTEGER NOT NULL, `analysis` TEXT, `myAnswer` TEXT, `lastRight` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "xgid",
+            "columnName": "xgid",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "doubled",
+            "columnName": "doubled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "beavers",
+            "columnName": "beavers",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "savedAt",
+            "columnName": "savedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "analysis",
+            "columnName": "analysis",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "myAnswer",
+            "columnName": "myAnswer",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastRight",
+            "columnName": "lastRight",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "categories",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `sort` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sort",
+            "columnName": "sort",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "position_categories",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`positionId` INTEGER NOT NULL, `categoryId` INTEGER NOT NULL, PRIMARY KEY(`positionId`, `categoryId`))",
+        "fields": [
+          {
+            "fieldPath": "positionId",
+            "columnName": "positionId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "positionId",
+            "categoryId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_position_categories_categoryId",
+            "unique": false,
+            "columnNames": [
+              "categoryId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_position_categories_categoryId` ON `${TABLE_NAME}` (`categoryId`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '6054704c4be509a2ebb90b8d80d80dab')"
+    ]
+  }
+}

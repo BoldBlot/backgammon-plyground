@@ -11,6 +11,8 @@ import com.boldblot.backgammonplyground.core.Board
 import com.boldblot.backgammonplyground.core.CheckerAnalysis
 import com.boldblot.backgammonplyground.core.CpuLevel
 import com.boldblot.backgammonplyground.core.CubeEval
+import com.boldblot.backgammonplyground.core.CubeState
+import com.boldblot.backgammonplyground.core.DecisionRecord
 import com.boldblot.backgammonplyground.core.DecisionKind
 import com.boldblot.backgammonplyground.core.Dice
 import com.boldblot.backgammonplyground.core.DiceSource
@@ -31,11 +33,16 @@ import com.boldblot.backgammonplyground.core.OFF
 import com.boldblot.backgammonplyground.core.PerformanceTotals
 import com.boldblot.backgammonplyground.core.Phase
 import com.boldblot.backgammonplyground.core.Player
+import com.boldblot.backgammonplyground.core.Reanalysis
 import com.boldblot.backgammonplyground.core.Severity
 import com.boldblot.backgammonplyground.core.Step
 import com.boldblot.backgammonplyground.core.Summaries
 import com.boldblot.backgammonplyground.core.WinType
+import com.boldblot.backgammonplyground.data.AnalysisTiming
+import com.boldblot.backgammonplyground.data.CpuArrows
+import com.boldblot.backgammonplyground.data.GameKey
 import com.boldblot.backgammonplyground.data.MatchReport
+import com.boldblot.backgammonplyground.data.MeterMode
 import com.boldblot.backgammonplyground.data.Settings
 import com.boldblot.backgammonplyground.data.TrainingMode
 import com.boldblot.backgammonplyground.ui.board.ArrowColors
@@ -71,6 +78,8 @@ data class GameOverInfo(
     val afterMatch: Boolean = false,
     /** The game the mistake review opens on (the first with a mistake). */
     val reviewGame: Int = gameNumber,
+    /** Played without analysis ([AnalysisTiming.NONE]): the summary offers to analyze the match now. */
+    val offerAnalysis: Boolean = false,
 )
 
 /** "Try again" training: the prompt names the mistake; the answer shows only when asked ([revealed]). */
@@ -128,6 +137,12 @@ data class GameUiState(
     val notice: BoardNotice? = null,
     /** Resignation chosen while it was not the human's turn; offered at their next turn. */
     val queuedResign: WinType? = null,
+    /** Decisions of this match still waiting for the background analysis. */
+    val analysisLeft: Int = 0,
+    /** "Keep rolling": roll for the human even when they could double (until the cube changes or the game ends). */
+    val keepRolling: Boolean = false,
+    /** The meter in [MeterMode.BAR] shows its numbers after a tap, until the human's next decision. */
+    val meterNumbers: Boolean = false,
 )
 
 /** Autofinish can be started while a game is in progress and nothing else is pending. */
@@ -194,8 +209,15 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         viewModelScope.launch {
             app.settings.settings.collect { s ->
                 val checker = s.checkerDepth.code
-                controller.settings = AnalysisSettings(plies = checker, cubePlies = s.cubeDepth.code, cpuPlies = if (s.cpuAnalysis) checker else null)
+                controller.settings = AnalysisSettings(
+                    plies = checker, cubePlies = s.cubeDepth.code, cpuPlies = if (s.cpuAnalysis) checker else null,
+                    deferred = s.quietPlay && s.analysisTiming == AnalysisTiming.BACKGROUND,
+                    none = s.quietPlay && s.analysisTiming == AnalysisTiming.NONE,
+                )
+                val meterOn = s.meter != MeterMode.OFF && _state.value.settings.meter == MeterMode.OFF
                 _state.update { it.copy(settings = s) }
+                // The meter switched on (in Settings during a match): show it now, not after the next move.
+                if (meterOn) _state.value.match?.let { updateMeter(it) }
             }
         }
         viewModelScope.launch {
@@ -203,6 +225,9 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             val inStats = current?.let { repo.match(it.id)?.inStats } ?: true
             _state.update { it.copy(loading = false, inStats = inStats) }
             if (current != null) resume(current)
+            // Decisions left for the background analysis when the app was closed.
+            pendingGames += repo.gamesWithPending()
+            startBackgroundAnalysis()
         }
     }
 
@@ -219,6 +244,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             val id = repo.createMatch(rules, level, rate, engine)
             val m = MatchState(id = id, rules = rules, cpuLevel = level, mistakes = rate, engine = engine)
             pendingNext = null
+            analyzedNow.clear()
             _state.update { GameUiState(loading = false, settings = it.settings) }
             startGame(m)
         }
@@ -250,6 +276,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         val g = opened.game
         val opening = g.rolls.last().dice
         val starter = if (g.turn == Player.HUMAN) "You start" else "Computer starts"
+        _state.update { it.copy(keepRolling = false) }
         setMatch(opened, message = "Opening roll: you ${opening.d1}, computer ${opening.d2}. $starter.")
         continueFlow()
     }
@@ -302,10 +329,12 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                 hinted = if (g.phase == Phase.MOVING || g.phase == Phase.PRE_ROLL) it.hinted else false,
                 message = if (opts != null && !opts.canMove) "You rolled ${g.dice}: no legal move." else message,
                 lastCpuSteps = if (keepCpuMarkers) it.lastCpuSteps else emptyList(),
+                // "Keep rolling" ends when the cube changes hands.
+                keepRolling = it.keepRolling && keepRollingCube == g.cube,
             )
         }
-        viewModelScope.launch { repo.saveCurrent(m) }
-        if (settings.showMeter) updateMeter(m)
+        viewModelScope.launch { repo.saveCurrent(withAnalyzed(m)) }
+        if (settings.meter != MeterMode.OFF) updateMeter(m)
     }
 
     private fun updateMeter(m: MatchState) {
@@ -342,8 +371,9 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             g.phase == Phase.OVER -> viewModelScope.launch { handleGameOver(m) }
             g.turn == Player.CPU && g.resignOffer != null -> Unit // waiting for the human's answer
             g.turn == Player.CPU && g.phase != Phase.DOUBLED -> runCpu()
+            // Rolls by themselves when there is no cube decision to make, or with "Keep rolling" on.
             g.turn == Player.HUMAN && g.phase == Phase.PRE_ROLL &&
-                settings.autoRoll && (!g.mayDouble(m.rules, m.score) || g.board.closedOut(Player.HUMAN)) -> roll()
+                ((settings.autoRoll && !g.mayDouble(m.rules, m.score)) || st.keepRolling) -> roll()
             g.turn == Player.HUMAN && g.phase == Phase.MOVING -> playIfNoChoice(m)
             else -> Unit // waiting for the human
         }
@@ -390,30 +420,50 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         }
     }
 
+    private var arrowsJob: Job? = null
+
+    /** The computer's move checker by checker, leaving its arrows on the board as [Settings.cpuArrows] says. */
     private suspend fun animateCpuMove(start: Board, move: Move) {
         val stepDelay = settings.animation.stepMillis
+        val arrows = settings.cpuArrows
+        arrowsJob?.cancel()
         var b = start
         val shown = mutableListOf<Step>()
         for (s in move.steps) {
             b = b.applyStep(Player.CPU, s)
             shown += s
             if (stepDelay > 0) {
-                _state.update { it.copy(board = b, lastCpuSteps = shown.toList()) }
+                _state.update { it.copy(board = b, lastCpuSteps = if (arrows == CpuArrows.OFF) emptyList() else shown.toList()) }
                 delay(stepDelay)
             }
         }
-        _state.update { it.copy(lastCpuSteps = move.steps) }
+        _state.update { it.copy(lastCpuSteps = if (arrows == CpuArrows.OFF) emptyList() else move.steps) }
+        if (arrows == CpuArrows.ONE_SECOND && move.steps.isNotEmpty()) {
+            arrowsJob = viewModelScope.launch {
+                delay(1000)
+                _state.update { if (it.lastCpuSteps == move.steps) it.copy(lastCpuSteps = emptyList()) else it }
+            }
+        }
     }
 
     /**
      * The human's turn with no choice to make: with no legal move the turn passes after 0.5 s
      * (the roll stays visible); a forced move (only one resulting position) is played for them
-     * when [Settings.autoForced] is on. Not while a practice prompt is open or a move is being entered.
+     * when [Settings.autoForced] is on, and with [Settings.autoBearOff] a bear-off once contact is
+     * broken (the analysis engine's best play; not analyzed or counted). Not while a practice prompt
+     * is open or a move is being entered.
      */
     private fun playIfNoChoice(m: MatchState) {
         val opts = options ?: return
         val forced = opts.canMove && opts.isForced && settings.autoForced
-        if (opts.canMove && !forced) return
+        val bearOff = opts.canMove && !forced && settings.autoBearOff && m.game.board.isRace() && m.game.board.allHome(Player.HUMAN)
+        if (opts.canMove && !forced && !bearOff) {
+            return
+        }
+        if (bearOff) {
+            bearOff(m)
+            return
+        }
         if (humanAutoJob?.isActive == true && humanAutoFor === m) return
         humanAutoFor = m
         humanAutoJob = viewModelScope.launch {
@@ -446,6 +496,29 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         }
     }
 
+    /** Auto-bear-off: the analysis engine's best play for the human, played after a moment. */
+    private fun bearOff(m: MatchState) {
+        if (humanAutoJob?.isActive == true && humanAutoFor === m) return
+        humanAutoFor = m
+        humanAutoJob = viewModelScope.launch {
+            fun blocked(st: GameUiState) =
+                st.match !== m || st.busy || st.feedback != null || st.steps.isNotEmpty() || autoMode != null
+            delay(300)
+            if (blocked(_state.value)) return@launch
+            val move = engine("Bearing off…") { controller.hintMoves(m) }.candidates.firstOrNull()?.move ?: return@launch
+            if (blocked(_state.value)) return@launch
+            val notation = MoveNotation.format(m.game.board, Player.HUMAN, move)
+            showNotice(BoardNotice(BoardNotice.Kind.FORCED, "Bear-off", notation))
+            _state.update { it.copy(busy = true, message = "Bear-off: $notation.") }
+            try {
+                animateHumanMove(m.game.board, move)
+            } finally {
+                _state.update { it.copy(busy = false) }
+            }
+            applyHuman(engine { controller.humanMove(m, move, hinted = false, auto = true) }, before = m)
+        }
+    }
+
     /** Shows [n] in the middle of the board for [millis] (or until another notice replaces it). */
     private fun showNotice(n: BoardNotice, millis: Long = NOTICE_MILLIS) {
         noticeJob?.cancel()
@@ -456,14 +529,21 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         }
     }
 
-    private suspend fun handleGameOver(m: MatchState) {
+    private suspend fun handleGameOver(played: MatchState) {
         retry = null
+        // Decisions the background analysis finished during the game go into its record.
+        val m = withAnalyzed(played)
+        analyzedNow.keys.removeAll { it.first == m.gameNumber }
         val summary = Summaries.of(m.game, m.rules.length)
         val factor = XgRules.errorFactor(m.rules.length)
         val mistakes = m.game.decisions.count { d ->
             d.player == Player.HUMAN && !d.auto && XgRules.severity((d.scoredError ?: 0f) * factor).atLeast(Severity.ERROR)
         }
         repo.saveFinishedGame(m, summary)
+        if (m.game.decisions.any { it.pending }) {
+            pendingGames += GameKey(m.id, m.gameNumber)
+            startBackgroundAnalysis()
+        }
         val next = m.finishGame()
         if (next.isOver) {
             repo.finishMatch(next)
@@ -490,9 +570,11 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                     matchId = m.id, gameNumber = m.gameNumber, matchLength = m.rules.length, match = report,
                     mistakes = if (afterMatch) matchMistakes else mistakes, afterMatch = afterMatch,
                     reviewGame = firstMistake ?: m.gameNumber,
+                    offerAnalysis = settings.quietPlay && settings.analysisTiming == AnalysisTiming.NONE,
                 ),
             )
         }
+        updateAnalysisLeft()
     }
 
     fun nextGame() {
@@ -524,11 +606,12 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
 
     // ---- human actions -------------------------------------------------------------
 
-    /** Adds the human's decision behind [fb] to the blunder list if it was a blunder. */
+    /** Adds the human's decision behind [fb] to the blunder list if it is a big enough mistake ([Settings.blunderList]). */
     private fun saveBlunder(next: MatchState, fb: Feedback?) {
-        if (fb == null || fb.severity != Severity.BLUNDER) return
+        val min = settings.blunderList.minSeverity
+        if (fb == null || !fb.severity.atLeast(min)) return
         val index = next.game.decisions.indexOfLast { it == fb.decision }
-        if (index >= 0) viewModelScope.launch { repo.saveIfBlunder(next, index) }
+        if (index >= 0) viewModelScope.launch { repo.saveIfBlunder(next, index, min) }
     }
 
     /** Whether the practice prompt opens for [fb] now (not in [TrainingMode.AFTER_GAME]). */
@@ -576,7 +659,8 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             else -> listOfNotNull("Better this time.", message).joinToString(" ")
         }
         setMatch(next, message = text, keepCpuMarkers = false)
-        _state.update { it.copy(feedback = if (show) fb else null, retry = if (tryAgain) RetryUi() else null, hinted = false) }
+        _state.update { it.copy(feedback = if (show) fb else null, retry = if (tryAgain) RetryUi() else null, hinted = false, meterNumbers = false) }
+        if (next.game.decisions.any { it.pending }) startBackgroundAnalysis()
         if (show && !tryAgain && settings.pauseOnMistake) showPlayedVsBest(fb!!)
         continueFlow()
     }
@@ -839,6 +923,164 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                     _state.update { it.copy(cubeHint = c, hinted = true) }
                 }
             }
+        }
+    }
+
+    /** The cube when "Keep rolling" was switched on: it switches off when the cube changes hands. */
+    private var keepRollingCube: CubeState? = null
+
+    /** "Keep rolling" on or off: rolls for the human even when they could double. */
+    fun toggleKeepRolling() {
+        val m = _state.value.match ?: return
+        val on = !_state.value.keepRolling
+        keepRollingCube = m.game.cube
+        _state.update { it.copy(keepRolling = on) }
+        if (on) continueFlow()
+    }
+
+    /** The meter's numbers in [MeterMode.BAR], until the human's next decision. */
+    fun toggleMeterNumbers() = _state.update { it.copy(meterNumbers = !it.meterNumbers) }
+
+    /** "Don't ask again" on the Double or Pass confirmation. */
+    fun stopConfirming(double: Boolean) {
+        viewModelScope.launch { app.settings.update { if (double) it.copy(confirmDouble = false) else it.copy(confirmPass = false) } }
+    }
+
+    // ---- background analysis ----------------------------------------------------------
+
+    /** Finished games with decisions waiting for the background analysis. */
+    private val pendingGames = LinkedHashSet<GameKey>()
+    /** The current match's decisions analyzed in the background during their game: (game, index) → record. */
+    private val analyzedNow = HashMap<Pair<Int, Int>, DecisionRecord>()
+    private var analysisJob: Job? = null
+
+    /** A decision waiting for the background analysis, with what it needs from its match. */
+    private class PendingDecision(
+        val matchId: Long, val gameNumber: Int, val index: Int, val decision: DecisionRecord,
+        val matchLength: Int, val jacoby: Boolean, val opponentKey: String, val saved: Boolean,
+    )
+
+    /** [m] with the decisions of its game that the background analysis has finished. */
+    private fun withAnalyzed(m: MatchState): MatchState {
+        if (analyzedNow.keys.none { it.first == m.gameNumber }) return m
+        val decisions = m.game.decisions.mapIndexed { i, d -> if (d.pending) analyzedNow[m.gameNumber to i] ?: d else d }
+        return m.copy(game = m.game.copy(decisions = decisions))
+    }
+
+    /**
+     * The background analysis waits while the computer plays (its moves never wait for more than
+     * the decision being analyzed) and during autofinish.
+     */
+    private fun idleForAnalysis(st: GameUiState): Boolean {
+        if (st.busy || autoMode != null) return false
+        val g = st.match?.game ?: return true
+        return g.turn != Player.CPU || g.resignOffer != null || g.phase !in setOf(Phase.PRE_ROLL, Phase.MOVING)
+    }
+
+    private fun startBackgroundAnalysis() {
+        if (analysisJob?.isActive == true) return
+        analysisJob = viewModelScope.launch {
+            while (true) {
+                updateAnalysisLeft()
+                state.first { idleForAnalysis(it) }
+                val next = nextPending() ?: break
+                analyze(next)
+            }
+            updateAnalysisLeft()
+        }
+    }
+
+    /** The oldest decision waiting: in finished games first, then in the game being played. */
+    private suspend fun nextPending(): PendingDecision? {
+        while (pendingGames.isNotEmpty()) {
+            val key = pendingGames.first()
+            val saved = repo.savedGame(key.matchId, key.number)
+            val i = saved?.second?.decisions?.indexOfFirst { it.pending } ?: -1
+            val match = if (i >= 0) repo.match(key.matchId) else null
+            if (saved == null || match == null || i < 0) {
+                pendingGames.remove(key)
+                continue
+            }
+            return PendingDecision(key.matchId, key.number, i, saved.second.decisions[i], match.length, match.jacoby, match.cpuLevel, saved = true)
+        }
+        val m = _state.value.match ?: return null
+        // A finished game's decisions are taken from its saved record (handleGameOver).
+        if (m.game.phase == Phase.OVER) return null
+        val i = m.game.decisions.indices.firstOrNull { m.game.decisions[it].pending && (m.gameNumber to it) !in analyzedNow } ?: return null
+        return PendingDecision(m.id, m.gameNumber, i, m.game.decisions[i], m.rules.length, m.rules.jacoby, m.opponentKey, saved = false)
+    }
+
+    private suspend fun analyze(p: PendingDecision) {
+        val s = settings
+        val done = try {
+            engineService.run { Reanalysis(this, s.checkerDepth.code, s.cubeDepth.code).decision(p.decision, p.matchLength, p.jacoby) }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            AppLog.error("Background analysis failed", e)
+            p.decision
+        }.copy(pending = false)
+        if (p.saved) {
+            val (e, g) = repo.savedGame(p.matchId, p.gameNumber) ?: return
+            if (g.decisions.getOrNull(p.index)?.pending != true) return
+            val game = g.copy(decisions = g.decisions.toMutableList().also { it[p.index] = done })
+            repo.saveReanalyzedGame(e, game, p.matchLength)
+            refreshGameOver(p.matchId, p.gameNumber, game, p.matchLength)
+        } else {
+            // Kept aside while the game goes on (the game's state is not touched mid-play) and saved with it.
+            analyzedNow[p.gameNumber to p.index] = done
+            _state.value.match?.takeIf { it.id == p.matchId }?.let { repo.saveCurrent(withAnalyzed(it)) }
+        }
+        if (done.player == Player.HUMAN) {
+            repo.saveIfBlunder(done, p.matchId, p.gameNumber, p.index, p.matchLength, p.opponentKey, s.blunderList.minSeverity)
+        }
+    }
+
+    /** The end-of-game summary of [matchId] with game [number] analyzed further ([game]). */
+    private suspend fun refreshGameOver(matchId: Long, number: Int, game: com.boldblot.backgammonplyground.core.GameState, matchLength: Int) {
+        val info = _state.value.gameOver?.takeIf { it.matchId == matchId } ?: return
+        val summary = if (info.gameNumber == number) Summaries.of(game, matchLength) else null
+        val factor = XgRules.errorFactor(matchLength)
+        val gameMistakes = if (summary != null) game.decisions.count { d ->
+            d.player == Player.HUMAN && !d.auto && XgRules.severity((d.scoredError ?: 0f) * factor).atLeast(Severity.ERROR)
+        } else info.mistakes
+        val (matchMistakes, firstMistake) = if (info.afterMatch) repo.humanMistakes(matchId) else 0 to null
+        val report = runCatching { repo.matchReport(matchId) }.getOrNull()
+        _state.update { st ->
+            val cur = st.gameOver?.takeIf { it.matchId == matchId } ?: return@update st
+            st.copy(
+                gameOver = cur.copy(
+                    gamePerformance = summary?.performance?.get(0) ?: cur.gamePerformance,
+                    cpuPerformance = summary?.performance?.get(1) ?: cur.cpuPerformance,
+                    match = report ?: cur.match,
+                    mistakes = if (cur.afterMatch) matchMistakes else gameMistakes,
+                    reviewGame = if (cur.afterMatch) firstMistake ?: cur.reviewGame else cur.reviewGame,
+                ),
+            )
+        }
+    }
+
+    /** Counts the decisions of the current match (or the one whose summary is open) still to analyze. */
+    private suspend fun updateAnalysisLeft() {
+        val st = _state.value
+        val id = st.gameOver?.matchId ?: st.match?.id
+        var n = 0
+        if (id != null) {
+            for (key in pendingGames.filter { it.matchId == id }) {
+                n += repo.savedGame(key.matchId, key.number)?.second?.decisions?.count { it.pending } ?: 0
+            }
+            st.match?.takeIf { it.id == id && it.game.phase != Phase.OVER }?.let { m ->
+                n += m.game.decisions.indices.count { m.game.decisions[it].pending && (m.gameNumber to it) !in analyzedNow }
+            }
+        }
+        _state.update { it.copy(analysisLeft = n) }
+    }
+
+    /** "Analyze now" after a match played without analysis: its decisions go to the background analysis. */
+    fun analyzeMatchNow(matchId: Long) {
+        viewModelScope.launch {
+            pendingGames += repo.markForAnalysis(matchId, cpu = settings.cpuAnalysis)
+            _state.update { st -> st.copy(gameOver = st.gameOver?.copy(offerAnalysis = false)) }
+            startBackgroundAnalysis()
         }
     }
 

@@ -113,6 +113,8 @@ interface AnalysisEngine {
     fun chooseMove(board: Board, ctx: CubeContext, d1: Int, d2: Int, level: CpuLevel): Move
     fun cubeDecision(board: Board, ctx: CubeContext, plies: Int): CubeEval
     fun cubeDecisionAtLevel(board: Board, ctx: CubeContext, level: CpuLevel): CubeEval
+    /** [cubeDecision] if it was the engine's last cube evaluation (free), otherwise null. */
+    fun cachedCube(board: Board, ctx: CubeContext, plies: Int): CubeEval? = null
     fun luck(board: Board, ctx: CubeContext, d1: Int, d2: Int, firstRoll: Boolean): Float
     fun positionId(board: Board, onRoll: Int): String
     fun matchId(ctx: CubeContext, d1: Int, d2: Int): String

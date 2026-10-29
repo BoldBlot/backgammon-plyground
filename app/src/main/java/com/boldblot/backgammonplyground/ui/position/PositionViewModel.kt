@@ -19,6 +19,7 @@ import com.boldblot.backgammonplyground.core.MatchController
 import com.boldblot.backgammonplyground.core.Player
 import com.boldblot.backgammonplyground.core.PositionIds
 import com.boldblot.backgammonplyground.core.PositionSetup
+import com.boldblot.backgammonplyground.core.StudyPosition
 import com.boldblot.backgammonplyground.data.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -93,7 +94,7 @@ data class Edited(
 )
 
 /** Position editor and analysis. */
-class PositionViewModel(private val app: PlyGroundApp) : ViewModel() {
+class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
 
     private val _state = MutableStateFlow(PositionState())
     val state: StateFlow<PositionState> = _state.asStateFlow()
@@ -260,6 +261,18 @@ class PositionViewModel(private val app: PlyGroundApp) : ViewModel() {
             crawford = st.isCrawford, jacoby = st.jacoby, format = "",
         )
         return if (xgid) PositionIds.toXgid(s) else PositionIds.toGnu(s)
+    }
+
+    /** The position for My positions (the player on roll at the bottom), or null while it has a problem. */
+    fun study(): StudyPosition? {
+        val st = _state.value
+        if (st.problem != null) return null
+        val s = PositionSetup(
+            board = st.board, onRoll = st.onRoll, dice = if (st.hasDice) Dice(st.dice[0]!!, st.dice[1]!!) else null,
+            cube = if (st.isCrawford) CubeState() else st.cube, matchLength = st.matchLength, score = st.score,
+            crawford = st.isCrawford, jacoby = st.jacoby, format = "XGID",
+        )
+        return StudyPosition(StudyPosition.turned(s, st.onRoll), doubled = false, beavers = false)
     }
 
     fun setEngine(e: EngineKind) = _state.update { it.copy(engineChoice = e) }

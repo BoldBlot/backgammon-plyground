@@ -65,6 +65,7 @@ class EngineService(private val context: Context) {
         override fun chooseMove(board: Board, ctx: CubeContext, d1: Int, d2: Int, level: CpuLevel) = e.chooseMove(board, ctx, d1, d2, level)
         override fun cubeDecision(board: Board, ctx: CubeContext, plies: Int) = e.cubeDecision(board, ctx, plies)
         override fun cubeDecisionAtLevel(board: Board, ctx: CubeContext, level: CpuLevel) = e.cubeDecisionAtLevel(board, ctx, level)
+        override fun cachedCube(board: Board, ctx: CubeContext, plies: Int) = e.cachedCube(board, ctx, plies)
         override fun luck(board: Board, ctx: CubeContext, d1: Int, d2: Int, firstRoll: Boolean) = e.luck(board, ctx, d1, d2, firstRoll)
         override fun positionId(board: Board, onRoll: Int) = e.positionId(board, onRoll)
         override fun matchId(ctx: CubeContext, d1: Int, d2: Int) = e.matchId(ctx, d1, d2)

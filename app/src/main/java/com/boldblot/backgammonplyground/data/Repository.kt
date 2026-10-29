@@ -13,6 +13,7 @@ import com.boldblot.backgammonplyground.core.GameSummary
 import com.boldblot.backgammonplyground.core.MatchRules
 import com.boldblot.backgammonplyground.core.MatchState
 import com.boldblot.backgammonplyground.core.PerformanceTotals
+import com.boldblot.backgammonplyground.core.Severity
 import com.boldblot.backgammonplyground.core.Summaries
 import com.boldblot.backgammonplyground.core.Player
 import com.boldblot.backgammonplyground.core.WinType
@@ -182,6 +183,30 @@ class Repository(private val db: AppDatabase) {
 
     suspend fun match(id: Long): MatchEntity? = dao.match(id)
 
+    /** Game [number] of match [matchId] with its record, or null (records cleared). */
+    suspend fun savedGame(matchId: Long, number: Int): Pair<GameEntity, GameState>? =
+        dao.game(matchId, number)?.let { e -> runCatching { e to AppJson.decodeFromString<GameState>(e.record) }.getOrNull() }
+
+    /** Finished games with decisions waiting for the background analysis, oldest first. */
+    suspend fun gamesWithPending(): List<GameKey> = dao.gamesWithPending()
+
+    /**
+     * Marks match [matchId]'s decisions that were not analyzed (the human's, and the computer's too
+     * with [cpu]; not autofinish's) for the background analysis. Returns the games that have some.
+     */
+    suspend fun markForAnalysis(matchId: Long, cpu: Boolean): List<GameKey> = games(matchId).mapNotNull { (e, g) ->
+        var marked = false
+        val decisions = g.decisions.map { d ->
+            if (!d.auto && !d.pending && d.checker == null && d.cubeEval == null && (cpu || d.player == Player.HUMAN)) {
+                marked = true
+                d.copy(pending = true)
+            } else d
+        }
+        if (!marked) return@mapNotNull null
+        dao.updateGame(e.copy(record = AppJson.encodeToString(g.copy(decisions = decisions))))
+        GameKey(matchId, e.number)
+    }
+
     /** The human's errors and blunders in match [matchId]'s finished games, and the first game that has any. */
     suspend fun humanMistakes(matchId: Long): Pair<Int, Int?> {
         val games = gameSummaries(matchId)
@@ -273,15 +298,20 @@ class Repository(private val db: AppDatabase) {
 
     // ---- blunder list ----------------------------------------------------------------
 
-    /** Saves the decision at [index] of [m]'s current game if it is one of the human's blunders. */
-    suspend fun saveIfBlunder(m: MatchState, index: Int) {
+    /** Saves the decision at [index] of [m]'s current game if it is one of the human's mistakes of at least [min]. */
+    suspend fun saveIfBlunder(m: MatchState, index: Int, min: Severity = Severity.BLUNDER) {
         val d = m.game.decisions.getOrNull(index) ?: return
-        val error = (d.error ?: return) * XgRules.errorFactor(m.rules.length)
-        if (!Blunders.isBlunder(d, error)) return
+        saveIfBlunder(d, m.id, m.gameNumber, index, m.rules.length, m.opponentKey, min)
+    }
+
+    /** Saves [d] (decision [index] of game [gameNumber] of match [matchId]) if it is one of the human's mistakes of at least [min]. */
+    suspend fun saveIfBlunder(d: DecisionRecord, matchId: Long, gameNumber: Int, index: Int, matchLength: Int, opponentKey: String, min: Severity) {
+        val error = (d.error ?: return) * XgRules.errorFactor(matchLength)
+        if (!Blunders.isBlunder(d, error, min)) return
         dao.insertBlunder(
             BlunderEntity(
-                matchId = m.id, gameNumber = m.gameNumber, decisionIndex = index,
-                playedAt = System.currentTimeMillis(), matchLength = m.rules.length, cpuLevel = m.opponentKey,
+                matchId = matchId, gameNumber = gameNumber, decisionIndex = index,
+                playedAt = System.currentTimeMillis(), matchLength = matchLength, cpuLevel = opponentKey,
                 error = error, record = AppJson.encodeToString(d),
             ),
         )

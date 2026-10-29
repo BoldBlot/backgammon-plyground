@@ -59,6 +59,8 @@ data class DecisionRecord(
     val beavers: Boolean = false,
     /** "Try again" training: the player's first try at this decision (what PR counts); this record is the last try. */
     val firstTry: FirstTry? = null,
+    /** Waiting for the background analysis (see [AnalysisSettings.deferred]); not analyzed or counted yet. */
+    val pending: Boolean = false,
 ) {
     /** The error PR and the mistake lists use: the first try's when the decision was tried again. */
     val scoredError: Float? get() = firstTry?.error ?: error

@@ -110,6 +110,23 @@ abstract class SearchEngine : AnalysisEngine {
         )
     }
 
+    /** The engine's cube decision for [ctx].onRoll at XG depth [plies] ([cubeDecision] caches it). */
+    protected abstract fun computeCube(board: Board, ctx: CubeContext, plies: Int): CubeEval
+
+    /** The last cube decision: the computer's own and the analysis of it are often the same evaluation. */
+    private var cubeKey: Any? = null
+    private var cubeCached: CubeEval? = null
+
+    private fun cubeKeyOf(board: Board, ctx: CubeContext, plies: Int) = listOf(board, ctx, Depth.of(plies).plies)
+
+    final override fun cubeDecision(board: Board, ctx: CubeContext, plies: Int): CubeEval {
+        cachedCube(board, ctx, plies)?.let { return it }
+        return computeCube(board, ctx, plies).also { cubeKey = cubeKeyOf(board, ctx, plies); cubeCached = it }
+    }
+
+    override fun cachedCube(board: Board, ctx: CubeContext, plies: Int): CubeEval? =
+        cubeCached?.takeIf { cubeKey == cubeKeyOf(board, ctx, plies) }
+
     override fun cubeDecisionAtLevel(board: Board, ctx: CubeContext, level: CpuLevel): CubeEval {
         val e = cubeDecision(board, ctx, levelPlies(level))
         val noise = levelNoise(level)

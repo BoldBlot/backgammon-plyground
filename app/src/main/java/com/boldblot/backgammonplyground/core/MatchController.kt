@@ -26,8 +26,15 @@ data class AnalysisSettings(
     val luck: Boolean = true,
     /** Depth for the computer's checker plays (for its PR and for review); null = the computer is not analyzed. */
     val cpuPlies: Int? = MAX_PLIES,
+    /**
+     * Decisions are recorded [DecisionRecord.pending] instead of analyzed on the spot, for the
+     * background analysis (nothing is shown during play). An evaluation the engine already has is used.
+     */
+    val deferred: Boolean = false,
+    /** Nothing is analyzed during play (pending or not): the player analyzes later. */
+    val none: Boolean = false,
 ) {
-    val analyzeCpu: Boolean get() = cpuPlies != null
+    val analyzeCpu: Boolean get() = cpuPlies != null && !none
 }
 
 /** Shown to the human after a decision (practice mode). */
@@ -128,8 +135,8 @@ class MatchController(
         )
     }
 
-    /** Records a checker play, analyzed at [plies] (null = not analyzed). */
-    private fun recordChecker(m: MatchState, move: Move, hinted: Boolean, plies: Int?, auto: Boolean = false): Pair<MatchState, DecisionRecord> {
+    /** Records a checker play, analyzed at [plies] (null = not analyzed; [pending]: by the background analysis). */
+    private fun recordChecker(m: MatchState, move: Move, hinted: Boolean, plies: Int?, auto: Boolean = false, pending: Boolean = false): Pair<MatchState, DecisionRecord> {
         val g = m.game
         val d = requireNotNull(g.dice)
         val player = g.turn
@@ -138,7 +145,7 @@ class MatchController(
             dice = d, move = move, checker = analysis,
             error = analysis?.error,
             counted = analysis != null && analysis.isDecision && !hinted && !auto,
-            hinted = hinted, auto = auto,
+            hinted = hinted, auto = auto, pending = pending && analysis == null,
         )
         val next = m.copy(game = g.record(rec).move(move, m.rules))
         return next to rec
@@ -192,11 +199,38 @@ class MatchController(
     /** Cube analysis from the point of view of the player on roll (the potential doubler), at [plies]. */
     fun analyzeCube(m: MatchState, plies: Int = settings.cubePlies): CubeEval = engine.cubeDecision(m.game.board, m.ctx(), plies)
 
-    /** The computer's cube analysis (null when the computer is not analyzed), reusing [eval] when there is one. */
+    /** Whether a decision of the human (not autofinish's) is analyzed now: null = not at all. */
+    private fun humanAnalysis(auto: Boolean): Analysis = when {
+        auto || settings.none -> Analysis.NONE
+        settings.deferred -> Analysis.LATER
+        else -> Analysis.NOW
+    }
+
+    private enum class Analysis { NOW, LATER, NONE }
+
+    /** The cube analysis for a decision analyzed [how]: now, or later unless the engine already has it. */
+    private fun cubeAnalysis(m: MatchState, how: Analysis): CubeEval? = when (how) {
+        Analysis.NOW -> analyzeCube(m)
+        Analysis.LATER -> engine.cachedCube(m.game.board, m.ctx(), settings.cubePlies)
+        Analysis.NONE -> null
+    }
+
+    /** The computer's cube analysis (null when the computer is not analyzed now), reusing [eval] when there is one. */
     private fun cpuCubeAnalysis(m: MatchState, eval: CubeEval?): CubeEval? {
         if (!settings.analyzeCpu) return null
-        return eval ?: analyzeCube(m)
+        return eval ?: cubeAnalysis(m, if (settings.deferred) Analysis.LATER else Analysis.NOW)
     }
+
+    /** A record whose analysis is still to come: pending unless it has one or is not analyzed at all. */
+    private fun DecisionRecord.later(how: Analysis): DecisionRecord =
+        if (how == Analysis.LATER && cubeEval == null && checker == null) copy(pending = true) else this
+
+    private val cpuAnalysis: Analysis
+        get() = when {
+            !settings.analyzeCpu -> Analysis.NONE
+            settings.deferred -> Analysis.LATER
+            else -> Analysis.NOW
+        }
 
     // ---- human actions ------------------------------------------------------
 
@@ -208,10 +242,11 @@ class MatchController(
         require(m.game.phase == Phase.PRE_ROLL && m.game.turn == Player.HUMAN)
         var state = m
         var feedback: Feedback? = null
-        if (!auto && m.game.mayDouble(m.rules, m.score)) {
-            val eval = analyzeCube(m)
-            if (eval.cubeAvailable) {
-                val rec = recordDoubleDecision(m, doubled = false, eval = eval, hinted = hinted)
+        val how = humanAnalysis(auto)
+        if (how != Analysis.NONE && m.game.mayDouble(m.rules, m.score)) {
+            val eval = cubeAnalysis(m, how)
+            if (eval == null || eval.cubeAvailable) {
+                val rec = recordDoubleDecision(m, doubled = false, eval = eval, hinted = hinted).later(how)
                 state = state.copy(game = state.game.record(rec))
                 feedback = feedbackFor(m, rec)
             }
@@ -226,16 +261,18 @@ class MatchController(
      */
     fun humanDouble(m: MatchState, hinted: Boolean = false, auto: Boolean = false): Pair<MatchState, Feedback?> {
         require(m.game.mayDouble(m.rules, m.score) && m.game.turn == Player.HUMAN)
-        val eval = if (auto) null else analyzeCube(m)
-        val rec = recordDoubleDecision(m, doubled = true, eval = eval, hinted = hinted, auto = auto)
+        val how = humanAnalysis(auto)
+        // The computer's view first: at the same depth and engine it is also the analysis.
+        val cpuView = cpuCubeView(m)
+        val eval = cubeAnalysis(m, how)
+        val rec = recordDoubleDecision(m, doubled = true, eval = eval, hinted = hinted, auto = auto).later(how)
         val feedback = feedbackFor(m, rec)
         var state = m.copy(game = m.game.record(rec).double())
 
         // Computer's response at its playing strength.
-        val cpuView = cpuCubeView(m)
         val take = mistakeMaker(m)?.take(cpuView, factor(m)) ?: cpuView.shouldTake
         val kind = responseKind(m, take, beaver = cpuView.doubleTake < 0f)
-        val cpuRec = recordTakeDecision(state, kind, cpuCubeAnalysis(m, eval), hinted = false)
+        val cpuRec = recordTakeDecision(state, kind, cpuCubeAnalysis(m, eval), hinted = false).later(cpuAnalysis)
         state = state.copy(game = respond(state.game.record(cpuRec), kind, m.rules))
         return state to feedback
     }
@@ -246,14 +283,15 @@ class MatchController(
      */
     fun humanRespond(m: MatchState, take: Boolean, hinted: Boolean = false, auto: Boolean = false, beaver: Boolean = false): Pair<MatchState, Feedback?> {
         require(m.game.phase == Phase.DOUBLED && m.game.responder == Player.HUMAN)
-        val eval = if (auto) null else analyzeCube(m)
+        val how = humanAnalysis(auto)
+        val eval = cubeAnalysis(m, how)
         val kind = responseKind(m, take, beaver)
-        val rec = recordTakeDecision(m, kind, eval, hinted, auto)
+        val rec = recordTakeDecision(m, kind, eval, hinted, auto).later(how)
         var state = m.copy(game = respond(m.game.record(rec), kind, m.rules))
         if (state.game.phase == Phase.BEAVERED) {
             // The computer answers the beaver: a raccoon pays when the double was right for it.
             val raccoon = cpuCubeView(m).doubleTake > 0f
-            val cpuRec = recordRaccoonDecision(state, raccoon, cpuCubeAnalysis(m, eval), hinted = false)
+            val cpuRec = recordRaccoonDecision(state, raccoon, cpuCubeAnalysis(m, eval), hinted = false).later(cpuAnalysis)
             state = state.copy(game = state.game.record(cpuRec).let { if (raccoon) it.raccoon() else it.acceptBeaver() })
         }
         return state to feedbackFor(m, rec)
@@ -262,8 +300,8 @@ class MatchController(
     /** The human answers the computer's beaver: plays on at 4× or raccoons to 8×. */
     fun humanAnswerBeaver(m: MatchState, raccoon: Boolean, hinted: Boolean = false, auto: Boolean = false): Pair<MatchState, Feedback?> {
         require(m.game.phase == Phase.BEAVERED && m.game.turn == Player.HUMAN)
-        val eval = if (auto) null else analyzeCube(m)
-        val rec = recordRaccoonDecision(m, raccoon, eval, hinted, auto)
+        val how = humanAnalysis(auto)
+        val rec = recordRaccoonDecision(m, raccoon, cubeAnalysis(m, how), hinted, auto).later(how)
         val g = m.game.record(rec).let { if (raccoon) it.raccoon() else it.acceptBeaver() }
         return m.copy(game = g) to feedbackFor(m, rec)
     }
@@ -271,7 +309,8 @@ class MatchController(
     /** The human plays [move] (must be legal for the current dice). [auto]: played by autofinish (not analyzed or counted). */
     fun humanMove(m: MatchState, move: Move, hinted: Boolean = false, auto: Boolean = false): Pair<MatchState, Feedback?> {
         require(m.game.phase == Phase.MOVING && m.game.turn == Player.HUMAN)
-        val (next, rec) = recordChecker(m, move, hinted, plies = if (auto) null else settings.plies, auto = auto)
+        val how = humanAnalysis(auto)
+        val (next, rec) = recordChecker(m, move, hinted, plies = settings.plies.takeIf { how == Analysis.NOW }, auto = auto, pending = how == Analysis.LATER)
         return next to feedbackFor(m, rec)
     }
 
@@ -370,14 +409,16 @@ class MatchController(
                 cpuResignation(m)?.let { return m.copy(game = g.offerResign(it)) to CpuAction.OffersResign(it) }
                 if (g.mayDouble(m.rules, m.score)) {
                     val view = cpuCubeView(m)
-                    val analysis = if (settings.analyzeCpu) analyzeCube(m) else null
+                    val how = cpuAnalysis
+                    val analysis = cubeAnalysis(m, how)
                     val doubles = mistakeMaker(m)?.double(view, factor(m)) ?: view.shouldDouble
                     if (view.cubeAvailable && doubles) {
-                        val rec = recordDoubleDecision(m, doubled = true, eval = analysis, hinted = false)
+                        val rec = recordDoubleDecision(m, doubled = true, eval = analysis, hinted = false).later(how)
                         return m.copy(game = g.record(rec).double()) to CpuAction.Doubled
                     }
-                    if (view.cubeAvailable && analysis != null && analysis.cubeAvailable) {
-                        val rec = recordDoubleDecision(m, doubled = false, eval = analysis, hinted = false)
+                    val recorded = if (analysis != null) analysis.cubeAvailable else how == Analysis.LATER
+                    if (view.cubeAvailable && recorded) {
+                        val rec = recordDoubleDecision(m, doubled = false, eval = analysis, hinted = false).later(how)
                         return rollDice(m.copy(game = g.record(rec))) to CpuAction.Rolled
                     }
                 }
@@ -389,7 +430,8 @@ class MatchController(
                 val move = if (maker != null) {
                     maker.checker(cpu(m).rankMoves(g.board, m.ctx(), d.d1, d.d2, requireNotNull(m.mistakes).checkerDepth, null).candidates, factor(m))
                 } else cpu(m).chooseMove(g.board, m.ctx(), d.d1, d.d2, m.cpuLevel)
-                val (next, _) = recordChecker(m, move, hinted = false, plies = settings.cpuPlies)
+                val how = cpuAnalysis
+                val (next, _) = recordChecker(m, move, hinted = false, plies = settings.cpuPlies.takeIf { how == Analysis.NOW }, pending = how == Analysis.LATER)
                 next to CpuAction.Moved(move)
             }
             else -> error("computer cannot act in phase ${g.phase}")
