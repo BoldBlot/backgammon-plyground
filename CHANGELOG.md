@@ -1,29 +1,5 @@
 # Changelog
 
-Unreleased (0.7.1, internal test build 37.1):
-- My positions (experimental): save a position from your blunder list, a game review or Analyze
-  Position into categories of your own, with a note and, if you like, your own right answer. Quiz
-  yourself on the categories you pick: make the play or the cube decision, and see how it compares.
-  Export categories as a file to share by Bluetooth, Quick Share or email; PlyGround imports it, and
-  also imports a list of XGIDs.
-- Analysis no longer holds up play when nothing is shown during the game ("Show mistakes after the
-  match", or immediately with the practice prompt off): it runs in the background while you think,
-  or not at all (Settings → Training). The summary shows what is still being analyzed.
-- Settings are grouped into Training, Analysis, Play, Display, and Data and help; the game's ⋮
-  menu opens them during a match.
-- Keep rolling: rolls for you even when you could double, until you turn it off, the cube changes
-  hands or the game ends.
-- Auto-roll no longer skips your cube decision when you are on the bar against a closed board.
-- Bear off automatically once contact is broken (Settings → Play, off by default; not counted).
-- Double and Pass ask for a second tap (Settings → Play; "Don't ask again" on the button).
-- Arrows for the computer's move: until your move, for 1 second, or off (Settings → Display).
-- Winning chances meter: one bar for both sides with gammons and backgammons, in portrait too;
-  numbers on request (Settings → Display). Turning it on mid-game shows it at once.
-- Blunder list: blunders only, or errors and blunders (Settings → Training).
-- When the computer's cube decision is analyzed at the same depth and engine it played with, it is
-  worked out once instead of twice.
-- About shows the Bold Blot logo.
-
 Build 37 — 2026-10-28:
 - Welcome screen, shown once on a new install or after an update, and again for each new version:
   what a ply is, and how long you want to wait for analysis during the game. Zero wait (1-ply),
