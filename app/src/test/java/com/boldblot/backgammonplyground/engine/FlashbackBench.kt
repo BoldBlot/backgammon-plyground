@@ -19,7 +19,8 @@ import java.io.File
  * play=equity;play=equity...`. Each engine's best play costs what its card says (a play the card
  * does not list costs as much as its worst listed play). Settings by environment: FB_INPUT,
  * FB_OUT, FB_ENGINES (ptd,gnu,sage), FB_SET (part of the set|deck name), FB_LIMIT, FB_PLIES,
- * FB_FILTER (a MoveFilter: WIDE = pruned, as in the app; ALL = every play at full depth).
+ * FB_FILTER (a MoveFilter: WIDE = pruned, as in the app; ALL = every play at full depth),
+ * FB_CUBEFUL=1 (PureTD scores money checker plays with its cubeful network), FB_MONEY=1 (money positions only).
  */
 class FlashbackBench {
 
@@ -48,6 +49,8 @@ class FlashbackBench {
                 else -> error("unknown engine $name (ptd, gnu, sage)")
             }
         }
+        TestEngine.engine!!.cubefulCheckers = System.getenv("FB_CUBEFUL") == "1"
+        val moneyOnly = System.getenv("FB_MONEY") == "1"
         val set = System.getenv("FB_SET")?.takeIf { it.isNotBlank() }
         val limit = System.getenv("FB_LIMIT")?.toIntOrNull() ?: Int.MAX_VALUE
         val depth = Depth((System.getenv("FB_PLIES") ?: "3").toInt(), MoveFilter.valueOf(System.getenv("FB_FILTER") ?: "WIDE"))
@@ -59,6 +62,7 @@ class FlashbackBench {
             if (kind != "C" || (set != null && !group.contains(set))) continue
             if (n++ >= limit) break
             val s = PositionIds.parseXgid(xgid)
+            if (moneyOnly && s.matchLength != 0) continue
             val dice = s.dice ?: continue
             val ctx = CubeContext(s.matchLength, s.score, s.crawford, s.jacoby, s.cube, s.onRoll)
             val plays = xg.split(';').mapNotNull { p -> apply(s.board, s.onRoll, p.substringBefore('='))?.let { it to p.substringAfter('=').toFloat() } }

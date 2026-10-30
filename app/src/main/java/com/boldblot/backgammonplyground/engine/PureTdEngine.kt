@@ -21,6 +21,14 @@ import com.boldblot.backgammonplyground.core.moneyJanowski
  */
 class PureTdEngine(private val handle: Long, private val met: MatchEquityTable = MatchEquityTable.DEFAULT) : SearchEngine() {
 
+    /**
+     * Experimental (off in the app): money checker plays scored with the cubeful network. Each
+     * position after a play is the opponent's turn, valued by the cube-aware money search (the
+     * money cube decisions' search, cubeful network at its leaves) as deep as the prob5 search
+     * would look; the mover's equity is minus the opponent's best (double or not).
+     */
+    @Volatile var cubefulCheckers: Boolean = false
+
     // ---- positions ------------------------------------------------------------------------------
 
     /** Engine position with [white] as WHITE; [turn] 0 = WHITE to act next, 1 = the other side. */
@@ -81,8 +89,26 @@ class PureTdEngine(private val handle: Long, private val met: MatchEquityTable =
     // ---- checker play ---------------------------------------------------------------------------
 
     override fun evaluate(board: Board, ctx: CubeContext, posts: List<Board>, plies: Int): List<PostEval> {
+        if (cubefulCheckers && ctx.matchLength == 0) return posts.map { cubefulPost(it, ctx, plies) }
         val probs = postProbs(ctx.onRoll, posts, plies)
         return posts.indices.map { PostEval(postEquity(posts[it], ctx, probs[it]), probs[it]) }
+    }
+
+    /** [post] (after [ctx].onRoll's play) valued for the mover by the opponent's cube-aware money search. */
+    private fun cubefulPost(post: Board, ctx: CubeContext, plies: Int): PostEval {
+        val mover = ctx.onRoll
+        val opp = Player.other(mover)
+        if (post.off(mover) == 15) {
+            val probs = postProbs(mover, listOf(post), 1)[0]
+            return PostEval(postEquity(post, ctx, probs), probs)
+        }
+        val owner = view(ctx, opp)
+        val r = PureTdNative.nativeCube(handle, state(post, opp, 0), plies, owner.ordinal, ctx.jacoby && ctx.cube.centred)
+            ?: error("PureTD cube evaluation failed")
+        val nd = r[0]
+        val dt = r[1]
+        val theirs = if (owner != CubeView.THEIRS) maxOf(nd, minOf(dt, 1f)) else nd
+        return PostEval(-theirs, invertProbs(List(5) { r[2 + it] }))
     }
 
     // ---- cube -----------------------------------------------------------------------------------

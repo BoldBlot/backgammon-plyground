@@ -12,13 +12,15 @@
 #   scripts/fb-bench.sh --filter ALL             # pruning off: every play at full depth
 #   scripts/fb-bench.sh --set "Opening Replies" --plies 2
 #   scripts/fb-bench.sh --portable               # the unit tests' build (same numbers as the phone's code)
+#   scripts/fb-bench.sh --money --cubeful        # PureTD scores money checker plays with its cubeful net
+#   scripts/fb-bench.sh --input plays.txt --all  # your own positions (lines: C, id, group, XGID, play=equity;...)
 #
 # The FlashBack card data is not in this repository (the cards are FlashBack's, by Jeremy Bagai /
 # The Fortuitous Press). Point FB_DATA at a folder with plays_bc_enc.json and plays_replies.json.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 FB_DATA="${FB_DATA:-$HOME/code/BoldBlot/engine/sage/runs/flashback}"
-ENGINES=ptd SET="Boot Camp" LIMIT="" PLIES=3 FILTER=WIDE FAST=1 OUT=""
+ENGINES=ptd SET="Boot Camp" LIMIT="" PLIES=3 FILTER=WIDE FAST=1 OUT="" CUBEFUL=0 MONEY=0 INPUT=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --engines) ENGINES=$2; shift 2 ;;
@@ -28,6 +30,9 @@ while [ $# -gt 0 ]; do
         --plies) PLIES=$2; shift 2 ;;
         --filter) FILTER=$2; shift 2 ;;
         --portable) FAST=0; shift ;;
+        --cubeful) CUBEFUL=1; shift ;;
+        --money) MONEY=1; shift ;;
+        --input) INPUT=$(realpath "$2"); shift 2 ;;
         --out) OUT=$2; shift 2 ;;
         -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
         *) echo "unknown option $1 (see --help)" >&2; exit 2 ;;
@@ -48,8 +53,7 @@ cmake --build "$BUILD" >/dev/null
 
 WORK="$ROOT/build/fb-bench"
 mkdir -p "$WORK"
-INPUT="$WORK/checker.txt"
-python3 - "$FB_DATA" "$INPUT" <<'PY'
+[ -n "$INPUT" ] || { INPUT="$WORK/checker.txt"; python3 - "$FB_DATA" "$INPUT" <<'PY'
 import json, os, sys
 data, out = sys.argv[1], sys.argv[2]
 with open(out, "w") as f:
@@ -60,10 +64,12 @@ with open(out, "w") as f:
             if plays:
                 f.write("C\t%s\t%s|%s\t%s\t%s\n" % (k, pos["set"], pos["deck"], pos["xgid"], ";".join("%s=%s" % (p[1], p[2]) for p in plays)))
 PY
+}
 OUT="${OUT:-$WORK/result-$(date +%Y%m%d-%H%M%S).tsv}"
+OUT=$(realpath -m "$OUT")  # the test runs from the app folder
 
-echo "Running: engines $ENGINES, ${SET:-all sets}${LIMIT:+, first $LIMIT}, ${PLIES}-ply, filter $FILTER, $([ "$FAST" = 1 ] && echo native || echo portable) build"
-FB_INPUT="$INPUT" FB_OUT="$OUT" FB_ENGINES="$ENGINES" FB_SET="$SET" FB_LIMIT="$LIMIT" FB_PLIES="$PLIES" FB_FILTER="$FILTER" \
+echo "Running: engines $ENGINES, ${SET:-all sets}${LIMIT:+, first $LIMIT}$([ "$MONEY" = 1 ] && echo ", money only"), ${PLIES}-ply, filter $FILTER$([ "$CUBEFUL" = 1 ] && echo ", PureTD cubeful"), $([ "$FAST" = 1 ] && echo native || echo portable) build"
+FB_CUBEFUL="$CUBEFUL" FB_MONEY="$MONEY" FB_INPUT="$INPUT" FB_OUT="$OUT" FB_ENGINES="$ENGINES" FB_SET="$SET" FB_LIMIT="$LIMIT" FB_PLIES="$PLIES" FB_FILTER="$FILTER" \
     "$ROOT/gradlew" -p "$ROOT" -q :app:testDebugUnitTest --rerun -PbgHostLib="$BUILD/libbgjni.so" \
     --tests '*engine.FlashbackBench*' >/dev/null
 
