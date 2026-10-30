@@ -490,7 +490,7 @@ private fun BottomBar(st: ReviewState, vm: ReviewViewModel) {
     val study = remember(d, st.match) { st.match?.let { m -> d?.let { StudyPosition.of(it, m.length, m.jacoby) } } }
     if (saving && study != null) {
         val labels = d?.let { dec -> com.boldblot.backgammonplyground.core.Labels.of(dec, st.match?.length ?: 0, opponent = dec.player != Player.HUMAN).mapTo(HashSet()) { it.name } }
-        SaveToPositionsDialog(vm.app, study, "Game review", labels) { saving = false }
+        SaveToPositionsDialog(vm.app, study, "Game review", labels, d?.let { com.boldblot.backgammonplyground.core.MyAnswer.played(it) }) { saving = false }
     }
     val a = d?.checker
     if (d != null && a != null && a.candidates.isNotEmpty()) {

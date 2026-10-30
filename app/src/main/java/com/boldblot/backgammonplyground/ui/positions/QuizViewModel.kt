@@ -10,6 +10,7 @@ import com.boldblot.backgammonplyground.core.DecisionKind
 import com.boldblot.backgammonplyground.core.DiceSource
 import com.boldblot.backgammonplyground.core.MatchController
 import com.boldblot.backgammonplyground.core.Move
+import com.boldblot.backgammonplyground.core.MyAnswer
 import com.boldblot.backgammonplyground.core.MoveOptions
 import com.boldblot.backgammonplyground.core.Player
 import com.boldblot.backgammonplyground.core.PositionAnalysis
@@ -40,6 +41,8 @@ data class QuizResult(
     val bestCube: DecisionKind? = null,
     /** The player's own saved answer, when the position has one: it decides [right]. */
     val mine: String? = null,
+    /** What was played in the game the position comes from, with its cost. */
+    val played: String? = null,
     /** Equities of the answer and the best play (checker play). */
     val equity: Float? = null,
     val bestEquity: Float? = null,
@@ -237,10 +240,11 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
                         mine = sp.answer?.let { answerText(p, it) }, analysis = a,
                     )
                 }
-                app.positions.setResult(sp.id, result.right)
+                app.positions.setResult(sp.id, result.right, MyAnswer(move = move, cube = cube))
+                val played = sp.played?.let { answerWithError(p, a, it) }
                 _state.update {
                     it.copy(
-                        busy = false, result = result, answered = it.answered + 1, right = it.right + if (result.right) 1 else 0,
+                        busy = false, result = result.copy(played = played), answered = it.answered + 1, right = it.right + if (result.right) 1 else 0,
                         totalError = it.totalError + result.error,
                         board = p.board,
                     )

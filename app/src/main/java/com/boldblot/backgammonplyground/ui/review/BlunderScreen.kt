@@ -258,7 +258,7 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
     var saving by remember { mutableStateOf(false) }
     val jacoby by produceState(true, b.entity.matchId) { value = vm.app.repository.match(b.entity.matchId)?.jacoby ?: true }
     val study = remember(b, jacoby) { StudyPosition.of(b.decision, b.entity.matchLength, jacoby) }
-    if (saving && study != null) SaveToPositionsDialog(vm.app, study, "Blunder list", b.labels) { saving = false }
+    if (saving && study != null) SaveToPositionsDialog(vm.app, study, "Blunder list", b.labels, com.boldblot.backgammonplyground.core.MyAnswer.played(b.decision)) { saving = false }
     val onSave = { saving = true }.takeIf { study != null }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth > maxHeight) {

@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.automirrored.filled.Label
 import com.boldblot.backgammonplyground.core.Labels
+import com.boldblot.backgammonplyground.core.Move
 import com.boldblot.backgammonplyground.ui.components.LabelFilterButton
 import com.boldblot.backgammonplyground.ui.components.LabelTags
 import com.boldblot.backgammonplyground.ui.components.LabelsDialog
@@ -448,10 +449,14 @@ private fun PositionRow(p: SavedPosition, settings: Settings, onClick: () -> Uni
                 if (p.entity.note.isNotBlank()) {
                     Text(p.entity.note, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                p.played?.let { Text("Played: ${answerWithError(sp, p.analysis, it)}", style = MaterialTheme.typography.labelSmall) }
                 p.answer?.let { Text("My answer: ${answerText(sp, it)}", style = MaterialTheme.typography.labelSmall) }
                 LabelTags(settings.visible(p.labels), Modifier.padding(top = 2.dp))
                 p.entity.lastRight?.let {
-                    Text(if (it) "Last quiz: right" else "Last quiz: missed", style = MaterialTheme.typography.labelSmall, color = if (it) ArrowColors.best else MaterialTheme.colorScheme.error)
+                    Text(
+                        "Last quiz: " + (p.lastAnswer?.let { a -> "${answerText(sp, a)} · " } ?: "") + if (it) "right" else "missed",
+                        style = MaterialTheme.typography.labelSmall, color = if (it) ArrowColors.best else MaterialTheme.colorScheme.error,
+                    )
                 }
             }
         }
@@ -473,6 +478,7 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
     var analyzing by remember { mutableStateOf(false) }
     var noting by remember { mutableStateOf(false) }
     var answering by remember { mutableStateOf(false) }
+    var settingPlayed by remember { mutableStateOf(false) }
     var filing by remember { mutableStateOf(false) }
     var labelling by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf(false) }
@@ -536,7 +542,22 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (cur.entity.note.isNotBlank()) Text(cur.entity.note, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+                // What was played in the game (set by hand when the position came without it).
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Played in the game: " + (cur.played?.let { answerWithError(sp, a, it) } ?: "not known"),
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { settingPlayed = true }) { Text(if (cur.played == null) "Set" else "Change") }
+                }
                 cur.answer?.let { Text("★ My answer: ${answerText(sp, it)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp)) }
+                cur.entity.lastRight?.let { right ->
+                    Text(
+                        "Last quiz answer: " + (cur.lastAnswer?.let { answerWithError(sp, a, it) + " · " } ?: "") + if (right) "right" else "missed",
+                        style = MaterialTheme.typography.bodyMedium, color = if (right) ArrowColors.best else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
                 // Chips on one line (they wrap to a second row only with a very large font).
                 FlowRow(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     FilterChip(
@@ -568,15 +589,17 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                     }
                     a?.checker != null -> {
                         if (a.checker.candidates.isEmpty()) Text("No legal move with this roll.")
-                        val mine = cur.answer?.move?.let { m -> a.checker.candidates.indexOfFirst { sp.board.applyMove(Player.HUMAN, it.move) == sp.board.applyMove(Player.HUMAN, m) } }
+                        fun indexOf(m: Move) = a.checker.candidates.indexOfFirst { sp.board.applyMove(Player.HUMAN, it.move) == sp.board.applyMove(Player.HUMAN, m) }
+                        val mine = cur.answer?.move?.let(::indexOf)
+                        val played = cur.played?.move?.let(::indexOf)
                         CandidateList(
                             board = sp.board, player = Player.HUMAN, analysis = a.checker, factor = factorOf(sp),
-                            highlightIndex = mine?.takeIf { it >= 0 }, maxRows = 10, selectedIndex = selected, detailed = true,
+                            highlightIndex = played?.takeIf { it >= 0 }, maxRows = 10, selectedIndex = selected, detailed = true,
                             moverColor = colors.human, opponentColor = colors.cpu, onSelect = { i, _ -> selected = i },
-                            checkIndex = mine?.takeIf { it >= 0 },
+                            checkIndex = mine?.takeIf { it >= 0 }, playedLabel = "played",
                         )
                     }
-                    a?.cube != null -> CubeTable(a.cube, if (sp.doubled) DecisionKind.TAKE else null, factorOf(sp), sp.beavers, mine = cur.answer?.cube)
+                    a?.cube != null -> CubeTable(a.cube, if (sp.doubled) DecisionKind.TAKE else null, factorOf(sp), sp.beavers, mine = cur.answer?.cube, played = cur.played?.cube)
                 }
                 TextButton(onClick = { analyze() }, enabled = !analyzing) { Text("Analyze again (Settings → Analysis)") }
             }
@@ -603,6 +626,16 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
             AnswerDialog(sp, a.checker, cur.answer, onDismiss = { answering = false }) { ans ->
                 answering = false
                 scope.launch { app.positions.setAnswer(cur.id, ans); refresh++ }
+            }
+        }
+        if (settingPlayed) {
+            AnswerDialog(
+                sp, a?.checker, cur.played, onDismiss = { settingPlayed = false },
+                title = "Played in the game", help = "What was played in the game this position comes from, for reference.",
+                clearLabel = "Not known",
+            ) { ans ->
+                settingPlayed = false
+                scope.launch { app.positions.setPlayed(cur.id, ans); refresh++ }
             }
         }
         if (filing) {
@@ -655,7 +688,12 @@ private fun NoteDialog(initial: String, onDone: (String?) -> Unit) {
 @Composable
 private fun AnswerDialog(
     p: StudyPosition, checker: com.boldblot.backgammonplyground.core.CheckerAnalysis?, current: MyAnswer?,
-    onDismiss: () -> Unit, onSet: (MyAnswer?) -> Unit,
+    onDismiss: () -> Unit,
+    title: String = "My answer",
+    help: String = "The quiz counts your answer as the right one. Add a note to say where it comes from.",
+    /** The button that clears it. */
+    clearLabel: String = "Engine's best",
+    onSet: (MyAnswer?) -> Unit,
 ) {
     val plays = remember(p) {
         val dice = p.dice ?: return@remember emptyList()
@@ -667,10 +705,10 @@ private fun AnswerDialog(
     var pickedCube by remember { mutableStateOf(current?.cube) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("My answer") },
+        title = { Text(title) },
         text = {
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                Text("The quiz counts your answer as the right one. Add a note to say where it comes from.", style = MaterialTheme.typography.bodySmall)
+                Text(help, style = MaterialTheme.typography.bodySmall)
                 if (p.dice != null) {
                     plays.forEachIndexed { i, m ->
                         val picked = pickedMove?.let { p.board.applyMove(Player.HUMAN, it) == p.board.applyMove(Player.HUMAN, m) } == true
@@ -701,7 +739,7 @@ private fun AnswerDialog(
         },
         dismissButton = {
             Row {
-                if (current != null) TextButton(onClick = { onSet(null) }) { Text("Engine's best") }
+                if (current != null) TextButton(onClick = { onSet(null) }) { Text(clearLabel) }
                 TextButton(onClick = onDismiss) { Text("Cancel") }
             }
         },
@@ -769,13 +807,15 @@ fun SaveToPositionsDialog(
     app: PlyGroundApp, position: StudyPosition, source: String,
     /** The decision's labels from its game (error size, whose it was); null = from the position. */
     labels: Set<String>? = null,
+    /** What was played in the game. */
+    played: MyAnswer? = null,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     CategoriesDialog(app, initial = emptySet(), positionId = null, withNote = true, title = "Save to My positions", onDismiss = onDismiss) { ids, note ->
         onDismiss()
         app.appScope.launch {
-            val id = app.positions.save(position, source, note, ids, labels = labels)
+            val id = app.positions.save(position, source, note, ids, labels = labels, played = played)
             val s = app.settings.settings.first()
             runCatching { analyzePosition(app, position, s) }.onSuccess { app.positions.setAnalysis(id, it) }
         }
@@ -910,6 +950,7 @@ private fun QuizResultCard(sp: SavedPosition, r: QuizResult, vm: QuizViewModel) 
             val you = decisionText(p, r.move, r.cube)
             Text("You: $you", style = MaterialTheme.typography.bodyMedium)
             if (r.mine != null) Text("★ Your saved answer: ${r.mine}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            if (r.played != null) Text("In the game: ${r.played}", style = MaterialTheme.typography.bodyMedium)
             val best = decisionText(p, r.bestMove, r.bestCube)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Engine: $best", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))

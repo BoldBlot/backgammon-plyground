@@ -90,6 +90,8 @@ fun CandidateList(
     onSelect: ((Int, Candidate) -> Unit)? = null,
     /** The player's own answer (My positions): a ✓ before the move. */
     checkIndex: Int? = null,
+    /** The tag of [highlightIndex]'s row: "you" in a review, "played" in My positions. */
+    playedLabel: String = "you",
 ) {
     val best = analysis.bestEquity
     Column(Modifier.fillMaxWidth()) {
@@ -124,7 +126,7 @@ fun CandidateList(
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = if (isPlayed) FontWeight.Bold else FontWeight.Medium,
                     )
-                    if (isPlayed) Text("you  ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (isPlayed) Text("$playedLabel  ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
                         if (i == 0) eq(c.equity) else "(${eq(diff)})",
                         fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,
@@ -214,7 +216,11 @@ private fun BarChip(text: String, tag: String, dot: Color, value: String, modifi
  * to a beaver. [beavers]: a beaver is one of the taker's options.
  */
 @Composable
-fun CubeTable(eval: CubeEval, kind: DecisionKind?, factor: Float, beavers: Boolean = false, mine: DecisionKind? = null) {
+fun CubeTable(
+    eval: CubeEval, kind: DecisionKind?, factor: Float, beavers: Boolean = false, mine: DecisionKind? = null,
+    /** What was played in the game (My positions), tagged "played". */
+    played: DecisionKind? = null,
+) {
     Column(Modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         if (kind?.isRaccoonDecision == true) {
             // Doubler's view, in units of the cube before the double.
@@ -247,17 +253,18 @@ fun CubeTable(eval: CubeEval, kind: DecisionKind?, factor: Float, beavers: Boole
                 eval.doubleTake <= eval.doublePass -> 1
                 else -> 2
             }
-            CubeRow("No double", eval.noDouble, eval.noDouble - optimal, factor, mine == DecisionKind.NO_DOUBLE)
-            CubeRow("Double, take", eval.doubleTake, eval.doubleTake - optimal, factor, doubled && answerRow == 1)
-            CubeRow("Double, pass", eval.doublePass, eval.doublePass - optimal, factor, doubled && answerRow == 2)
-            if (beaver) CubeRow("Double, beaver", 2 * eval.doubleTake, 2 * eval.doubleTake - optimal, factor, doubled && answerRow == 3)
+            val playedDouble = played == DecisionKind.DOUBLE
+            CubeRow("No double", eval.noDouble, eval.noDouble - optimal, factor, mine == DecisionKind.NO_DOUBLE, played == DecisionKind.NO_DOUBLE)
+            CubeRow("Double, take", eval.doubleTake, eval.doubleTake - optimal, factor, doubled && answerRow == 1, playedDouble && answerRow == 1)
+            CubeRow("Double, pass", eval.doublePass, eval.doublePass - optimal, factor, doubled && answerRow == 2, playedDouble && answerRow == 2)
+            if (beaver) CubeRow("Double, beaver", 2 * eval.doubleTake, 2 * eval.doubleTake - optimal, factor, doubled && answerRow == 3, playedDouble && answerRow == 3)
             Text("Best: $best", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
         } else {
             val (take, pass, beaver) = DecisionMath.responseEquities(eval, beavers || kind == DecisionKind.BEAVER)
             val best = maxOf(take, pass, beaver ?: take)
-            CubeRow("Take", take, take - best, factor, mine == DecisionKind.TAKE)
-            CubeRow("Pass", pass, pass - best, factor, mine == DecisionKind.PASS)
-            if (beaver != null) CubeRow("Beaver", beaver, beaver - best, factor, mine == DecisionKind.BEAVER)
+            CubeRow("Take", take, take - best, factor, mine == DecisionKind.TAKE, played == DecisionKind.TAKE)
+            CubeRow("Pass", pass, pass - best, factor, mine == DecisionKind.PASS, played == DecisionKind.PASS)
+            if (beaver != null) CubeRow("Beaver", beaver, beaver - best, factor, mine == DecisionKind.BEAVER, played == DecisionKind.BEAVER)
             val bestName = when {
                 beaver != null && beaver > take && beaver >= pass -> "Beaver"
                 take >= pass -> "Take"
@@ -273,7 +280,7 @@ fun CubeTable(eval: CubeEval, kind: DecisionKind?, factor: Float, beavers: Boole
 }
 
 @Composable
-private fun CubeRow(label: String, equity: Float, diff: Float, factor: Float, mine: Boolean = false) {
+private fun CubeRow(label: String, equity: Float, diff: Float, factor: Float, mine: Boolean = false, played: Boolean = false) {
     val sev = XgRules.severity(-diff * factor)
     Row(
         Modifier.fillMaxWidth().let { if (mine) it.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f), RoundedCornerShape(6.dp)) else it },
@@ -281,6 +288,7 @@ private fun CubeRow(label: String, equity: Float, diff: Float, factor: Float, mi
     ) {
         if (mine) CheckMark()
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = if (mine) FontWeight.Bold else null)
+        if (played) Text("played  ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(eq(equity), Modifier.width(70.dp), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
         Text(
             if (diff >= -0.0005f) "" else eq(diff), Modifier.width(64.dp), fontFamily = FontFamily.Monospace,

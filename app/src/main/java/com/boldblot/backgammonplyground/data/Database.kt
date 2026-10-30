@@ -101,6 +101,10 @@ data class PositionEntity(
     val lastRight: Boolean? = null,
     /** Its labels' keys, one per line ([com.boldblot.backgammonplyground.core.Labels]; schema 3). */
     @ColumnInfo(defaultValue = "") val labels: String = "",
+    /** JSON of MyAnswer: what was played in the game it comes from (schema 4); null = not known. */
+    val played: String? = null,
+    /** JSON of MyAnswer: the last quiz answer (schema 4); [lastRight] says whether it was right. */
+    val lastAnswer: String? = null,
 )
 
 /** A category of My positions, in the player's order ([sort]). */
@@ -351,9 +355,9 @@ interface PositionDao {
         MatchEntity::class, GameEntity::class, CurrentMatchEntity::class, BlunderEntity::class,
         PositionEntity::class, CategoryEntity::class, PositionCategoryEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun matches(): MatchDao

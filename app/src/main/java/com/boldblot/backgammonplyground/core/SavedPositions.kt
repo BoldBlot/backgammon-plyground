@@ -81,4 +81,19 @@ data class MyAnswer(
     val move: Move? = null,
     /** DOUBLE or NO_DOUBLE (the player is on roll), TAKE, PASS or BEAVER (the player was doubled). */
     val cube: DecisionKind? = null,
-)
+) {
+    companion object {
+        /**
+         * What was played in decision [d] (its player at the bottom): the first try when the decision
+         * was tried again, as the blunder list counts it. Null for a raccoon decision.
+         */
+        fun played(d: DecisionRecord): MyAnswer? {
+            val kind = d.firstTry?.kind ?: d.kind
+            return when (kind) {
+                DecisionKind.CHECKER -> (d.firstTry?.move ?: d.move)?.let { MyAnswer(move = it) }
+                DecisionKind.DOUBLE, DecisionKind.NO_DOUBLE, DecisionKind.TAKE, DecisionKind.PASS, DecisionKind.BEAVER -> MyAnswer(cube = kind)
+                else -> null
+            }
+        }
+    }
+}

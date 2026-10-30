@@ -16,6 +16,7 @@ import com.boldblot.backgammonplyground.core.StudyPosition
 import com.boldblot.backgammonplyground.core.XgRules
 import com.boldblot.backgammonplyground.data.Settings
 import com.boldblot.backgammonplyground.ui.components.describeAction
+import com.boldblot.backgammonplyground.ui.components.eq
 
 /** Analyzes [p] at the analysis depths in Settings, with the analysis engine. */
 suspend fun analyzePosition(app: PlyGroundApp, p: StudyPosition, s: Settings): PositionAnalysis {
@@ -37,6 +38,21 @@ fun equityOf(p: StudyPosition, a: CheckerAnalysis, move: Move): Float? {
     val target = p.board.applyMove(Player.HUMAN, move)
     return a.candidates.firstOrNull { p.board.applyMove(Player.HUMAN, it.move) == target }?.equity
 }
+
+/** What answer [ans] costs in [p] by analysis [a], after the 1-point factor; null if the analysis cannot say. */
+fun answerError(p: StudyPosition, a: PositionAnalysis?, ans: MyAnswer): Float? {
+    a ?: return null
+    val raw = when {
+        ans.move != null -> a.checker?.let { c -> equityOf(p, c, ans.move)?.let { (c.bestEquity - it).coerceAtLeast(0f) } }
+        ans.cube != null -> cubeError(p, a, ans.cube)
+        else -> null
+    } ?: return null
+    return raw * factorOf(p)
+}
+
+/** "24/20 8/5 (−0.323)": an answer with its cost when the analysis knows it. */
+fun answerWithError(p: StudyPosition, a: PositionAnalysis?, ans: MyAnswer): String =
+    answerText(p, ans) + (answerError(p, a, ans)?.takeIf { it >= 0.0005f }?.let { " (${eq(-it)})" } ?: "")
 
 /** The cube actions a position offers: Double / No double, or Take / Pass (and Beaver). */
 fun cubeActions(p: StudyPosition): List<DecisionKind> = when {
