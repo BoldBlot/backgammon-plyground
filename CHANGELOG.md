@@ -2,6 +2,10 @@
 
 ## 0.7.1 — 2026-10-30 (build 38)
 
+My positions: a library of positions you save into your own categories and quiz yourself on.
+With PureTD analyzing, a second copy of the engine analyzes your game in the background while the
+first one plays, so analysis no longer holds up the game.
+
 Build 38 — 2026-10-30:
 - My positions (experimental): save a position from your blunder list, a game review or Analyze
   Position into categories of your own, with a note and, if you like, your own right answer (marked
