@@ -36,6 +36,11 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.automirrored.filled.Label
 import com.boldblot.backgammonplyground.core.Labels
 import com.boldblot.backgammonplyground.core.Move
@@ -394,14 +399,23 @@ fun sharePositions(context: Context, name: String, json: String) {
 
 // ---- a category's positions --------------------------------------------------------------------
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> Unit, onOpen: (Long) -> Unit, onQuiz: (List<Long>) -> Unit) {
     var all by remember { mutableStateOf<List<SavedPosition>?>(null) }
     var filter by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var name by remember { mutableStateOf("") }
     val settings by app.settings.settings.collectAsState(initial = Settings())
-    LaunchedEffect(categoryId) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    // Selecting positions (a long press starts it): null = not selecting.
+    var selected by remember { mutableStateOf<Set<Long>?>(null) }
+    var deleting by remember { mutableStateOf(false) }
+    var reload by remember { mutableIntStateOf(0) }
+    BackHandler(enabled = selected != null) { selected = null }
+    // A real folder (not All positions or No folder) can let positions go.
+    val folder = categoryId?.takeIf { it != UNCATEGORIZED }
+    LaunchedEffect(categoryId, reload) {
         name = when (categoryId) {
             null -> "All positions"
             UNCATEGORIZED -> "No folder"
@@ -413,7 +427,29 @@ fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> 
     val list = all?.filter { shownFilter.isEmpty() || Labels.matches(settings.visible(it.labels), shownFilter) }
     Scaffold(
         topBar = {
-            TopAppBar(
+            val sel = selected
+            if (sel != null) TopAppBar(
+                title = { Text("${sel.size} selected") },
+                navigationIcon = { IconButton(onClick = { selected = null }) { Icon(Icons.Default.Close, "Stop selecting") } },
+                actions = {
+                    val shown = list.orEmpty().map { it.id }.toSet()
+                    TextButton(onClick = { selected = if (sel.containsAll(shown) && shown.isNotEmpty()) emptySet() else shown }) {
+                        Text(if (sel.containsAll(shown) && shown.isNotEmpty()) "None" else "All")
+                    }
+                    if (folder != null) {
+                        IconButton(onClick = {
+                            val ids = sel
+                            selected = null
+                            scope.launch {
+                                app.positions.removeFromFolder(ids, folder)
+                                reload++
+                                Toast.makeText(context, "Removed ${ids.size} from \u201c$name\u201d.", Toast.LENGTH_SHORT).show()
+                            }
+                        }, enabled = sel.isNotEmpty()) { Icon(Icons.Default.FolderOff, "Remove from this folder") }
+                    }
+                    IconButton(onClick = { deleting = true }, enabled = sel.isNotEmpty()) { Icon(Icons.Default.Delete, "Delete from My positions") }
+                },
+            ) else TopAppBar(
                 title = { Title(name) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
@@ -428,17 +464,52 @@ fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> 
             l == null -> Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             l.isEmpty() -> Text(if (all.isNullOrEmpty()) "No positions here yet." else "No positions pass the filter.", Modifier.padding(padding).padding(24.dp))
             else -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(horizontal = 12.dp)) {
-                items(l, key = { it.id }) { p -> PositionRow(p, settings) { onOpen(p.id) } }
+                items(l, key = { it.id }) { p ->
+                    val sel = selected
+                    fun toggle() { selected = sel?.let { if (p.id in it) it - p.id else it + p.id } }
+                    PositionRow(
+                        p, settings, selection = sel?.let { p.id in it },
+                        onLongClick = { if (sel == null) selected = setOf(p.id) else toggle() },
+                    ) { if (sel != null) toggle() else onOpen(p.id) }
+                }
             }
         }
     }
+    if (deleting) {
+        val n = selected?.size ?: 0
+        AlertDialog(
+            onDismissRequest = { deleting = false },
+            title = { Text("Delete $n position${if (n == 1) "" else "s"}?") },
+            text = { Text("They leave My positions and all their folders. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val ids = selected.orEmpty()
+                    deleting = false
+                    selected = null
+                    scope.launch {
+                        ids.forEach { app.positions.remove(it) }
+                        reload++
+                    }
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deleting = false }) { Text("Cancel") } },
+        )
+    }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun PositionRow(p: SavedPosition, settings: Settings, onClick: () -> Unit) {
+private fun PositionRow(
+    p: SavedPosition, settings: Settings,
+    /** Selecting: whether this position is selected (null = not selecting). */
+    selection: Boolean? = null,
+    onLongClick: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
     val sp = p.position
-    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable(onClick = onClick)) {
+    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).combinedClickable(onLongClick = onLongClick, onClick = onClick)) {
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (selection != null) Checkbox(checked = selection, onCheckedChange = null, modifier = Modifier.padding(end = 6.dp))
             BoardView(
                 board = sp.board, modifier = Modifier.width(120.dp).aspectRatio(1.38f), colors = boardColorsFor(settings),
                 mirrored = settings.mirrorBoard, dice = listOfNotNull(sp.dice?.let { DiceView(Player.HUMAN, it.highFirst) }),

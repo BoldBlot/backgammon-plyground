@@ -266,6 +266,9 @@ class PositionsRepository(db: AppDatabase) {
         categoryIds.filter { it != UNCATEGORIZED }.forEach { dao.link(PositionCategoryEntity(id, it)) }
     }
 
+    /** Takes positions [ids] out of folder [folderId]; they stay in My positions. */
+    suspend fun removeFromFolder(ids: Collection<Long>, folderId: Long) = ids.forEach { dao.unlink(it, folderId) }
+
     suspend fun remove(id: Long) {
         dao.unlinkPosition(id)
         dao.deletePosition(id)

@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import com.boldblot.backgammonplyground.ui.review.MatFiles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -130,6 +131,9 @@ import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
+/** The user manual on the website. */
+const val MANUAL_URL = "https://boldblot.com/plyground/manual/"
+
 @Composable
 fun HomeScreen(
     hasMatch: Boolean,
@@ -188,6 +192,9 @@ fun HomeScreen(
                 OutlinedButton(onClick = onHistory, modifier = w) { Text("Match Library") }
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(onClick = onSettings, modifier = w) { Text("Settings") }
+                Spacer(Modifier.height(10.dp))
+                val uri = LocalUriHandler.current
+                OutlinedButton(onClick = { uri.openUri(MANUAL_URL) }, modifier = w) { Text("Manual") }
                 Spacer(Modifier.height(4.dp))
                 TextButton(onClick = onAbout) { Text("About") }
             }
@@ -1264,6 +1271,8 @@ fun AboutScreen(onBack: () -> Unit, onSpeedTest: () -> Unit = {}, onWelcome: () 
             )
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onWelcome) { Text("Welcome screen") }
+            val uri = LocalUriHandler.current
+            OutlinedButton(onClick = { uri.openUri(MANUAL_URL) }) { Text("Manual (boldblot.com)") }
             Spacer(Modifier.height(8.dp))
             Text(
                 "Three backgammon engines play and analyze, each with its own neural networks and cube handling:",

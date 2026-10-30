@@ -129,7 +129,7 @@ data class Settings(
     val blunderSort: BlunderSort = BlunderSort.BIGGEST,
     val autoFinishSpeed: AutoFinishSpeed = AutoFinishSpeed.S05,
     val feedback: FeedbackLevel = FeedbackLevel.ERRORS,
-    val trainingMode: TrainingMode = TrainingMode.IMMEDIATE,
+    val trainingMode: TrainingMode = TrainingMode.AFTER_GAME,
     /** Wait for the player to dismiss the prompt before the computer continues. */
     val pauseOnMistake: Boolean = true,
     /** The mistake prompt draws the best move's arrows too (otherwise only the played move's). */
