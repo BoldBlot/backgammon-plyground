@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.7.2 — 2026-10-30 (build 39)
+
+Match Library: import matches from eXtreme Gammon or GNU Backgammon and study both players'
+mistakes.
+
+Labels, filters and folders that fill themselves: My blunders and My positions sort your mistakes
+by what they are, and the quiz asks the ones you pick.
+
+Build 39 — 2026-10-30:
+- Match Library (once History): import a match from a .mat file (eXtreme Gammon, GNU Backgammon or
+  PlyGround), or open or share one with PlyGround. Choose which player you are and whether the
+  opponent's mistakes go on your blunder list too; the match is analyzed in the background and
+  left out of your statistics.
+- Labels on every blunder and saved position: checker or cube, double or take side, contact, race
+  or bear-off, money, match, Crawford or post-Crawford, error or blunder, opening, gammonish, whose
+  mistake, and themes by rule of thumb (on the bar, hit, prime vs prime, holding game, backgame).
+  Settings → My positions turns labels off and adds your own.
+- My blunders: a Filter menu by labels; Clear clears only what the filter shows; the + button
+  copies the blunders shown to My positions, to the folder linked to the filter, or split into
+  Checker blunders and Cube blunders. A linked folder can collect new blunders by itself
+  (Settings → My positions).
+- My positions: categories are now folders. Checker blunders and Cube blunders are there from the
+  start. Each position shows what was played in the game (set it by hand for others), its labels
+  and your last quiz answer. Long-press to select several positions, then remove them from the
+  folder or delete them. My positions explains which files Import reads.
+- Quiz menu (Quiz… in My positions, or Quiz in a folder): folders, labels, 10, 20 or all questions,
+  random or newest first; the result shows what was played in the game.
+- In the Crawford game a CRAWFORD sign stands on the bar instead of the cube, in the review too
+  (Settings → Display).
+- Next mistake moves on to the next game of the match after a game's last mistake.
+- Manual: a Manual button on the home screen and in About opens boldblot.com/plyground/manual.
+- The welcome screen selects the depths in use (Put me on hold on a new install), and Continue
+  keeps what is selected. A new install no longer drops to 1-ply when you just tap Continue.
+- New installs show mistakes after the match by default.
+
 ## 0.7.1 — 2026-10-30 (build 38)
 
 My positions: a library of positions you save into your own categories and quiz yourself on.

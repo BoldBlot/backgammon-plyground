@@ -48,29 +48,23 @@ private val WAIT_CHOICES = listOf(
 /**
  * Shown once: on a new install or the first start after an update, and again when the version name
  * changes (not for builds within a version); About opens it any time. What a ply is, and a starting
- * depth picked by how long the player will wait. Without a choice, a new install gets 1-ply, the
- * quickest; otherwise the player's depths are kept.
+ * depth picked by how long the player will wait. The card matching the current depths is selected
+ * (on a new install the defaults: Put me on hold), and Continue applies the card selected.
  */
 @Composable
 fun WelcomeScreen(app: PlyGroundApp, newInstall: Boolean, onSpeedTest: () -> Unit, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     var chosen by remember { mutableStateOf<WaitChoice?>(null) }
     LaunchedEffect(Unit) {
-        // Show the player's current depths as chosen when they match a card.
-        if (!newInstall) {
-            val s = app.settings.settings.first()
-            chosen = WAIT_CHOICES.firstOrNull { it.checkerPlies == s.checkerPlies && it.cubePlies == s.cubePlies }
-        }
+        // The current depths (a new install's defaults) are shown as chosen when they match a card.
+        val s = app.settings.settings.first()
+        chosen = WAIT_CHOICES.firstOrNull { it.checkerPlies == s.checkerPlies && it.cubePlies == s.cubePlies }
     }
     fun finish(then: () -> Unit) = scope.launch {
         app.settings.update {
             val s = it.copy(welcomeSeen = BuildConfig.VERSION_NAME)
             val age = chosen
-            when {
-                age != null -> s.copy(checkerPlies = age.checkerPlies, cubePlies = age.cubePlies)
-                newInstall -> s.copy(checkerPlies = 1, cubePlies = 1)
-                else -> s
-            }
+            if (age != null) s.copy(checkerPlies = age.checkerPlies, cubePlies = age.cubePlies) else s
         }
         then()
     }
@@ -118,8 +112,7 @@ fun WelcomeScreen(app: PlyGroundApp, newInstall: Boolean, onSpeedTest: () -> Uni
                 }
             }
             Text(
-                if (newInstall) "If you don't choose, PlyGround analyzes at 1-ply, the quickest."
-                else "If you don't choose, your analysis settings stay as they are.",
+                if (chosen != null) "Continue uses the one selected." else "If you don't choose, your analysis settings stay as they are.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(
