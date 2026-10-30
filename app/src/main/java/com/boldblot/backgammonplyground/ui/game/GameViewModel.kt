@@ -80,6 +80,8 @@ data class GameOverInfo(
     val reviewGame: Int = gameNumber,
     /** Played without analysis ([AnalysisTiming.NONE]): the summary offers to analyze the match now. */
     val offerAnalysis: Boolean = false,
+    /** Decisions left unanalyzed by Stop: PR and mistakes count only the analyzed ones. */
+    val notAnalyzed: Int = 0,
 )
 
 /** "Try again" training: the prompt names the mistake; the answer shows only when asked ([revealed]). */
@@ -139,6 +141,8 @@ data class GameUiState(
     val queuedResign: WinType? = null,
     /** Decisions of this match still waiting for the background analysis. */
     val analysisLeft: Int = 0,
+    /** Roughly how long those will take (ms; null until a decision has been timed). */
+    val analysisEta: Long? = null,
     /** "Keep rolling": roll for the human even when they could double (until the cube changes or the game ends). */
     val keepRolling: Boolean = false,
     /** The meter in [MeterMode.BAR] shows its numbers after a tap, until the human's next decision. */
@@ -968,14 +972,19 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     }
 
     /**
-     * The background analysis waits while the computer plays (its moves never wait for more than
-     * the decision being analyzed) and during autofinish.
+     * When the background analysis may take its next decision. In its own slot (PureTD analyzes,
+     * Analyze during play on) at any time: the game never waits for it. Otherwise it shares the
+     * game's engine, so only while no game is being played (a summary is open, or the match is over).
      */
     private fun idleForAnalysis(st: GameUiState): Boolean {
-        if (st.busy || autoMode != null) return false
+        if (engineService.twoSlots && st.settings.analyzeDuringPlay) return true
+        if (st.gameOver != null) return true
         val g = st.match?.game ?: return true
-        return g.turn != Player.CPU || g.resignOffer != null || g.phase !in setOf(Phase.PRE_ROLL, Phase.MOVING)
+        return g.phase == Phase.OVER
     }
+
+    /** Average time per decision of the background analysis (ms; 0 = none timed yet). */
+    private var analysisMillis = 0.0
 
     private fun startBackgroundAnalysis() {
         if (analysisJob?.isActive == true) return
@@ -1012,8 +1021,15 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
 
     private suspend fun analyze(p: PendingDecision) {
         val s = settings
+        val started = android.os.SystemClock.elapsedRealtime()
         val done = try {
-            engineService.run { Reanalysis(this, s.checkerDepth.code, s.cubeDepth.code).decision(p.decision, p.matchLength, p.jacoby) }
+            val work: com.boldblot.backgammonplyground.engine.SearchEngine.() -> DecisionRecord = {
+                Reanalysis(this, s.checkerDepth.code, s.cubeDepth.code).decision(p.decision, p.matchLength, p.jacoby)
+            }
+            (if (engineService.twoSlots) engineService.runBackground(work) else engineService.run(block = work)).also {
+                val ms = (android.os.SystemClock.elapsedRealtime() - started).toDouble()
+                analysisMillis = if (analysisMillis == 0.0) ms else analysisMillis * 0.8 + ms * 0.2
+            }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             AppLog.error("Background analysis failed", e)
@@ -1072,7 +1088,20 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                 n += m.game.decisions.indices.count { m.game.decisions[it].pending && (m.gameNumber to it) !in analyzedNow }
             }
         }
-        _state.update { it.copy(analysisLeft = n) }
+        _state.update { it.copy(analysisLeft = n, analysisEta = if (n > 0 && analysisMillis > 0) (analysisMillis * n).toLong() else null) }
+    }
+
+    /**
+     * Stop on the summary: match [matchId]'s decisions still waiting stay unanalyzed (not counted
+     * in PR or statistics; Analyze again in the review finishes them).
+     */
+    fun stopAnalysis(matchId: Long) {
+        viewModelScope.launch {
+            pendingGames.removeAll { it.matchId == matchId }
+            val dropped = repo.dropPending(matchId)
+            _state.update { st -> st.copy(gameOver = st.gameOver?.takeIf { it.matchId == matchId }?.let { it.copy(notAnalyzed = it.notAnalyzed + dropped) } ?: st.gameOver) }
+            updateAnalysisLeft()
+        }
     }
 
     /** "Analyze now" after a match played without analysis: its decisions go to the background analysis. */

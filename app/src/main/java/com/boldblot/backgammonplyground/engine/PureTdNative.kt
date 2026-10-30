@@ -12,6 +12,10 @@ import java.io.File
 object PureTdNative {
     @JvmStatic external fun nativeOpen(cubeless: String, cubeful: String, bearoffCache: String?, threads: Int): Long
     @JvmStatic external fun nativeClose(handle: Long)
+    /** A second engine on [handle]'s networks (they are read-only) with its own thread count; close it first. */
+    @JvmStatic external fun nativeShare(handle: Long, threads: Int): Long
+    /** Worker threads for [handle]'s next searches. */
+    @JvmStatic external fun nativeSetThreads(handle: Long, threads: Int)
     /** Probabilities for the side that just moved (turn = the other side), 5 per position. */
     @JvmStatic external fun nativePostProbs(handle: Long, states: IntArray, plies: Int): FloatArray?
     /** Money cube decision for the side on roll: {nd, dt, 5 cubeless probabilities}. */

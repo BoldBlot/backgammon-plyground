@@ -18,6 +18,7 @@ typedef struct {
     ptd_net *cubeless, *cubeful;
     ptd_bearoff *bearoff;
     ptd_engine e;
+    int shared;                 /* made by nativeShare: the networks belong to another handle */
 } handle;
 
 static void to_state(const jint *v, BoardState *s)
@@ -59,10 +60,38 @@ FN(nativeClose)(JNIEnv *env, jclass cls, jlong ptr)
 {
     handle *h = (handle *)(intptr_t)ptr;
     if (!h) return;
+    if (h->shared) {
+        free(h);
+        return;
+    }
     ptd_net_free(h->cubeless);
     ptd_net_free(h->cubeful);
     ptd_bearoff_free(h->bearoff);
     free(h);
+}
+
+/*
+ * A second engine on ptr's networks and bear-off database (read-only, so both can search at the
+ * same time on different threads) with its own thread count. Close it before ptr.
+ */
+JNIEXPORT jlong JNICALL
+FN(nativeShare)(JNIEnv *env, jclass cls, jlong ptr, jint threads)
+{
+    handle *h = (handle *)(intptr_t)ptr;
+    if (!h) return 0;
+    handle *c = calloc(1, sizeof *c);
+    *c = *h;
+    c->shared = 1;
+    c->e.threads = threads;
+    return (jlong)(intptr_t)c;
+}
+
+/* Worker threads for ptr's next searches (call between searches, on the thread that searches). */
+JNIEXPORT void JNICALL
+FN(nativeSetThreads)(JNIEnv *env, jclass cls, jlong ptr, jint threads)
+{
+    handle *h = (handle *)(intptr_t)ptr;
+    if (h) h->e.threads = threads < 1 ? 1 : threads;
 }
 
 /* Probabilities for the player who just moved, 5 per position (see ptd_post_probs). */

@@ -1,6 +1,7 @@
 package com.boldblot.backgammonplyground.engine
 
 import android.content.Context
+import android.os.Process
 import com.boldblot.backgammonplyground.core.AnalysisEngine
 import com.boldblot.backgammonplyground.core.Board
 import com.boldblot.backgammonplyground.core.CpuLevel
@@ -18,8 +19,13 @@ import java.util.concurrent.Executors
 /**
  * Owns the engines (PureTD, GNU Backgammon, Open Sage). They are not thread-safe, so every call
  * goes through [run] (or the [analysis] / [of] views called inside it), which executes on one
- * dedicated thread (the deeper searches spread their own work over all cores). PureTD loads at
- * start; the others the first time they are used.
+ * dedicated thread, the game's slot (the deeper searches spread their own work over
+ * [gameThreads] cores). PureTD loads at start; the others the first time they are used.
+ *
+ * The background analysis has a slot of its own when PureTD analyzes ([twoSlots]): a second
+ * PureTD on the same networks, on its own thread ([runBackground]) with [backgroundThreads] and
+ * [backgroundLow] priority, so the game never waits for it. GNU Backgammon (globals) and Open
+ * Sage (one thread pool for all its copies) can't have a second copy.
  */
 class EngineService(private val context: Context) {
 
@@ -30,6 +36,27 @@ class EngineService(private val context: Context) {
 
     lateinit var engine: PureTdEngine
         private set
+    private var ptdHandle = 0L
+    private var sageHandle = 0L
+
+    /** Cores the phone has online (Android tells any app, no permission needed). */
+    val cores: Int = Runtime.getRuntime().availableProcessors()
+
+    /** Threads for the game's searches and for the background analysis (Advanced engine settings). */
+    @Volatile var gameThreads: Int = cores
+    @Volatile var backgroundThreads: Int = defaultBackgroundThreads(cores)
+    /** The background analysis runs at low priority: Android gives the game's searches the cores first. */
+    @Volatile var backgroundLow: Boolean = true
+
+    /** The background analysis has its own slot (only PureTD can have a second copy). */
+    val twoSlots: Boolean get() = analysisKind == EngineKind.PURETD
+
+    /** The background slot's thread and its PureTD (on the game PureTD's networks). */
+    private val backgroundDispatcher: CoroutineDispatcher = Executors.newSingleThreadExecutor { r ->
+        Thread(null, r, "analysis", 4L * 1024 * 1024).apply { isDaemon = true }
+    }.asCoroutineDispatcher()
+    private var backgroundHandle = 0L
+    private var backgroundEngine: PureTdEngine? = null
 
     private val engines = EnumMap<EngineKind, SearchEngine>(EngineKind::class.java)
 
@@ -50,6 +77,7 @@ class EngineService(private val context: Context) {
                     File(dir, SageNative.BEAROFF).path, Runtime.getRuntime().availableProcessors(),
                 )
                 check(handle != 0L) { "Open Sage engine failed to load its networks" }
+                sageHandle = handle
                 SageEngine(handle)
             }
         }
@@ -90,6 +118,7 @@ class EngineService(private val context: Context) {
                 File(context.filesDir, "puretd-bearoff.bin").path, Runtime.getRuntime().availableProcessors(),
             )
             check(handle != 0L) { "PureTD engine failed to load its networks" }
+            ptdHandle = handle
             engine = PureTdEngine(handle)
             ready.complete(Unit)
         }
@@ -98,6 +127,37 @@ class EngineService(private val context: Context) {
     /** Runs [block] on the engine thread with [kind]'s engine (the analysis engine by default). */
     suspend fun <T> run(kind: EngineKind? = null, block: SearchEngine.() -> T): T {
         start()
-        return withContext(dispatcher) { get(kind ?: analysisKind).block() }
+        return withContext(dispatcher) {
+            val threads = gameThreads.coerceIn(1, cores)
+            PureTdNative.nativeSetThreads(ptdHandle, threads)
+            if (sageHandle != 0L) SageNative.nativeSetThreads(sageHandle, threads)
+            get(kind ?: analysisKind).block()
+        }
+    }
+
+    /**
+     * Runs [block] in the background analysis slot ([twoSlots] only): the second PureTD, on its own
+     * thread. Its search threads start from that thread, so they share its priority.
+     */
+    suspend fun <T> runBackground(block: SearchEngine.() -> T): T {
+        start()
+        return withContext(backgroundDispatcher) {
+            Process.setThreadPriority(if (backgroundLow) Process.THREAD_PRIORITY_BACKGROUND else Process.THREAD_PRIORITY_DEFAULT)
+            val threads = backgroundThreads.coerceIn(1, cores)
+            val e = backgroundEngine ?: openBackground(threads)
+            PureTdNative.nativeSetThreads(backgroundHandle, threads)
+            e.block()
+        }
+    }
+
+    private fun openBackground(threads: Int): PureTdEngine {
+        backgroundHandle = PureTdNative.nativeShare(ptdHandle, threads)
+        check(backgroundHandle != 0L) { "PureTD background engine failed" }
+        return PureTdEngine(backgroundHandle).also { backgroundEngine = it }
+    }
+
+    companion object {
+        /** The background analysis' default: a quarter of the cores, at least 1. */
+        fun defaultBackgroundThreads(cores: Int) = (cores / 4).coerceAtLeast(1)
     }
 }

@@ -2,6 +2,7 @@ package com.boldblot.backgammonplyground
 
 import android.app.Application
 import com.boldblot.backgammonplyground.data.AppDatabase
+import com.boldblot.backgammonplyground.data.BackgroundPriority
 import com.boldblot.backgammonplyground.data.PositionsRepository
 import com.boldblot.backgammonplyground.data.Repository
 import com.boldblot.backgammonplyground.data.SettingsStore
@@ -29,6 +30,14 @@ class PlyGroundApp : Application() {
         // Warm up the engine (data extraction + neural net loading) in the background.
         appScope.launch { engine.start() }
         // Analysis uses the engine chosen in Settings.
-        appScope.launch { settings.settings.collect { engine.analysisKind = it.analysisEngine } }
+        appScope.launch {
+            settings.settings.collect {
+                engine.analysisKind = it.analysisEngine
+                // Advanced engine settings (0 = the default: all cores for the game, a quarter for the analysis).
+                engine.gameThreads = it.gameThreads.takeIf { n -> n > 0 } ?: engine.cores
+                engine.backgroundThreads = it.backgroundThreads.takeIf { n -> n > 0 } ?: EngineService.defaultBackgroundThreads(engine.cores)
+                engine.backgroundLow = it.backgroundPriority == BackgroundPriority.LOW
+            }
+        }
     }
 }

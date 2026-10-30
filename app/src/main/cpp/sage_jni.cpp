@@ -97,6 +97,13 @@ FN(nativeClose)(JNIEnv*, jclass, jlong handle) {
     delete reinterpret_cast<Engine*>(handle);
 }
 
+/* Worker threads for the next searches (call between searches, on the thread that searches). */
+extern "C" JNIEXPORT void JNICALL
+FN(nativeSetThreads)(JNIEnv*, jclass, jlong handle, jint threads) {
+    auto* e = reinterpret_cast<Engine*>(handle);
+    if (e) e->threads = std::max(1, static_cast<int>(threads));
+}
+
 /*
  * Positions right after the mover's play ([posts], int[26] each from the mover's point of view;
  * [pre] the position before it) at XG depth [plies]. Returns float[6 * n]: the mover's cubeful

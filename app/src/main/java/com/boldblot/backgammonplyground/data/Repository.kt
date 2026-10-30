@@ -207,6 +207,13 @@ class Repository(private val db: AppDatabase) {
         GameKey(matchId, e.number)
     }
 
+    /** Match [matchId]'s decisions waiting for the background analysis are no longer waiting. Returns how many. */
+    suspend fun dropPending(matchId: Long): Int = games(matchId).sumOf { (e, g) ->
+        val n = g.decisions.count { it.pending }
+        if (n > 0) dao.updateGame(e.copy(record = AppJson.encodeToString(g.copy(decisions = g.decisions.map { it.copy(pending = false) }))))
+        n
+    }
+
     /** The human's errors and blunders in match [matchId]'s finished games, and the first game that has any. */
     suspend fun humanMistakes(matchId: Long): Pair<Int, Int?> {
         val games = gameSummaries(matchId)

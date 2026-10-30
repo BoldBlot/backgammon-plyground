@@ -531,10 +531,11 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                 )
                 if (cur.entity.note.isNotBlank()) Text(cur.entity.note, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
                 cur.answer?.let { Text("★ My answer: ${answerText(sp, it)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp)) }
-                Row(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedButton(onClick = { answering = true }, enabled = a != null) { Text("Set my answer") }
-                    OutlinedButton(onClick = { noting = true }) { Text("Note") }
-                    OutlinedButton(onClick = { filing = true }) { Text("Categories") }
+                // Labels on one line; the buttons wrap to a second row when they don't fit.
+                FlowRow(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(onClick = { answering = true }, enabled = a != null) { Text("Set my answer", maxLines = 1, softWrap = false) }
+                    OutlinedButton(onClick = { noting = true }) { Text("Note", maxLines = 1, softWrap = false) }
+                    OutlinedButton(onClick = { filing = true }) { Text("Categories", maxLines = 1, softWrap = false) }
                 }
                 when {
                     analyzing -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -548,9 +549,10 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                             board = sp.board, player = Player.HUMAN, analysis = a.checker, factor = factorOf(sp),
                             highlightIndex = mine?.takeIf { it >= 0 }, maxRows = 10, selectedIndex = selected, detailed = true,
                             moverColor = colors.human, opponentColor = colors.cpu, onSelect = { i, _ -> selected = i },
+                            checkIndex = mine?.takeIf { it >= 0 },
                         )
                     }
-                    a?.cube != null -> CubeTable(a.cube, if (sp.doubled) DecisionKind.TAKE else null, factorOf(sp), sp.beavers)
+                    a?.cube != null -> CubeTable(a.cube, if (sp.doubled) DecisionKind.TAKE else null, factorOf(sp), sp.beavers, mine = cur.answer?.cube)
                 }
                 TextButton(onClick = { analyze() }, enabled = !analyzing) { Text("Analyze again (Settings → Analysis)") }
             }

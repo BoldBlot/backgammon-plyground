@@ -29,6 +29,11 @@ Compose UI (ui/*)  ──>  GameViewModel  ──>  MatchController (core, pure 
   (`engine/sage`) are unchanged; the JNI bridges are in `app/src/main/cpp`.
 - Every engine call runs on one dedicated thread (`EngineService`), since the engines keep
   state between calls. GNU Backgammon and Open Sage are loaded the first time they are used.
+  The background analysis has a second slot when PureTD analyzes: a second PureTD on the same
+  (read-only) networks, on its own low-priority thread, so the game never waits for it. Thread
+  counts and that priority are the Advanced engine settings. GNU Backgammon (globals) and Open
+  Sage (one thread pool for all its copies) can't have a second copy; with them the background
+  analysis runs between games.
 - The same CMake project builds for Android (via the app's `externalNativeBuild`, with the C++
   runtime linked in statically) and for the host, where a host `libbgjni.so` lets the JVM unit
   tests use the real engines (`scripts/host-tests.sh`).

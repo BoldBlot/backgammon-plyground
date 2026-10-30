@@ -76,6 +76,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.boldblot.backgammonplyground.PlyGroundApp
@@ -91,6 +92,7 @@ import com.boldblot.backgammonplyground.data.AnalysisTiming
 import com.boldblot.backgammonplyground.data.AnimationSpeed
 import com.boldblot.backgammonplyground.data.AppJson
 import com.boldblot.backgammonplyground.data.AutoFinishSpeed
+import com.boldblot.backgammonplyground.data.BackgroundPriority
 import com.boldblot.backgammonplyground.data.BlunderListLevel
 import com.boldblot.backgammonplyground.data.BlunderSort
 import com.boldblot.backgammonplyground.data.CpuArrows
@@ -102,6 +104,7 @@ import com.boldblot.backgammonplyground.data.QuizCorrect
 import com.boldblot.backgammonplyground.data.SavedBlunder
 import com.boldblot.backgammonplyground.data.Settings
 import com.boldblot.backgammonplyground.data.TrainingMode
+import com.boldblot.backgammonplyground.engine.EngineService
 import com.boldblot.backgammonplyground.ui.components.EngineChips
 import com.boldblot.backgammonplyground.ui.components.FOUR_PLY_CHECKER_NOTE
 import com.boldblot.backgammonplyground.ui.components.PRUNING
@@ -624,7 +627,7 @@ private fun HistoryRow(
 
 /** The pages of Settings, each opened from the Settings list. */
 enum class SettingsGroup(val title: String) {
-    TRAINING("Training"), ANALYSIS("Analysis"), PLAY("Play"), DISPLAY("Display"), DATA("Data and help"),
+    TRAINING("Training"), ANALYSIS("Analysis"), ENGINE("Advanced engine settings"), PLAY("Play"), DISPLAY("Display"), DATA("Data and help"),
 }
 
 /** One line under a group's name in the Settings list: its main values. */
@@ -634,6 +637,13 @@ private fun SettingsGroup.summary(s: Settings): String = when (this) {
         if (s.quietPlay) "analysis ${s.analysisTiming.label.lowercase()}" else s.feedback.label.lowercase(),
     ).joinToString(" · ")
     SettingsGroup.ANALYSIS -> "${s.analysisEngine.label} · ${s.checkerPlies}-ply checker play · ${s.cubePlies}-ply cube"
+    SettingsGroup.ENGINE -> if (s.analysisEngine != EngineKind.PURETD) {
+        "Background analysis shares the game's engine (${s.analysisEngine.label})"
+    } else {
+        val cores = Runtime.getRuntime().availableProcessors()
+        "Game ${threadsOf(s.gameThreads, cores, false)} · analysis ${threadsOf(s.backgroundThreads, cores, true)}, " +
+            "${s.backgroundPriority.label.lowercase()} priority" + if (s.analyzeDuringPlay) "" else ", between games"
+    }
     SettingsGroup.PLAY -> listOfNotNull(
         "auto-roll".takeIf { s.autoRoll }, "forced moves".takeIf { s.autoForced }, "bear-off".takeIf { s.autoBearOff },
         when {
@@ -680,6 +690,7 @@ fun SettingsScreen(
                 }
                 SettingsGroup.TRAINING -> TrainingSettings(s, ::update)
                 SettingsGroup.ANALYSIS -> AnalysisSettings(s, ::update, onSpeedTest)
+                SettingsGroup.ENGINE -> EngineSettings(s, ::update)
                 SettingsGroup.PLAY -> PlaySettings(s, ::update)
                 SettingsGroup.DISPLAY -> DisplaySettings(s, ::update)
                 SettingsGroup.DATA -> DataSettings(s, ::update) { clear = it }
@@ -700,10 +711,13 @@ private fun Note(text: String) =
 
 /** A label and a row of chips, one per choice. */
 @Composable
-private fun <T> Chips(label: String, options: List<T>, selected: T, name: (T) -> String, onPick: (T) -> Unit) {
-    Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
+private fun <T> Chips(label: String, options: List<T>, selected: T, name: (T) -> String, enabled: Boolean = true, onPick: (T) -> Unit) {
+    Text(
+        label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp),
+        color = if (enabled) Color.Unspecified else MaterialTheme.colorScheme.onSurfaceVariant,
+    )
     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        items(options) { o -> FilterChip(selected = selected == o, onClick = { onPick(o) }, label = { Text(name(o)) }) }
+        items(options) { o -> FilterChip(selected = selected == o, onClick = { onPick(o) }, enabled = enabled, label = { Text(name(o)) }) }
     }
 }
 
@@ -782,17 +796,109 @@ private fun AnalysisSettings(s: Settings, update: (f: (Settings) -> Settings) ->
     )
 }
 
+/** "8 threads (all)", "2 threads": a thread setting (0 = its default) on a phone with [cores] cores. */
+private fun threadsOf(n: Int, cores: Int, background: Boolean): String {
+    val v = if (n > 0) n.coerceAtMost(cores) else if (background) EngineService.defaultBackgroundThreads(cores) else cores
+    return "$v thread${if (v == 1) "" else "s"}" + if (v == cores) " (all)" else ""
+}
+
+/** 1, 2, 4, … up to [cores], and [cores] itself. */
+private fun threadChoices(cores: Int): List<Int> =
+    (generateSequence(1) { it * 2 }.takeWhile { it < cores }.toList() + cores).distinct()
+
+/**
+ * The phone's cores by top speed, fastest first ("2 at 4.5 GHz, 6 at 3.5 GHz"), read from the
+ * kernel's cpufreq files (any app may read them); null where the phone hides them.
+ */
+private fun coreSpeeds(cores: Int): String? = runCatching<String?> {
+    val khz = (0 until cores).map { i ->
+        java.io.File("/sys/devices/system/cpu/cpu$i/cpufreq/cpuinfo_max_freq").readText().trim().toLong()
+    }
+    if (khz.any { it <= 0 }) return null
+    khz.groupingBy { it }.eachCount().entries.sortedByDescending { it.key }
+        .joinToString(", ") { (f, n) -> "$n at ${"%.1f".format(java.util.Locale.ROOT, f / 1_000_000.0)} GHz" }
+}.getOrNull()
+
+/**
+ * Advanced engine settings: how the game's searches and the background analysis share the
+ * phone's cores. Only PureTD can run a second copy for the analysis, so the settings unlock with
+ * PureTD as the analysis engine (the button switches to it).
+ */
+@Composable
+private fun EngineSettings(s: Settings, update: (f: (Settings) -> Settings) -> Unit) {
+    val cores = remember { Runtime.getRuntime().availableProcessors() }
+    val speeds = remember { coreSpeeds(cores) }
+    Text(
+        "What this does: when nothing about your decisions is shown during play, they are analyzed in the background. " +
+            "With PureTD as the analysis engine, that analysis runs on a second copy of PureTD on threads of its own, " +
+            "so the computer's moves, your rolls and hints never wait for it. These settings decide how many of the " +
+            "phone's cores each side may use, and how much the analysis gives way to the game.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    Text(
+        "Why it is here: phones differ. The defaults suit most of them; if the game feels slow while the analysis " +
+            "runs, or the phone gets warm, give the analysis fewer threads or a lower priority.",
+        style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp),
+    )
+    Text(
+        "This phone: $cores cores" + (speeds?.let { " ($it)" } ?: "") + ".",
+        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 10.dp),
+    )
+    val unlocked = s.analysisEngine == EngineKind.PURETD
+    if (!unlocked) {
+        Card(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+            Column(Modifier.padding(12.dp)) {
+                Text(
+                    "Multithreaded analysis is currently available only with PureTD. With ${s.analysisEngine.label} " +
+                        "analyzing (Settings → Analysis), the background analysis shares the game's engine, so it runs " +
+                        "only between games, while a summary is open.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Button(onClick = { update { it.copy(analysisEngine = EngineKind.PURETD) } }, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Override analysis engine: use PureTD")
+                }
+                Note("You can still play against any engine (New match).")
+            }
+        }
+    }
+    val choices = threadChoices(cores)
+    fun shown(n: Int, background: Boolean) =
+        if (n > 0) n.coerceAtMost(cores) else if (background) EngineService.defaultBackgroundThreads(cores) else cores
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Chips("Game threads", choices, shown(s.gameThreads, false), { if (it == cores) "$it (all)" else "$it" }, enabled = unlocked) { n ->
+        update { it.copy(gameThreads = if (n == cores) 0 else n) }
+    }
+    Note("For the computer's moves, hints and the analysis shown during play. Default: all cores.")
+    Chips("Background analysis threads", choices, shown(s.backgroundThreads, true), { if (it == cores) "$it (all)" else "$it" }, enabled = unlocked) { n ->
+        update { it.copy(backgroundThreads = if (n == EngineService.defaultBackgroundThreads(cores)) 0 else n) }
+    }
+    Note(
+        "Default: ${EngineService.defaultBackgroundThreads(cores)}. More threads finish the queue sooner. Together the two may ask " +
+            "for more threads than there are cores; the game still comes first with Low priority.",
+    )
+    Toggle("Analyze during play", s.analyzeDuringPlay, enabled = unlocked) { v -> update { it.copy(analyzeDuringPlay = v) } }
+    Note("Off: the analysis waits for the end of each game and runs while the summary is open.")
+    Chips("Background analysis priority", BackgroundPriority.entries, s.backgroundPriority, { it.label }, enabled = unlocked) { v ->
+        update { it.copy(backgroundPriority = v) }
+    }
+    Note(
+        "Low (the default): Android gives the game's searches the cores first, and may keep the analysis on the " +
+            "slower cores. Normal: the analysis finishes sooner but competes with the game. Android always keeps the " +
+            "phone itself responsive.",
+    )
+}
+
 @Composable
 private fun PlaySettings(s: Settings, update: (f: (Settings) -> Settings) -> Unit) {
     Toggle("Roll automatically when I can't double", s.autoRoll) { v -> update { it.copy(autoRoll = v) } }
-    Note("In a game, the \"Keep rolling\" switch under the board also rolls when you could double, until you turn it off, the cube changes hands or the game ends.")
+    Note("In a game, the \"Keep rolling\" button beside the board also rolls when you could double, until you turn it off, the cube changes hands or the game ends.")
     Toggle("Submit my move as soon as it is complete", s.autoConfirm) { v -> update { it.copy(autoConfirm = v) } }
     Toggle("Play forced moves automatically", s.autoForced) { v -> update { it.copy(autoForced = v) } }
     Toggle("Bear off automatically when contact is broken", s.autoBearOff) { v -> update { it.copy(autoBearOff = v) } }
     Note("Plays the analysis engine's best bear-off for you; these moves are not counted in your PR. Cube decisions stay yours.")
     Toggle("Confirm before I double", s.confirmDouble) { v -> update { it.copy(confirmDouble = v) } }
     Toggle("Confirm before I pass", s.confirmPass) { v -> update { it.copy(confirmPass = v) } }
-    Note("The first tap asks (\"Double to 2?\", \"Pass?\"), a second tap within 3 seconds confirms.")
+    Note("A bar across the board asks (\"Double to 2?\", \"Pass and lose 1 point?\") with Cancel and Double or Pass.")
     Chips("Autofinish: pause after each move", AutoFinishSpeed.entries, s.autoFinishSpeed, { it.label }) { a -> update { it.copy(autoFinishSpeed = a) } }
     Note(
         "Autofinish (in the game) lets the engine at 3-ply play your side to the end of the game; " +

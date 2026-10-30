@@ -98,6 +98,7 @@ import com.boldblot.backgammonplyground.core.MatchState
 import com.boldblot.backgammonplyground.core.MoveNotation
 import com.boldblot.backgammonplyground.core.PerformanceTotals
 import com.boldblot.backgammonplyground.core.Phase
+import com.boldblot.backgammonplyground.core.Scoring
 import com.boldblot.backgammonplyground.core.Player
 import com.boldblot.backgammonplyground.core.Severity
 import com.boldblot.backgammonplyground.core.WinType
@@ -192,7 +193,7 @@ fun GameScreen(
     }
 
     st.gameOver?.let { info ->
-        GameOverDialog(info, st.inStats, st.settings.gameSummary, st.analysisLeft, vm, onReview, onReviewMistakes, onBack) {
+        GameOverDialog(info, st.inStats, st.settings.gameSummary, st.analysisLeft, st.analysisEta, vm, onReview, onReviewMistakes, onBack) {
             endSession(info.matchId, true, vm::endSession)
         }
     }
@@ -520,23 +521,27 @@ private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifie
             val mirrored = st.settings.mirrorBoard
             val halfLeft = if (mirrored) margin + tray else margin + pointW * 6 + bar
             val buttonH = buttonHeight(w, maxHeight)
-            Box(
-                Modifier.offset(x = halfLeft).width(pointW * 6).fillMaxHeight(),
-                contentAlignment = Alignment.Center,
-            ) { OnBoardButtons(st, m, vm, pointW, buttonH) }
+            // Double or Pass waiting for the confirmation bar's answer (Settings → Play).
+            var asking by remember(g.phase, g.decisions.size) { mutableStateOf<CubeAsk?>(null) }
+            if (asking == null) {
+                Box(
+                    Modifier.offset(x = halfLeft).width(pointW * 6).fillMaxHeight(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    OnBoardButtons(st, m, vm, pointW, buttonH, onDouble = {
+                        if (st.settings.confirmDouble) asking = CubeAsk.DOUBLE else vm.double()
+                    })
+                }
+            }
             // Pass to a double goes in the computer's half, next to the offered cube.
-            if (passShown(st, m)) {
+            if (passShown(st, m) && asking == null) {
                 val geo = BoardGeometry(w.value, maxHeight.value, mirrored)
                 Box(Modifier.offset(x = geo.cubeAside().second.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                    AskTwice(
-                        st.settings.confirmPass, "Pass", "Pass?", onAct = { vm.respond(false) },
-                        onStopAsking = { vm.stopConfirming(double = false) },
-                    ) { text, onClick ->
-                        FilledTonalButton(
-                            onClick = onClick, modifier = Modifier.width(geo.passW.dp).height(buttonH),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 0.dp),
-                        ) { Text(text, style = buttonLabel(pointW), maxLines = 1) }
-                    }
+                    FilledTonalButton(
+                        onClick = { if (st.settings.confirmPass) asking = CubeAsk.PASS else vm.respond(false) },
+                        modifier = Modifier.width(geo.passW.dp).height(buttonH),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 0.dp),
+                    ) { Text("Pass", style = buttonLabel(pointW), maxLines = 1) }
                 }
             }
             // Signs in the middle of the board, centred on the bar: a cube mistake, or a turn without
@@ -568,13 +573,25 @@ private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifie
                     BoardNoticeSign(st)
                 }
             }
+            // Above everything on the board, signs included.
+            asking?.let { ask ->
+                CubeConfirmBar(
+                    ask, g, buttonH,
+                    onCancel = { asking = null },
+                    onConfirm = { stopAsking ->
+                        asking = null
+                        if (stopAsking) vm.stopConfirming(double = ask == CubeAsk.DOUBLE)
+                        if (ask == CubeAsk.DOUBLE) vm.double() else vm.respond(false)
+                    },
+                )
+            }
         }
         if (st.busy) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp)) else Spacer(Modifier.height(2.dp))
     }
 }
 
 @Composable
-private fun OnBoardButtons(st: GameUiState, m: MatchState, vm: GameViewModel, pointW: Dp, height: Dp) {
+private fun OnBoardButtons(st: GameUiState, m: MatchState, vm: GameViewModel, pointW: Dp, height: Dp, onDouble: () -> Unit) {
     val g = m.game
     if (st.busy || st.preview != null || hasPanel(st) || st.autoFinishing) return
     // A pair of buttons stays within the four middle points, clear of the stacks on the outer
@@ -586,13 +603,7 @@ private fun OnBoardButtons(st: GameUiState, m: MatchState, vm: GameViewModel, po
     when {
         g.phase == Phase.PRE_ROLL && g.turn == Player.HUMAN -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (g.mayDouble(m.rules, m.score)) {
-                AskTwice(
-                    // On a narrow (portrait) board the value does not fit; the cube shows it.
-                    st.settings.confirmDouble, "Double", if (pointW < 48.dp) "Double?" else "Double to ${g.cube.value * 2}?", onAct = vm::double,
-                    onStopAsking = { vm.stopConfirming(double = true) },
-                ) { text, onClick ->
-                    FilledTonalButton(onClick = onClick, modifier = pairMod, contentPadding = pad) { Text(text, style = label, maxLines = 1) }
-                }
+                FilledTonalButton(onClick = onDouble, modifier = pairMod, contentPadding = pad) { Text("Double", style = label, maxLines = 1) }
             }
             Button(onClick = vm::roll, modifier = pairMod, contentPadding = pad) { Text("Roll", style = label, maxLines = 1) }
         }
@@ -618,51 +629,79 @@ private fun OnBoardButtons(st: GameUiState, m: MatchState, vm: GameViewModel, po
     }
 }
 
+/** A cube action waiting for the confirmation bar (Settings → Play: confirm Double / Pass). */
+private enum class CubeAsk { DOUBLE, PASS }
+
 /**
- * Double and Pass: with [confirm] the first tap turns the button into [question] and a second tap
- * within 3 seconds acts; meanwhile a small "Don't ask again" line under it turns the question off
- * (the second tap is still needed).
+ * The confirmation for Double or Pass: a bar across the middle of the board with the question,
+ * Cancel and the action side by side in the centre, and "Don't ask again" (saved when the action
+ * is confirmed). It stays until answered; a tap on the board outside it cancels. Taps in the
+ * first moment after it opens are ignored, so a double tap on Double or Pass does not confirm.
  */
 @Composable
-private fun AskTwice(
-    confirm: Boolean, label: String, question: String, onAct: () -> Unit, onStopAsking: () -> Unit,
-    button: @Composable (text: String, onClick: () -> Unit) -> Unit,
-) {
-    var armed by remember { mutableStateOf(false) }
-    LaunchedEffect(armed) {
-        if (armed) {
-            delay(3000)
-            armed = false
-        }
+private fun CubeConfirmBar(ask: CubeAsk, g: GameState, buttonH: Dp, onCancel: () -> Unit, onConfirm: (stopAsking: Boolean) -> Unit) {
+    var stopAsking by remember { mutableStateOf(false) }
+    var ready by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(400)
+        ready = true
     }
-    // The button keeps its size and place; the "Don't ask again" line hangs below it, centred.
-    androidx.compose.ui.layout.Layout(
-        content = {
-            button(if (armed) question else label) {
-                if (confirm && !armed) armed = true else {
-                    armed = false
-                    onAct()
+    val question = when (ask) {
+        CubeAsk.DOUBLE -> "Double to ${g.cube.value * 2}?"
+        CubeAsk.PASS -> "Pass and lose ${g.cube.value} point${if (g.cube.value == 1) "" else "s"}?"
+    }
+    val action = if (ask == CubeAsk.DOUBLE) "Double" else "Pass"
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.18f))
+            .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {
+                if (ready) onCancel()
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            // Taps on the bar itself do nothing.
+            Modifier.fillMaxWidth().clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {},
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f), shadowElevation = 6.dp,
+        ) {
+            BoxWithConstraints(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                val buttons: @Composable () -> Unit = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(onClick = { if (ready) onCancel() }, modifier = Modifier.height(buttonH.coerceAtLeast(36.dp))) { Text("Cancel", maxLines = 1) }
+                        Button(onClick = { if (ready) onConfirm(stopAsking) }, modifier = Modifier.height(buttonH.coerceAtLeast(36.dp))) { Text(action, maxLines = 1) }
+                    }
+                }
+                val questionText: @Composable () -> Unit = {
+                    Text(question, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                }
+                val dontAsk: @Composable () -> Unit = {
+                    Row(
+                        Modifier.toggleable(stopAsking, role = Role.Checkbox) { stopAsking = it }.padding(end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = stopAsking, onCheckedChange = null, modifier = Modifier.size(32.dp).padding(6.dp))
+                        Text("Don't ask again", style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
+                    }
+                }
+                if (maxWidth >= 560.dp) {
+                    // Question at the start, the buttons in the centre, "Don't ask again" at the end.
+                    Box(Modifier.fillMaxWidth()) {
+                        Box(Modifier.align(Alignment.CenterStart)) { questionText() }
+                        Box(Modifier.align(Alignment.Center)) { buttons() }
+                        Box(Modifier.align(Alignment.CenterEnd)) { dontAsk() }
+                    }
+                } else {
+                    // A narrow (portrait) board: the question and "Don't ask again" above the buttons.
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { questionText() }
+                            dontAsk()
+                        }
+                        buttons()
+                    }
                 }
             }
-            if (armed && confirm) {
-                Row(
-                    Modifier
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), RoundedCornerShape(6.dp))
-                        .toggleable(false, role = Role.Checkbox) { onStopAsking() }
-                        .padding(end = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(checked = false, onCheckedChange = null, modifier = Modifier.size(28.dp).padding(4.dp))
-                    Text("Don't ask again", style = MaterialTheme.typography.labelSmall, maxLines = 1, softWrap = false)
-                }
-            }
-        },
-    ) { measurables, constraints ->
-        val b = measurables[0].measure(constraints)
-        val line = measurables.getOrNull(1)?.measure(androidx.compose.ui.unit.Constraints())
-        layout(b.width, b.height) {
-            b.place(0, 0)
-            line?.place((b.width - line.width) / 2, b.height + 2.dp.roundToPx())
         }
     }
 }
@@ -893,68 +932,40 @@ private fun Panels(st: GameUiState, m: MatchState, vm: GameViewModel) {
 private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical: Boolean, onResign: () -> Unit) {
     val g = m.game
     val humanTurn = g.turn == Player.HUMAN
-    if (st.feedback != null || st.autoFinishing) return
-    // The computer's turn (but not its double, which the human answers here).
-    if (st.busy || (!humanTurn && g.phase != Phase.DOUBLED)) {
-        QueuedResign(st, vm, onResign)
-        return
-    }
-    val moving = g.phase == Phase.MOVING && humanTurn && !st.noLegalMove
-    val canHint = (g.phase == Phase.MOVING && humanTurn && !st.noLegalMove) ||
-        (g.phase == Phase.PRE_ROLL && humanTurn && g.mayDouble(m.rules, m.score)) ||
-        (g.phase == Phase.DOUBLED && g.responder == Player.HUMAN) ||
-        (g.phase == Phase.BEAVERED && humanTurn)
-    val content: @Composable () -> Unit = {
+    if (st.autoFinishing) return
+    // The computer's turn (but not its double, which the human answers here) has no move buttons.
+    val humanActs = !st.busy && st.feedback == null && (humanTurn || g.phase == Phase.DOUBLED)
+    val moving = humanActs && g.phase == Phase.MOVING && humanTurn && !st.noLegalMove
+    val canHint = humanActs && (
+        (g.phase == Phase.MOVING && humanTurn && !st.noLegalMove) ||
+            (g.phase == Phase.PRE_ROLL && humanTurn && g.mayDouble(m.rules, m.score)) ||
+            (g.phase == Phase.DOUBLED && g.responder == Player.HUMAN) ||
+            (g.phase == Phase.BEAVERED && humanTurn)
+        )
+    val moveButtons: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
         if (moving) {
-            OutlinedButton(onClick = vm::undo, enabled = st.steps.isNotEmpty(), modifier = if (vertical) Modifier.fillMaxWidth() else Modifier) {
+            OutlinedButton(onClick = vm::undo, enabled = st.steps.isNotEmpty(), modifier = if (vertical) Modifier.weight(1f) else Modifier) {
                 Icon(Icons.AutoMirrored.Filled.Undo, null)
                 Spacer(Modifier.width(4.dp))
-                Text("Undo")
+                Text("Undo", maxLines = 1)
             }
-            Button(onClick = vm::confirmMove, enabled = st.moveComplete, modifier = if (vertical) Modifier.fillMaxWidth() else Modifier) { Text("Done") }
-        }
-        if (canHint) {
-            TextButton(onClick = vm::hint, modifier = if (vertical) Modifier.fillMaxWidth() else Modifier) {
-                Icon(Icons.Default.Lightbulb, null)
-                Spacer(Modifier.width(4.dp))
-                Text("Hint")
-            }
-        }
-        if (st.canResign) {
-            if (vertical) {
-                TextButton(onClick = onResign, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Flag, null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Resign")
-                }
-            } else {
-                IconButton(onClick = onResign) { Icon(Icons.Default.Flag, "Resign", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-            }
-        }
-        // "Keep rolling": shown where the human could double, and while it is on (to switch it off).
-        if (st.keepRolling || (g.phase == Phase.PRE_ROLL && humanTurn && g.mayDouble(m.rules, m.score))) {
-            FilterChip(selected = st.keepRolling, onClick = vm::toggleKeepRolling, label = { Text("Keep rolling") })
-        }
-        if (st.canAutoFinish && humanTurn) {
-            TextButton(onClick = vm::startAutoFinish, modifier = if (vertical) Modifier.fillMaxWidth() else Modifier) {
-                Icon(Icons.Default.FastForward, null)
-                Spacer(Modifier.width(4.dp))
-                Text("Autofinish")
-            }
+            Button(onClick = vm::confirmMove, enabled = st.moveComplete, modifier = if (vertical) Modifier.weight(1f) else Modifier) { Text("Done", maxLines = 1) }
         }
     }
     if (vertical) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { content() }
+        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (moving) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) { moveButtons() }
+            GameChips(st, m, vm, canHint, onResign)
+        }
     } else {
-        // Wraps onto a second line when the buttons don't fit (large font or display size).
-        FlowRow(
-            Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-            itemVerticalAlignment = Alignment.CenterVertically,
-        ) { content() }
+        if (moving) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+                moveButtons()
+            }
+        }
+        GameChips(st, m, vm, canHint, onResign)
     }
-    if (moving && st.steps.isEmpty()) {
+    if (moving && st.steps.isEmpty() && !vertical) {
         Text(
             "Tap a checker to move it by the left die (or drag it). Tap the dice to swap them, and to finish your move.",
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -962,21 +973,44 @@ private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical:
     }
 }
 
-/** While the human cannot resign right away: resign at the next turn, or withdraw that. */
+/**
+ * Hint, Keep rolling, Autofinish and Resign: always in the same place during a game, greyed out
+ * when they can't be used. Resign while the computer plays offers the resignation at the human's next
+ * turn (the chip then shows it is queued; a tap cancels).
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun QueuedResign(st: GameUiState, vm: GameViewModel, onResign: () -> Unit) {
-    when {
-        st.queuedResign != null -> Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Flag, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(4.dp))
-            Text("Resigning at your turn", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-            TextButton(onClick = vm::cancelQueuedResign) { Text("Cancel") }
-        }
-        st.canQueueResign -> TextButton(onClick = onResign) {
-            Icon(Icons.Default.Flag, null)
-            Spacer(Modifier.width(4.dp))
-            Text("Resign at my turn")
-        }
+private fun GameChips(st: GameUiState, m: MatchState, vm: GameViewModel, canHint: Boolean, onResign: () -> Unit) {
+    val g = m.game
+    val inPlay = st.gameOver == null && g.phase != Phase.OVER && g.phase != Phase.OPENING
+    // Keep rolling makes sense while the human may double this game (or to switch it off).
+    val keepRollingOn = st.keepRolling || (inPlay && Scoring.mayDouble(m.rules, g.cube, Player.HUMAN, m.score, g.crawford))
+    val queued = st.queuedResign != null
+    FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        FilterChip(
+            selected = false, onClick = vm::hint, enabled = canHint,
+            leadingIcon = { Icon(Icons.Default.Lightbulb, null, Modifier.size(18.dp)) },
+            label = { Text("Hint", maxLines = 1) },
+        )
+        FilterChip(
+            selected = st.keepRolling, onClick = vm::toggleKeepRolling, enabled = keepRollingOn,
+            label = { Text("Keep rolling", maxLines = 1) },
+        )
+        FilterChip(
+            selected = false, onClick = vm::startAutoFinish, enabled = st.canAutoFinish,
+            leadingIcon = { Icon(Icons.Default.FastForward, null, Modifier.size(18.dp)) },
+            label = { Text("Autofinish", maxLines = 1) },
+        )
+        FilterChip(
+            selected = queued, onClick = { if (queued) vm.cancelQueuedResign() else onResign() },
+            enabled = queued || st.canResign || st.canQueueResign,
+            leadingIcon = { Icon(Icons.Default.Flag, null, Modifier.size(18.dp)) },
+            label = { Text(if (queued) "Resigning at my turn" else "Resign", maxLines = 1) },
+        )
     }
 }
 
@@ -1133,7 +1167,7 @@ private fun TryAgainCard(fb: Feedback, vm: GameViewModel) {
  */
 @Composable
 private fun GameOverDialog(
-    info: GameOverInfo, inStats: Boolean, gameSummary: Boolean, analysisLeft: Int, vm: GameViewModel, onReview: (Long) -> Unit,
+    info: GameOverInfo, inStats: Boolean, gameSummary: Boolean, analysisLeft: Int, analysisEta: Long?, vm: GameViewModel, onReview: (Long) -> Unit,
     onReviewMistakes: (matchId: Long, gameNumber: Int) -> Unit, onBack: () -> Unit, onEndSession: () -> Unit,
 ) {
     val won = info.result.winner == Player.HUMAN
@@ -1198,12 +1232,26 @@ private fun GameOverDialog(
                         Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.width(8.dp))
-                            Text(
-                                "$analysisLeft decision${if (analysisLeft > 1) "s" else ""} still to analyze. " +
-                                    if (info.matchOver) "PR and mistakes fill in when done." else "You can play on; they fill in when done.",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Analyzing: $analysisLeft decision${if (analysisLeft > 1) "s" else ""} left" +
+                                        (analysisEta?.let { " · about ${durationText(it)}" } ?: ""),
+                                    style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    if (info.matchOver) "PR and mistakes fill in as it goes." else "You can play on; PR and mistakes fill in as it goes.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            TextButton(onClick = { vm.stopAnalysis(info.matchId) }) { Text("Stop") }
                         }
+                    }
+                    if (info.notAnalyzed > 0 && analysisLeft == 0) {
+                        Text(
+                            "${info.notAnalyzed} decision${if (info.notAnalyzed > 1) "s" else ""} not analyzed: PR and mistakes count only " +
+                                "the analyzed ones. Analyze again in the review finishes them.",
+                            style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp),
+                        )
                     }
                     if (info.offerAnalysis && analysisLeft == 0) {
                         Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1342,4 +1390,10 @@ internal fun SummaryRow(label: String, you: String, cpu: String, header: Boolean
         Text(you, Modifier.weight(1f).padding(start = 8.dp), style = valueStyle, fontWeight = weight, textAlign = TextAlign.End)
         Text(cpu, Modifier.weight(1f).padding(start = 8.dp), style = valueStyle, fontWeight = weight, textAlign = TextAlign.End)
     }
+}
+
+/** "40 s", "3 min": a rough duration for the analysis still to come. */
+private fun durationText(ms: Long): String {
+    val s = (ms + 999) / 1000
+    return if (s < 90) "$s s" else "${(s + 30) / 60} min"
 }

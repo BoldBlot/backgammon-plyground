@@ -13,6 +13,8 @@ import java.io.File
 object SageNative {
     @JvmStatic external fun nativeOpen(paths: Array<String>, hidden: IntArray, bearoff: String, threads: Int): Long
     @JvmStatic external fun nativeClose(handle: Long)
+    /** Worker threads for [handle]'s next searches. */
+    @JvmStatic external fun nativeSetThreads(handle: Long, threads: Int)
     /** Positions after the mover's play from [pre] (int[26] each): {equity, probs[5]} per position. */
     @JvmStatic external fun nativeScore(handle: Long, pre: IntArray, posts: IntArray, cube: IntArray, plies: Int): FloatArray?
     /** {nd, dt, dp, optimal, shouldDouble, shouldTake, beaver, cubeAvailable, probs[5]}. */

@@ -43,6 +43,9 @@ enum class AnalysisTiming(val label: String, val description: String) {
     NONE("None", "Play at full speed and analyze later: Analyze now at the end of the match, or Analyze again in the review."),
 }
 
+/** The background analysis' thread priority (Advanced engine settings). */
+enum class BackgroundPriority(val label: String) { LOW("Low"), NORMAL("Normal") }
+
 /** Which of the human's mistakes go on the blunder list. */
 enum class BlunderListLevel(val label: String, val minSeverity: Severity) {
     BLUNDERS("Blunders only", Severity.BLUNDER),
@@ -148,7 +151,7 @@ data class Settings(
     /** Play the human's bear-off for them once contact is broken (the analysis engine's best play). */
     val autoBearOff: Boolean = false,
     val cpuArrows: CpuArrows = CpuArrows.UNTIL_MOVE,
-    /** Double and Pass ask for a second tap. */
+    /** Double and Pass ask for confirmation (a bar across the board). */
     val confirmDouble: Boolean = true,
     val confirmPass: Boolean = true,
     val blunderList: BlunderListLevel = BlunderListLevel.BLUNDERS,
@@ -165,6 +168,12 @@ data class Settings(
     val mirrorBoard: Boolean = false,
     /** The version name whose welcome screen was last seen ("" = none yet). */
     val welcomeSeen: String = "",
+    /** Advanced engine settings: threads for the game's searches and the background analysis (0 = default). */
+    val gameThreads: Int = 0,
+    val backgroundThreads: Int = 0,
+    /** The background analysis runs during play (its own slot, PureTD only); otherwise between games. */
+    val analyzeDuringPlay: Boolean = true,
+    val backgroundPriority: BackgroundPriority = BackgroundPriority.LOW,
 ) {
     val checkerDepth: Depth get() = Depth(checkerPlies, moveFilter)
     val cubeDepth: Depth get() = Depth(cubePlies)
@@ -231,6 +240,10 @@ class SettingsStore(private val context: Context) {
         val customBoards = stringPreferencesKey("custom_boards")
         val customSlot = intPreferencesKey("custom_slot")
         val mirror = booleanPreferencesKey("mirror_board")
+        val gameThreads = intPreferencesKey("game_threads")
+        val backgroundThreads = intPreferencesKey("background_threads")
+        val analyzeDuringPlay = booleanPreferencesKey("analyze_during_play")
+        val backgroundPriority = stringPreferencesKey("background_priority")
     }
 
     private inline fun <reified E : Enum<E>> Preferences.enum(key: Preferences.Key<String>, default: E): E =
@@ -292,6 +305,10 @@ class SettingsStore(private val context: Context) {
                 ?.let { l -> List(CUSTOM_SLOTS) { l.getOrNull(it) } } ?: d.customBoards,
             customSlot = (p[Keys.customSlot] ?: d.customSlot).coerceIn(0, CUSTOM_SLOTS - 1),
             mirrorBoard = p[Keys.mirror] ?: d.mirrorBoard,
+            gameThreads = p[Keys.gameThreads] ?: d.gameThreads,
+            backgroundThreads = p[Keys.backgroundThreads] ?: d.backgroundThreads,
+            analyzeDuringPlay = p[Keys.analyzeDuringPlay] ?: d.analyzeDuringPlay,
+            backgroundPriority = p.enum(Keys.backgroundPriority, d.backgroundPriority),
         )
     }
 
@@ -347,6 +364,10 @@ class SettingsStore(private val context: Context) {
             p[Keys.customBoards] = AppJson.encodeToString(s.customBoards)
             p[Keys.customSlot] = s.customSlot
             p[Keys.mirror] = s.mirrorBoard
+            p[Keys.gameThreads] = s.gameThreads
+            p[Keys.backgroundThreads] = s.backgroundThreads
+            p[Keys.analyzeDuringPlay] = s.analyzeDuringPlay
+            p[Keys.backgroundPriority] = s.backgroundPriority.name
         }
     }
 }

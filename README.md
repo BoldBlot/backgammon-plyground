@@ -153,7 +153,7 @@ from its release.
 | `engine/tools/` | `export_puretd.py`: PureTD checkpoints to the app's `.ptw` network files |
 | `app/src/main/cpp/` | JNI bridges for the three engines (one library, `libbgjni`) |
 | `app/src/main/java/com/boldblot/backgammonplyground/core/` | Pure Kotlin: board, move generation, rules, match state machine, XG analysis and PR, statistics |
-| `app/src/main/java/com/boldblot/backgammonplyground/engine/` | Kotlin side of the engines (one search over each engine's evaluation), single engine thread |
+| `app/src/main/java/com/boldblot/backgammonplyground/engine/` | Kotlin side of the engines (one search over each engine's evaluation), engine threads (the game's, and the background analysis' with PureTD) |
 | `app/src/main/java/com/boldblot/backgammonplyground/data/` | Room database, settings, statistics queries |
 | `app/src/main/java/com/boldblot/backgammonplyground/ui/` | Jetpack Compose screens |
 | `docs/` | Design notes |
