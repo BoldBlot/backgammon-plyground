@@ -59,6 +59,13 @@ Compose UI (ui/*)  ──>  GameViewModel  ──>  MatchController (core, pure 
   rejected offers are remembered per game so they are not repeated.
 - `MatExport.kt`: Jellyfish `.mat` export, laid out like gnubg's own export
   (computer = left column / gnubg player 0, human = right column).
+- `MatImport.kt`: reads `.mat` files (XG, gnubg, PlyGround; an entry is in the right
+  column when it starts past the 20th character) and replays them through `GameState`,
+  matching each written move to a legal move by the position it leads to. Every
+  decision is marked `pending` for the background analysis.
+- `Labels.kt`: the automatic labels of a decision or saved position (`AutoLabel`,
+  stored by name), the player's own labels (`my:` keys) and label filters (any within
+  a group, all across groups).
 
 ## Data
 
@@ -70,6 +77,11 @@ match/game/decision index, inserted as each blunder is made). `matches.inStats` 
 left out of statistics and rating (ratings are recomputed along the matches that count) and
 `matches.recordsCleared` matches whose game records were deleted (summaries kept for
 statistics).
+Schema 3 adds `matches.imported` / `blundersBoth` (imported matches: the opponent is a
+name, `Opponent.imported`), `blunders.opponent` (the opponent's mistakes, stored turned so
+that their player is at the bottom), `positions.labels` (label keys; empty = worked out
+from the position) and `categories.filter` / `autoAdd` (My positions folders linked to a
+blunder list filter; Checker blunders and Cube blunders are made once at start).
 Settings live in DataStore.
 
 ## UI

@@ -50,6 +50,10 @@ data class MatchEntity(
     @ColumnInfo(defaultValue = "1") val inStats: Boolean = true,
     /** True once the move-by-move records of its games were deleted (results kept). Schema 3. */
     @ColumnInfo(defaultValue = "0") val recordsCleared: Boolean = false,
+    /** Imported from a .mat file (schema 3): the opponent is a name ([Opponent.imported]), not a computer level. */
+    @ColumnInfo(defaultValue = "0") val imported: Boolean = false,
+    /** Imported: the opponent's mistakes go on the blunder list too (schema 3). */
+    @ColumnInfo(defaultValue = "0") val blundersBoth: Boolean = false,
 )
 
 /** A finished game, with its full record for review and its summary for statistics. */
@@ -95,6 +99,8 @@ data class PositionEntity(
     val myAnswer: String? = null,
     /** The last quiz answer: null = not tried yet. */
     val lastRight: Boolean? = null,
+    /** Its labels' keys, one per line ([com.boldblot.backgammonplyground.core.Labels]; schema 3). */
+    @ColumnInfo(defaultValue = "") val labels: String = "",
 )
 
 /** A category of My positions, in the player's order ([sort]). */
@@ -103,6 +109,10 @@ data class CategoryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val sort: Int = 0,
+    /** A folder linked to a blunder list filter ([Labels.encode]; "" = no filter); null = an ordinary folder (schema 3). */
+    val filter: String? = null,
+    /** Linked folders: new blunders that pass the filter are added at once (schema 3). */
+    @ColumnInfo(defaultValue = "0") val autoAdd: Boolean = false,
 )
 
 /** A position's place in a category (a position can be in several). */
@@ -110,7 +120,10 @@ data class CategoryEntity(
 data class PositionCategoryEntity(val positionId: Long, val categoryId: Long)
 
 /** A category with its number of positions. */
-data class CategoryCount(val id: Long, val name: String, val sort: Int, val count: Int)
+data class CategoryCount(val id: Long, val name: String, val sort: Int, val count: Int, val filter: String? = null, val autoAdd: Boolean = false)
+
+/** A position's labels ([PositionEntity.labels]). */
+data class PositionLabels(val id: Long, val labels: String)
 
 /** A game by its match and number. */
 data class GameKey(val matchId: Long, val number: Int)
@@ -141,8 +154,10 @@ data class BlunderEntity(
     val cpuLevel: String,
     /** Error after the 1-point-match factor. */
     val error: Float,
-    /** JSON of the DecisionRecord. */
+    /** JSON of the DecisionRecord, turned so that its player is at the bottom. */
     val record: String,
+    /** The opponent's mistake (imported matches; schema 3). */
+    @ColumnInfo(defaultValue = "0") val opponent: Boolean = false,
 )
 
 @Dao
@@ -251,6 +266,12 @@ interface MatchDao {
 
     @Query("DELETE FROM blunders")
     suspend fun deleteAllBlunders()
+
+    @Query("DELETE FROM blunders WHERE id IN (:ids)")
+    suspend fun deleteBlunders(ids: List<Long>)
+
+    @Query("SELECT * FROM blunders WHERE id = :id")
+    suspend fun blunder(id: Long): BlunderEntity?
 }
 
 @Dao
@@ -279,7 +300,7 @@ interface PositionDao {
     @Query("DELETE FROM positions WHERE id = :id")
     suspend fun deletePosition(id: Long)
 
-    @Query("SELECT c.id, c.name, c.sort, (SELECT COUNT(*) FROM position_categories pc WHERE pc.categoryId = c.id) AS count FROM categories c ORDER BY c.sort, c.id")
+    @Query("SELECT c.id, c.name, c.sort, (SELECT COUNT(*) FROM position_categories pc WHERE pc.categoryId = c.id) AS count, c.filter, c.autoAdd FROM categories c ORDER BY c.sort, c.id")
     suspend fun categories(): List<CategoryCount>
 
     @Insert
@@ -287,6 +308,15 @@ interface PositionDao {
 
     @Query("UPDATE categories SET name = :name WHERE id = :id")
     suspend fun renameCategory(id: Long, name: String)
+
+    @Query("UPDATE categories SET autoAdd = :on WHERE id = :id")
+    suspend fun setAutoAdd(id: Long, on: Boolean)
+
+    @Query("UPDATE positions SET labels = :labels WHERE id = :id")
+    suspend fun setLabels(id: Long, labels: String)
+
+    @Query("SELECT id, labels FROM positions WHERE labels != ''")
+    suspend fun allLabels(): List<PositionLabels>
 
     @Query("UPDATE categories SET sort = :sort WHERE id = :id")
     suspend fun setSort(id: Long, sort: Int)
@@ -321,9 +351,9 @@ interface PositionDao {
         MatchEntity::class, GameEntity::class, CurrentMatchEntity::class, BlunderEntity::class,
         PositionEntity::class, CategoryEntity::class, PositionCategoryEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun matches(): MatchDao

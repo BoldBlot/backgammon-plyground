@@ -504,6 +504,8 @@ private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifie
                 cube = offeredCube(g),
                 cubeOffered = g.offeredCube != null,
                 cubeAside = passShown(st, m),
+                crawford = g.crawford,
+                crawfordSign = st.settings.crawfordSign,
                 movable = if (interactive) st.movable else emptySet(),
                 lastCpuSteps = if (previewing) emptyList() else st.lastCpuSteps,
                 pips = if (st.settings.showPips) listOf(showBoard.pipCount(Player.HUMAN), showBoard.pipCount(Player.CPU)) else null,

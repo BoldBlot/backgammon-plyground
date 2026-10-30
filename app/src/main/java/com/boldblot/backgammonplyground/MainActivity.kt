@@ -46,6 +46,8 @@ import com.boldblot.backgammonplyground.ui.positions.MyPositionsScreen
 import com.boldblot.backgammonplyground.ui.positions.PositionDetailScreen
 import com.boldblot.backgammonplyground.ui.positions.QuizScreen
 import com.boldblot.backgammonplyground.ui.positions.QuizViewModel
+import com.boldblot.backgammonplyground.ui.positions.QuizMenuScreen
+import com.boldblot.backgammonplyground.ui.positions.QuizSpec
 import com.boldblot.backgammonplyground.ui.position.PositionViewModel
 import com.boldblot.backgammonplyground.ui.review.BlunderScreen
 import com.boldblot.backgammonplyground.ui.review.BlunderViewModel
@@ -80,7 +82,9 @@ class MainActivity : ComponentActivity() {
         }
         val text = uri?.let { runCatching { contentResolver.openInputStream(it)?.bufferedReader()?.readText() }.getOrNull() }
             ?: intent?.takeIf { it.action == Intent.ACTION_SEND }?.getStringExtra(Intent.EXTRA_TEXT)
-        if (text != null) app.pendingImport.value = text
+        if (text != null) {
+            if (com.boldblot.backgammonplyground.ui.home.looksLikeMatch(text)) app.pendingMatch.value = text else app.pendingImport.value = text
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -119,6 +123,11 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(pendingImport != null) {
             if (pendingImport != null && nav.currentDestination?.route != "positions") nav.navigate("positions")
         }
+        // A match file opens the Match Library, which shows the import dialog.
+        val pendingMatch by app.pendingMatch.collectAsState()
+        LaunchedEffect(pendingMatch != null) {
+            if (pendingMatch != null && nav.currentDestination?.route != "history") nav.navigate("history")
+        }
 
         // The welcome screen: on a new install, after an update from a build without it, and again
         // when the version name changes.
@@ -142,6 +151,7 @@ class MainActivity : ComponentActivity() {
                     onNewMatch = { nav.navigate("new") },
                     onPosition = { nav.navigate("position") },
                     onMyPositions = { nav.navigate("positions") },
+                    onQuiz = { nav.navigate("quizmenu") },
                     onStats = { nav.navigate("stats") },
                     onHistory = { nav.navigate("history") },
                     onSettings = { nav.navigate("settings") },
@@ -186,6 +196,7 @@ class MainActivity : ComponentActivity() {
                     onReview = { id -> nav.navigate("review/$id") },
                     onBlunder = { id -> nav.navigate("blunder/$id") },
                     onBack = { nav.popBackStack() },
+                    onImported = gameVm::queueAnalysis,
                 )
             }
             composable("blunder/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
@@ -200,7 +211,7 @@ class MainActivity : ComponentActivity() {
                 MyPositionsScreen(
                     app, onBack = { nav.popBackStack() },
                     onCategory = { id -> nav.navigate("positions/category/${id ?: ALL_POSITIONS}") },
-                    onQuiz = { ids -> nav.navigate("positions/quiz/${ids.joinToString(",")}") },
+                    onQuiz = { ids -> nav.navigate("quizmenu?ids=${ids.joinToString(",")}") },
                 )
             }
             composable("positions/category/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
@@ -208,16 +219,20 @@ class MainActivity : ComponentActivity() {
                 CategoryPositionsScreen(
                     app, id, onBack = { nav.popBackStack() },
                     onOpen = { p -> nav.navigate("positions/item/$p") },
-                    onQuiz = { ids -> nav.navigate("positions/quiz/${ids.joinToString(",")}") },
+                    onQuiz = { ids -> nav.navigate("quizmenu?ids=${ids.joinToString(",")}") },
                 )
             }
             composable("positions/item/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
                 PositionDetailScreen(app, entry.arguments?.getLong("id") ?: 0L, onBack = { nav.popBackStack() })
             }
-            composable("positions/quiz/{ids}") { entry ->
-                val key = entry.arguments?.getString("ids").orEmpty()
-                val ids = key.split(',').mapNotNull { it.toLongOrNull() }
-                val vm: QuizViewModel = viewModel(key = "quiz-$key", factory = factory { QuizViewModel(app, ids) })
+            // The quiz menu (folders, labels, how many, order), opened with [ids] ticked.
+            composable("quizmenu?ids={ids}", arguments = listOf(navArgument("ids") { type = NavType.StringType; defaultValue = "" })) { entry ->
+                val ids = entry.arguments?.getString("ids").orEmpty().split(',').mapNotNull { it.toLongOrNull() }
+                QuizMenuScreen(app, ids, onBack = { nav.popBackStack() }) { spec -> nav.navigate("positions/quiz/${spec.encode()}") }
+            }
+            composable("positions/quiz/{spec}") { entry ->
+                val key = entry.arguments?.getString("spec").orEmpty()
+                val vm: QuizViewModel = viewModel(key = "quiz-$key", factory = factory { QuizViewModel(app, QuizSpec.decode(key)) })
                 QuizScreen(vm, onBack = { nav.popBackStack() })
             }
             composable("settings") {

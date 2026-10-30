@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -214,6 +215,9 @@ fun BoardView(
     cubeOffered: Boolean = false,
     /** The offered cube to the outer side of the computer's half (Pass sits in the middle). */
     cubeAside: Boolean = false,
+    /** Crawford game: no cube can be turned, so a vertical "CRAWFORD" sign stands on the bar instead ([crawfordSign]; otherwise nothing). */
+    crawford: Boolean = false,
+    crawfordSign: Boolean = true,
     movable: Set<Int> = emptySet(),
     selected: Int? = null,
     destinations: Set<Int> = emptySet(),
@@ -339,7 +343,9 @@ fun BoardView(
             drawArrows(g, board, arrowsFor(Player.CPU, com.boldblot.backgammonplyground.core.Move(lastCpuSteps), colors.lastMove), postMove = true)
         }
         drawHighlights(g, colors, board, movable, selected, destinations)
-        drawCube(g, colors, cube, cubeOffered, cubeAside, measurer)
+        if (crawford && !cubeOffered) {
+            if (crawfordSign) drawCrawford(g, measurer)
+        } else drawCube(g, colors, cube, cubeOffered, cubeAside, measurer)
         pips?.let { drawPips(g, colors, it, measurer) }
         dice.forEach { drawDice(g, colors, it) }
         drawArrows(g, board, arrows, postMove = false)
@@ -506,6 +512,22 @@ private fun DrawScope.drawCube(g: BoardGeometry, c: BoardColors, cube: CubeState
     drawRoundRect(Color(0xFF555555), Offset(x, y), Size(s, s), CornerRadius(s * 0.15f, s * 0.15f), style = Stroke(2f))
     val t = measurer.measure(label, TextStyle(color = Color(0xFF222222), fontSize = (s / density * 0.42f).sp, fontWeight = FontWeight.Bold))
     drawText(t, topLeft = Offset(x + (s - t.size.width) / 2, y + (s - t.size.height) / 2))
+}
+
+/** The Crawford sign: the word written upwards on a cube-coloured strip in the middle of the bar. */
+private fun DrawScope.drawCrawford(g: BoardGeometry, measurer: TextMeasurer) {
+    val w = g.cubeSize * 0.72f
+    val t = measurer.measure("CRAWFORD", TextStyle(color = Color(0xFF222222), fontSize = (w / density * 0.5f).sp,
+        fontWeight = FontWeight.Bold, letterSpacing = (w / density * 0.08f).sp))
+    val h = t.size.width + w * 0.9f
+    val cx = g.barCenterX
+    val cy = size.height / 2
+    rotate(-90f, Offset(cx, cy)) {
+        val topLeft = Offset(cx - h / 2, cy - w / 2)
+        drawRoundRect(Color(0xFFF7F3EA), topLeft, Size(h, w), CornerRadius(w * 0.25f, w * 0.25f))
+        drawRoundRect(Color(0xFF555555), topLeft, Size(h, w), CornerRadius(w * 0.25f, w * 0.25f), style = Stroke(2f))
+        drawText(t, topLeft = Offset(cx - t.size.width / 2f, cy - t.size.height / 2f))
+    }
 }
 
 private fun DrawScope.drawDice(g: BoardGeometry, c: BoardColors, d: DiceView) {

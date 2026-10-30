@@ -174,7 +174,25 @@ data class Settings(
     /** The background analysis runs during play (its own slot, PureTD only); otherwise between games. */
     val analyzeDuringPlay: Boolean = true,
     val backgroundPriority: BackgroundPriority = BackgroundPriority.LOW,
+    /** In the Crawford game a "CRAWFORD" sign stands on the bar instead of the cube (off: the bar is empty). */
+    val crawfordSign: Boolean = true,
+    /** Automatic labels turned off in Settings → My positions ([com.boldblot.backgammonplyground.core.AutoLabel] names): hidden everywhere. */
+    val labelsOff: Set<String> = emptySet(),
+    /** The player's own labels, in their order. */
+    val myLabels: List<String> = emptyList(),
+    /** The blunder list's filter (label keys). */
+    val blunderFilter: Set<String> = emptySet(),
+    /** Checker blunders and Cube blunders were made in My positions (once). */
+    val builtInFolders: Boolean = false,
 ) {
+    /** The label keys in use: the automatic ones not turned off, then the player's own. */
+    val labelKeys: List<String>
+        get() = com.boldblot.backgammonplyground.core.AutoLabel.entries.filter { it.name !in labelsOff }.map { it.name } +
+            myLabels.map { com.boldblot.backgammonplyground.core.Labels.myKey(it) }
+
+    /** [keys] without the labels turned off or deleted. */
+    fun visible(keys: Set<String>): Set<String> = keys.intersect(labelKeys.toSet())
+
     val checkerDepth: Depth get() = Depth(checkerPlies, moveFilter)
     val cubeDepth: Depth get() = Depth(cubePlies)
 
@@ -244,7 +262,14 @@ class SettingsStore(private val context: Context) {
         val backgroundThreads = intPreferencesKey("background_threads")
         val analyzeDuringPlay = booleanPreferencesKey("analyze_during_play")
         val backgroundPriority = stringPreferencesKey("background_priority")
+        val crawfordSign = booleanPreferencesKey("crawford_sign")
+        val labelsOff = stringPreferencesKey("labels_off")
+        val myLabels = stringPreferencesKey("my_labels")
+        val blunderFilter = stringPreferencesKey("blunder_filter")
+        val builtInFolders = booleanPreferencesKey("built_in_folders")
     }
+
+    private fun lines(text: String?): List<String> = text?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
 
     private inline fun <reified E : Enum<E>> Preferences.enum(key: Preferences.Key<String>, default: E): E =
         this[key]?.let { v -> enumValues<E>().firstOrNull { it.name == v } } ?: default
@@ -309,6 +334,11 @@ class SettingsStore(private val context: Context) {
             backgroundThreads = p[Keys.backgroundThreads] ?: d.backgroundThreads,
             analyzeDuringPlay = p[Keys.analyzeDuringPlay] ?: d.analyzeDuringPlay,
             backgroundPriority = p.enum(Keys.backgroundPriority, d.backgroundPriority),
+            crawfordSign = p[Keys.crawfordSign] ?: d.crawfordSign,
+            labelsOff = lines(p[Keys.labelsOff]).toSet(),
+            myLabels = lines(p[Keys.myLabels]),
+            blunderFilter = lines(p[Keys.blunderFilter]).toSet(),
+            builtInFolders = p[Keys.builtInFolders] ?: d.builtInFolders,
         )
     }
 
@@ -368,6 +398,11 @@ class SettingsStore(private val context: Context) {
             p[Keys.backgroundThreads] = s.backgroundThreads
             p[Keys.analyzeDuringPlay] = s.analyzeDuringPlay
             p[Keys.backgroundPriority] = s.backgroundPriority.name
+            p[Keys.crawfordSign] = s.crawfordSign
+            p[Keys.labelsOff] = s.labelsOff.joinToString("\n")
+            p[Keys.myLabels] = s.myLabels.joinToString("\n")
+            p[Keys.blunderFilter] = s.blunderFilter.joinToString("\n")
+            p[Keys.builtInFolders] = s.builtInFolders
         }
     }
 }

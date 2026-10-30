@@ -150,12 +150,20 @@ class MistakeMaker(private val rate: MistakeRate, private val rng: Random = Rand
  * mistake-rate opponent, after "<engine>@" for an engine other than PureTD ("GNUBG@MAXIMUM").
  */
 object Opponent {
+    private const val IMPORTED = "IMPORTED|"
+
+    /** The opponent of a match imported from a file: their name. */
+    fun imported(name: String): String = IMPORTED + name
+
+    /** The name of an imported match's opponent, or null for a computer opponent. */
+    fun importedName(key: String): String? = key.takeIf { it.startsWith(IMPORTED) }?.removePrefix(IMPORTED)
+
     fun key(level: CpuLevel, rate: MistakeRate?, engine: EngineKind = EngineKind.PURETD): String =
         (if (engine == EngineKind.PURETD) "" else "${engine.name}@") + levelKey(level, rate)
 
     /** The engine of a stored opponent. */
     fun engine(key: String): EngineKind =
-        key.substringBefore('@', "").let { e -> EngineKind.entries.firstOrNull { it.name == e } } ?: EngineKind.PURETD
+        if (importedName(key) != null) EngineKind.PURETD else key.substringBefore('@', "").let { e -> EngineKind.entries.firstOrNull { it.name == e } } ?: EngineKind.PURETD
 
     private fun levelKey(level: CpuLevel, rate: MistakeRate?): String = when {
         level != CpuLevel.MISTAKES || rate == null -> level.name
@@ -182,14 +190,14 @@ object Opponent {
 
     fun label(level: CpuLevel, rate: MistakeRate?): String = if (level == CpuLevel.MISTAKES && rate != null) rate.label else level.label
 
-    fun label(key: String): String = parse(key).let { (l, r) -> label(l, r) }
+    fun label(key: String): String = importedName(key) ?: parse(key).let { (l, r) -> label(l, r) }
 
     /**
      * The computer's name, in lists, on the game screen and in exported files: engine and PR,
      * "PureTD PR 4", "PureTD PR <1" / "PureTD PR <2" (3-ply / 2-ply, no mistakes), or a custom
      * opponent's estimated PR, "PureTD PR 7.3".
      */
-    fun name(key: String): String = parse(key).let { (l, r) -> name(l, r, engine(key)) }
+    fun name(key: String): String = importedName(key) ?: parse(key).let { (l, r) -> name(l, r, engine(key)) }
 
     fun name(level: CpuLevel, rate: MistakeRate?, engine: EngineKind = EngineKind.PURETD): String {
         val pr = when {
@@ -202,5 +210,6 @@ object Opponent {
         return "${engine.label} $pr"
     }
 
-    fun rating(key: String): Double = parse(key).let { (l, r) -> Elo.cpuRating(l, r) }
+    /** An imported match's opponent counts as a player of the starting rating. */
+    fun rating(key: String): Double = if (importedName(key) != null) Elo.START else parse(key).let { (l, r) -> Elo.cpuRating(l, r) }
 }

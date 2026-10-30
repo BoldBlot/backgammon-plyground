@@ -73,8 +73,8 @@ data class QuizState(
     val current: SavedPosition? get() = queue.firstOrNull()
 }
 
-/** The My positions quiz: the positions of the chosen categories in random order, answered on the board. */
-class QuizViewModel(private val app: PlyGroundApp, private val categories: List<Long>) : ViewModel() {
+/** The My positions quiz: the positions [spec] picks (folders, labels, how many, order), answered on the board. */
+class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) : ViewModel() {
 
     private val _state = MutableStateFlow(QuizState())
     val state: StateFlow<QuizState> = _state.asStateFlow()
@@ -84,15 +84,16 @@ class QuizViewModel(private val app: PlyGroundApp, private val categories: List<
     init {
         viewModelScope.launch {
             val s = app.settings.settings.first()
-            all = app.positions.positionsIn(categories)
+            all = spec.pick(quizPositions(app, spec.folders), s)
             _state.update { it.copy(loading = false, settings = s) }
             start()
         }
     }
 
-    /** A new round with every position, in random order. */
+    /** A new round: the positions in random order (or newest first), at most [QuizSpec.limit] of them. */
     fun start() {
-        val list = all.shuffled()
+        val ordered = if (spec.newestFirst) all.sortedByDescending { it.entity.savedAt } else all.shuffled()
+        val list = if (spec.limit > 0) ordered.take(spec.limit) else ordered
         _state.update { QuizState(loading = false, settings = it.settings, queue = list, total = list.size, finished = list.isEmpty()) }
         show()
     }

@@ -10,6 +10,9 @@ import com.boldblot.backgammonplyground.core.MistakeRate
 import com.boldblot.backgammonplyground.core.Opponent
 import com.boldblot.backgammonplyground.core.GameState
 import com.boldblot.backgammonplyground.core.GameSummary
+import com.boldblot.backgammonplyground.core.Labels
+import com.boldblot.backgammonplyground.core.MatImport
+import com.boldblot.backgammonplyground.core.turned
 import com.boldblot.backgammonplyground.core.MatchRules
 import com.boldblot.backgammonplyground.core.MatchState
 import com.boldblot.backgammonplyground.core.PerformanceTotals
@@ -87,11 +90,17 @@ data class MatchReport(
 )
 
 /** A saved blunder with its decision decoded. */
-data class SavedBlunder(val entity: BlunderEntity, val decision: DecisionRecord)
+data class SavedBlunder(val entity: BlunderEntity, val decision: DecisionRecord) {
+    /** Its labels' keys (all of them; Settings may hide some). */
+    val labels: Set<String> by lazy { Labels.of(decision, entity.matchLength, entity.opponent).mapTo(HashSet()) { it.name } }
+}
 
 class Repository(private val db: AppDatabase) {
 
     private val dao = db.matches()
+
+    /** Called with each blunder newly added to the list (linked folders that add new blunders at once). */
+    var onNewBlunder: (suspend (SavedBlunder) -> Unit)? = null
 
     suspend fun createMatch(rules: MatchRules, level: CpuLevel, mistakes: MistakeRate?, engine: EngineKind = EngineKind.PURETD): Long = dao.insertMatch(
         MatchEntity(
@@ -270,7 +279,7 @@ class Repository(private val db: AppDatabase) {
         withContext(Dispatchers.IO) { db.openHelper.writableDatabase.execSQL("VACUUM") }
     }
 
-    /** Statistics and rating start again: every finished match is left out (they stay in History). */
+    /** Statistics and rating start again: every finished match is left out (they stay in the Match Library). */
     suspend fun clearStatistics() {
         dao.excludeFinishedFromStats()
         recomputeRatings()
@@ -311,24 +320,67 @@ class Repository(private val db: AppDatabase) {
         saveIfBlunder(d, m.id, m.gameNumber, index, m.rules.length, m.opponentKey, min)
     }
 
-    /** Saves [d] (decision [index] of game [gameNumber] of match [matchId]) if it is one of the human's mistakes of at least [min]. */
-    suspend fun saveIfBlunder(d: DecisionRecord, matchId: Long, gameNumber: Int, index: Int, matchLength: Int, opponentKey: String, min: Severity) {
-        val error = (d.error ?: return) * XgRules.errorFactor(matchLength)
-        if (!Blunders.isBlunder(d, error, min)) return
-        dao.insertBlunder(
-            BlunderEntity(
-                matchId = matchId, gameNumber = gameNumber, decisionIndex = index,
-                playedAt = System.currentTimeMillis(), matchLength = matchLength, cpuLevel = opponentKey,
-                error = error, record = AppJson.encodeToString(d),
-            ),
+    /**
+     * Saves [d] (decision [index] of game [gameNumber] of match [matchId]) if it is one of the human's
+     * mistakes of at least [min]; with [opponent], the opponent's (saved from the opponent's side).
+     */
+    suspend fun saveIfBlunder(
+        d: DecisionRecord, matchId: Long, gameNumber: Int, index: Int, matchLength: Int, opponentKey: String, min: Severity,
+        opponent: Boolean = false,
+    ) {
+        if (opponent == (d.player == Player.HUMAN)) return
+        val rec = d.turned()
+        val error = (rec.error ?: return) * XgRules.errorFactor(matchLength)
+        if (!Blunders.isBlunder(rec, error, min)) return
+        val e = BlunderEntity(
+            matchId = matchId, gameNumber = gameNumber, decisionIndex = index,
+            playedAt = System.currentTimeMillis(), matchLength = matchLength, cpuLevel = opponentKey,
+            error = error, record = AppJson.encodeToString(rec), opponent = opponent,
         )
+        val id = dao.insertBlunder(e)
+        if (id > 0) onNewBlunder?.invoke(SavedBlunder(e.copy(id = id), rec))
     }
 
-    /** The saved blunders in [sort] order (newest first within equal errors). */
-    suspend fun blunders(sort: BlunderSort): List<SavedBlunder> {
+    /** Removes the blunders [ids] (Clear with a filter on). */
+    suspend fun removeBlunders(ids: Collection<Long>) = ids.chunked(500).forEach { dao.deleteBlunders(it) }
+
+    // ---- imported matches ------------------------------------------------------------
+
+    /**
+     * Stores a match read from a .mat file ([MatImport]) as a finished match, left out of the
+     * statistics, with all its decisions waiting for the background analysis. [blundersBoth]:
+     * the opponent's mistakes go on the blunder list too. Returns the games to analyze.
+     */
+    suspend fun importMatch(im: MatImport.ImportedMatch, blundersBoth: Boolean): List<GameKey> {
+        // Listed by when it joined the library (the Match Library is newest first).
+        val started = System.currentTimeMillis()
+        val id = dao.insertMatch(
+            MatchEntity(
+                startedAt = started, finishedAt = started, length = im.rules.length, cpuLevel = Opponent.imported(im.names[Player.CPU]),
+                useCube = im.rules.useCube, jacoby = im.rules.jacoby, crawford = im.rules.crawford,
+                humanScore = im.score[0], cpuScore = im.score[1], winner = im.winner,
+                status = if (im.rules.isMoney || im.winner != null) MatchStatus.FINISHED else MatchStatus.ABANDONED,
+                games = im.games.size, inStats = false, imported = true, blundersBoth = blundersBoth,
+            ),
+        )
+        return im.games.map { g ->
+            val r = requireNotNull(g.state.result)
+            dao.insertGame(
+                GameEntity(
+                    matchId = id, number = g.number, finishedAt = started, winner = r.winner, winType = r.type.name, points = r.points,
+                    summary = AppJson.encodeToString(Summaries.of(g.state, im.rules.length)), record = AppJson.encodeToString(g.state),
+                    scoreBeforeHuman = g.score[0], scoreBeforeCpu = g.score[1],
+                ),
+            )
+            GameKey(id, g.number)
+        }
+    }
+
+    /** The saved blunders that pass [filter] (label keys), in [sort] order (newest first within equal errors). */
+    suspend fun blunders(sort: BlunderSort, filter: Set<String> = emptySet()): List<SavedBlunder> {
         val list = dao.blunders().mapNotNull { e ->
             runCatching { SavedBlunder(e, AppJson.decodeFromString<DecisionRecord>(e.record)) }.getOrNull()
-        }
+        }.filter { filter.isEmpty() || Labels.matches(it.labels, filter) }
         return when (sort) {
             BlunderSort.NEWEST -> list
             BlunderSort.BIGGEST -> list.sortedByDescending { it.entity.error }

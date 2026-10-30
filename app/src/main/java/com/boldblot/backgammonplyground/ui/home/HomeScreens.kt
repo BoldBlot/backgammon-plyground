@@ -39,6 +39,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.LibraryAdd
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -86,6 +90,12 @@ import com.boldblot.backgammonplyground.core.MatchRules
 import com.boldblot.backgammonplyground.core.MistakeRate
 import com.boldblot.backgammonplyground.core.MoveFilter
 import com.boldblot.backgammonplyground.core.Opponent
+import com.boldblot.backgammonplyground.core.Labels
+import com.boldblot.backgammonplyground.core.AutoLabel
+import com.boldblot.backgammonplyground.data.CategoryCount
+import com.boldblot.backgammonplyground.core.MatImport
+import com.boldblot.backgammonplyground.data.GameKey
+import com.boldblot.backgammonplyground.ui.components.LabelFilterButton
 import com.boldblot.backgammonplyground.core.Elo
 import com.boldblot.backgammonplyground.core.PerformanceTotals
 import com.boldblot.backgammonplyground.data.AnalysisTiming
@@ -127,6 +137,7 @@ fun HomeScreen(
     onNewMatch: () -> Unit,
     onPosition: () -> Unit,
     onMyPositions: () -> Unit = {},
+    onQuiz: () -> Unit = {},
     onStats: () -> Unit,
     onHistory: () -> Unit,
     onSettings: () -> Unit,
@@ -172,9 +183,11 @@ fun HomeScreen(
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(onClick = onMyPositions, modifier = w) { Text("My positions (experimental)") }
                 Spacer(Modifier.height(10.dp))
+                OutlinedButton(onClick = onQuiz, modifier = w) { Text("Quiz") }
+                Spacer(Modifier.height(10.dp))
                 OutlinedButton(onClick = onStats, modifier = w) { Text("Statistics") }
                 Spacer(Modifier.height(10.dp))
-                OutlinedButton(onClick = onHistory, modifier = w) { Text("History & review") }
+                OutlinedButton(onClick = onHistory, modifier = w) { Text("Match Library") }
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(onClick = onSettings, modifier = w) { Text("Settings") }
                 Spacer(Modifier.height(4.dp))
@@ -395,7 +408,11 @@ private fun Toggle(label: String, value: Boolean, enabled: Boolean = true, onCha
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HistoryScreen(app: PlyGroundApp, onReview: (Long) -> Unit, onBlunder: (Long) -> Unit, onBack: () -> Unit) {
+fun HistoryScreen(
+    app: PlyGroundApp, onReview: (Long) -> Unit, onBlunder: (Long) -> Unit, onBack: () -> Unit,
+    /** An imported match's games, for the background analysis. */
+    onImported: (List<GameKey>) -> Unit,
+) {
     var matches by remember { mutableStateOf<List<MatchEntity>?>(null) }
     var blunders by remember { mutableStateOf<List<SavedBlunder>?>(null) }
     var toDelete by remember { mutableStateOf<MatchEntity?>(null) }
@@ -409,7 +426,34 @@ fun HistoryScreen(app: PlyGroundApp, onReview: (Long) -> Unit, onBlunder: (Long)
     val context = LocalContext.current
     val settings by app.settings.settings.collectAsState(initial = null)
     val sort = settings?.blunderSort ?: BlunderSort.BIGGEST
+    // The blunder list's filter (labels turned off in Settings are left out) and what passes it.
+    val filter = settings?.let { it.visible(it.blunderFilter) } ?: emptySet()
+    val shown = blunders?.filter { filter.isEmpty() || Labels.matches(it.labels, filter) }
+    var clearShown by remember { mutableStateOf(false) }
+    var adding by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    // Importing a .mat file: picked here, or opened with PlyGround from another app.
+    var importing by remember { mutableStateOf<MatImport.ParsedMatch?>(null) }
+    var importError by remember { mutableStateOf<String?>(null) }
+    fun readMatch(text: String) {
+        runCatching { MatImport.parse(text) }
+            .onSuccess { importing = it }
+            .onFailure { importError = it.message ?: "The file could not be read." }
+    }
+    val pendingMatch by app.pendingMatch.collectAsState()
+    LaunchedEffect(pendingMatch) {
+        pendingMatch?.let { text ->
+            app.pendingMatch.value = null
+            tab = 0
+            readMatch(text)
+        }
+    }
+    val matchPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val text = runCatching { context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText() }.getOrNull()
+            if (text == null) importError = "The file could not be read." else readMatch(text)
+        }
+    }
     suspend fun reload() {
         matches = app.repository.history()
         blunders = app.repository.blunders(sort)
@@ -462,20 +506,31 @@ fun HistoryScreen(app: PlyGroundApp, onReview: (Long) -> Unit, onBlunder: (Long)
                     }
                 },
             ) else TopAppBar(
-                title = { Text("History") },
+                title = { Text("Match Library") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
+                    if (tab == 0) {
+                        IconButton(onClick = { matchPicker.launch(arrayOf("*/*")) }) { Icon(Icons.Default.FileOpen, "Import a match (.mat)") }
+                    }
                     if (tab == 0 && !matches.isNullOrEmpty()) {
                         IconButton(onClick = { selecting = true }) { Icon(Icons.Default.Share, "Export matches") }
                     }
-                    // Clears what the open tab shows.
-                    val empty = if (tab == 0) matches.isNullOrEmpty() else blunders.isNullOrEmpty()
+                    if (tab == 1) {
+                        IconButton(onClick = { adding = true }, enabled = !shown.isNullOrEmpty()) {
+                            Icon(Icons.Default.LibraryAdd, "Add the blunders shown to My positions")
+                        }
+                    }
+                    // Clears what the open tab shows (with a filter on, only the blunders that pass it).
+                    val empty = if (tab == 0) matches.isNullOrEmpty() else shown.isNullOrEmpty()
                     var menu by remember { mutableStateOf(false) }
                     Box {
-                        TextButton(onClick = { if (tab == 0) menu = true else clear = ClearKind.BLUNDERS }, enabled = !empty) {
+                        TextButton(
+                            onClick = { if (tab == 0) menu = true else if (filter.isEmpty()) clear = ClearKind.BLUNDERS else clearShown = true },
+                            enabled = !empty,
+                        ) {
                             Icon(Icons.Default.DeleteSweep, null)
                             Spacer(Modifier.width(4.dp))
-                            Text(if (tab == 0) "Clear…" else ClearKind.BLUNDERS.button)
+                            Text(if (tab == 0) "Clear…" else if (filter.isEmpty()) ClearKind.BLUNDERS.button else "Clear ${shown?.size ?: 0}")
                         }
                         DropdownMenu(menu, onDismissRequest = { menu = false }) {
                             for (k in listOf(ClearKind.GAME_RECORDS, ClearKind.STATISTICS, ClearKind.MATCHES)) {
@@ -490,13 +545,13 @@ fun HistoryScreen(app: PlyGroundApp, onReview: (Long) -> Unit, onBlunder: (Long)
         Column(Modifier.padding(padding).fillMaxSize()) {
             TabRow(selectedTabIndex = tab) {
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Matches") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("My blunders" + (blunders?.let { " (${it.size})" } ?: "")) })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("My blunders" + (shown?.let { " (${it.size})" } ?: "")) })
             }
             val list = matches
             when {
-                tab == 1 -> blunders?.let {
+                tab == 1 -> shown?.let {
                     Column {
-                        if (it.isNotEmpty()) {
+                        if (!blunders.isNullOrEmpty()) {
                             Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 BlunderSort.entries.forEach { o ->
                                     FilterChip(
@@ -504,9 +559,12 @@ fun HistoryScreen(app: PlyGroundApp, onReview: (Long) -> Unit, onBlunder: (Long)
                                         onClick = { scope.launch { app.settings.update { s -> s.copy(blunderSort = o) } } },
                                     )
                                 }
+                                LabelFilterButton(settings?.labelKeys.orEmpty().filterNot { Labels.isMine(it) }, filter, { f ->
+                                    scope.launch { app.settings.update { s -> s.copy(blunderFilter = f) } }
+                                })
                             }
                         }
-                        BlunderList(it, onBlunder)
+                        BlunderList(it, onBlunder, filtered = filter.isNotEmpty())
                     }
                 }
                 list == null -> Unit
@@ -538,6 +596,49 @@ fun HistoryScreen(app: PlyGroundApp, onReview: (Long) -> Unit, onBlunder: (Long)
                 }
             }
         }
+    }
+    if (clearShown) {
+        val n = shown?.size ?: 0
+        AlertDialog(
+            onDismissRequest = { clearShown = false },
+            title = { Text("Clear $n blunder${if (n == 1) "" else "s"}?") },
+            text = { Text("The blunders the filter shows are removed from the list; the others stay. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    clearShown = false
+                    val ids = shown.orEmpty().map { it.entity.id }
+                    scope.launch {
+                        app.repository.removeBlunders(ids)
+                        reload()
+                    }
+                }) { Text("Clear") }
+            },
+            dismissButton = { TextButton(onClick = { clearShown = false }) { Text("Cancel") } },
+        )
+    }
+    if (adding) AddBlundersDialog(app, shown.orEmpty(), filter, onDismiss = { adding = false })
+    importing?.let { parsed ->
+        MatchImportDialog(parsed, onDismiss = { importing = null }) { you, both ->
+            importing = null
+            scope.launch {
+                runCatching { MatImport.replay(parsed, you) }
+                    .onSuccess { im ->
+                        val keys = app.repository.importMatch(im, both)
+                        onImported(keys)
+                        reload()
+                        Toast.makeText(context, "Imported ${im.games.size} game${if (im.games.size == 1) "" else "s"}; analyzing in the background.", Toast.LENGTH_LONG).show()
+                    }
+                    .onFailure { importError = it.message ?: "The match could not be read." }
+            }
+        }
+    }
+    importError?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { importError = null },
+            title = { Text("Import failed") },
+            text = { Text(msg) },
+            confirmButton = { TextButton(onClick = { importError = null }) { Text("OK") } },
+        )
     }
     clear?.let { kind ->
         ClearDialog(kind, onDismiss = { clear = null }) { days ->
@@ -598,7 +699,7 @@ private fun HistoryRow(
                 Text(
                     "${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(m.startedAt))} · " +
                         "score ${m.humanScore}-${m.cpuScore} · ${m.games} game${if (m.games == 1) "" else "s"}" +
-                        if (m.inStats) "" else " · not in statistics",
+                        (if (m.imported) " · imported" else "") + if (m.inStats) "" else " · not in statistics",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -627,7 +728,8 @@ private fun HistoryRow(
 
 /** The pages of Settings, each opened from the Settings list. */
 enum class SettingsGroup(val title: String) {
-    TRAINING("Training"), ANALYSIS("Analysis"), ENGINE("Advanced engine settings"), PLAY("Play"), DISPLAY("Display"), DATA("Data and help"),
+    TRAINING("Training"), ANALYSIS("Analysis"), ENGINE("Advanced engine settings"), PLAY("Play"), DISPLAY("Display"),
+    POSITIONS("My positions"), DATA("Data and help"),
 }
 
 /** One line under a group's name in the Settings list: its main values. */
@@ -656,6 +758,7 @@ private fun SettingsGroup.summary(s: Settings): String = when (this) {
     SettingsGroup.DISPLAY -> listOfNotNull(
         s.boardTheme.label, "pip counts".takeIf { s.showPips }, "meter: ${s.meter.label.lowercase()}".takeIf { s.meter != MeterMode.OFF },
     ).joinToString(" · ")
+    SettingsGroup.POSITIONS -> "Quiz, labels (${s.labelKeys.size} in use), folders linked to the blunder list"
     SettingsGroup.DATA -> "Your name in exported files, clearing data, error report"
 }
 
@@ -693,6 +796,7 @@ fun SettingsScreen(
                 SettingsGroup.ENGINE -> EngineSettings(s, ::update)
                 SettingsGroup.PLAY -> PlaySettings(s, ::update)
                 SettingsGroup.DISPLAY -> DisplaySettings(s, ::update)
+                SettingsGroup.POSITIONS -> PositionsSettings(app, s, ::update)
                 SettingsGroup.DATA -> DataSettings(s, ::update) { clear = it }
             }
         }
@@ -759,11 +863,128 @@ private fun TrainingSettings(s: Settings, update: (f: (Settings) -> Settings) ->
     Header("After each game")
     Toggle("Show the summary after each game", s.gameSummary) { v -> update { it.copy(gameSummary = v) } }
     Note("PR, rating, luck and errors for both players. The end of a match always shows it, and the game's ⋮ menu has the last game's summary.")
-    HorizontalDivider(Modifier.padding(vertical = 12.dp))
-    Header("My positions quiz")
+}
+
+/** Settings → My positions: the quiz, the labels (automatic ones on or off, the player's own) and the linked folders. */
+@Composable
+private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) -> Settings) -> Unit) {
+    val scope = rememberCoroutineScope()
+    Header("Quiz")
     Chips("A right answer is", QuizCorrect.entries, s.quizCorrect, { it.label }) { v -> update { it.copy(quizCorrect = v) } }
     Note("Not an error: anything within 0.020 of the best play (or your own answer, when you set one).")
     Toggle("Repeat missed positions until all are right", s.quizRepeat) { v -> update { it.copy(quizRepeat = v) } }
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Header("Automatic labels")
+    Note(
+        "Every blunder and saved position gets labels from what it is, for the Filter menus of My blunders, My positions " +
+            "and the quiz. A position's labels can be changed on it. Turn off the ones you don't use: they leave the menus " +
+            "and the positions' tags, and come back if you turn them on again. The themes are guesses by rule of thumb.",
+    )
+    AutoLabel.entries.groupBy { it.group }.forEach { (group, labels) ->
+        Text(group.title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
+        labels.forEach { l ->
+            val on = l.name !in s.labelsOff
+            Row(
+                Modifier.fillMaxWidth().toggleable(on, role = Role.Switch) { v ->
+                    update { it.copy(labelsOff = if (v) it.labelsOff - l.name else it.labelsOff + l.name) }
+                }.padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(l.title)
+                    Text(l.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = on, onCheckedChange = null)
+            }
+        }
+    }
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Header("My labels")
+    Note("Your own labels: put them on a saved position with its Labels button. They are in the Filter menus of My positions and the quiz.")
+    var renaming by remember { mutableStateOf<String?>(null) }
+    var deleting by remember { mutableStateOf<String?>(null) }
+    s.myLabels.forEach { name ->
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(name, Modifier.weight(1f))
+            IconButton(onClick = { renaming = name }) { Icon(Icons.Default.Edit, "Rename $name") }
+            IconButton(onClick = { deleting = name }) { Icon(Icons.Default.Delete, "Delete $name") }
+        }
+    }
+    var newLabel by remember { mutableStateOf("") }
+    fun taken(n: String) = s.myLabels.any { it.equals(n, ignoreCase = true) } || AutoLabel.entries.any { it.title.equals(n, ignoreCase = true) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = newLabel, onValueChange = { newLabel = it.replace("\n", "").take(30) }, singleLine = true,
+            label = { Text("New label") }, modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = {
+            val n = newLabel.trim()
+            if (n.isNotEmpty() && !taken(n)) update { it.copy(myLabels = it.myLabels + n) }
+            newLabel = ""
+        }, enabled = newLabel.isNotBlank() && !taken(newLabel.trim())) { Icon(Icons.Default.Add, "Add label") }
+    }
+    renaming?.let { old ->
+        var text by remember(old) { mutableStateOf(old) }
+        AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text("Rename label") },
+            text = { OutlinedTextField(value = text, onValueChange = { text = it.replace("\n", "").take(30) }, singleLine = true) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val n = text.trim()
+                    renaming = null
+                    if (n.isNotEmpty() && n != old && !taken(n)) {
+                        update { it.copy(myLabels = it.myLabels.map { l -> if (l == old) n else l }) }
+                        scope.launch { app.positions.renameLabel(old, n) }
+                    }
+                }) { Text("Rename") }
+            },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
+        )
+    }
+    deleting?.let { name ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text("Delete \u201c$name\u201d?") },
+            text = { Text("The label is taken off every position that has it. The positions stay.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleting = null
+                    update { it.copy(myLabels = it.myLabels - name) }
+                    scope.launch { app.positions.deleteLabel(name) }
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        )
+    }
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Header("Folders linked to the blunder list")
+    Note(
+        "Checker blunders and Cube blunders, and the folders the library button on My blunders makes: each one is linked to " +
+            "a filter. Switched on, a folder also takes every new blunder that passes its filter.",
+    )
+    var linked by remember { mutableStateOf<List<CategoryCount>>(emptyList()) }
+    LaunchedEffect(Unit) { linked = app.positions.categories().filter { it.filter != null } }
+    linked.forEach { c ->
+        Row(
+            Modifier.fillMaxWidth().toggleable(c.autoAdd, role = Role.Switch) { v ->
+                scope.launch {
+                    app.positions.setAutoAdd(c.id, v)
+                    linked = app.positions.categories().filter { it.filter != null }
+                }
+            }.padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(c.name)
+                Text(
+                    "Filter: ${Labels.folderName(Labels.decode(c.filter.orEmpty()))} · ${c.count} position${if (c.count == 1) "" else "s"}",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = c.autoAdd, onCheckedChange = null)
+        }
+    }
 }
 
 @Composable
@@ -913,6 +1134,8 @@ private fun DisplaySettings(s: Settings, update: (f: (Settings) -> Settings) -> 
     Note("Your chances on the left, the computer's on the right; the darker parts are gammons and backgammons. With Bar, tap it to see the numbers.")
     Chips("Arrows for the computer's move", CpuArrows.entries, s.cpuArrows, { it.label }) { v -> update { it.copy(cpuArrows = v) } }
     Chips("Computer move animation", AnimationSpeed.entries, s.animation, { it.label }) { a -> update { it.copy(animation = a) } }
+    Toggle("Crawford sign", s.crawfordSign) { v -> update { it.copy(crawfordSign = v) } }
+    Note("In the Crawford game nobody may double, so a CRAWFORD sign stands on the bar instead of the cube. Off: the bar is left empty.")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Board")
     BoardSettings(s) { f -> update(f) }
@@ -950,17 +1173,17 @@ private fun DataSettings(s: Settings, update: (f: (Settings) -> Settings) -> Uni
     )
 }
 
-/** The "clear" actions, offered in Settings and in History. */
+/** The "clear" actions, offered in Settings and in the Match Library. */
 private enum class ClearKind(val title: String, val button: String, val question: String, val text: String) {
     GAME_RECORDS(
         "Clear game records (keep statistics)", "Clear game records", "Clear game records?",
-        "The move-by-move records of finished matches are deleted: those matches leave History and can no longer " +
+        "The move-by-move records of finished matches are deleted: those matches leave the Match Library and can no longer " +
             "be reviewed or exported. Their results, your statistics and rating, and your blunder list are kept. " +
             "This cannot be undone.",
     ),
     STATISTICS(
         "Clear statistics (keep games)", "Clear statistics", "Clear statistics?",
-        "Statistics and rating start again from zero. Finished matches stay in History for review, marked " +
+        "Statistics and rating start again from zero. Finished matches stay in the Match Library for review, marked " +
             "\"not in statistics\"; a match can be counted again from its menu there. The match in progress still counts.",
     ),
     MATCHES(

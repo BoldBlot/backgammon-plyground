@@ -144,6 +144,20 @@ data class ReviewState(
     /** A decision tried again is graded by its first try. */
     fun severityOf(d: DecisionRecord): Severity = XgRules.severity((d.scoredError ?: 0f) * factor)
 
+    private fun isMistake(d: DecisionRecord) = d.player == Player.HUMAN && severityOf(d).atLeast(Severity.ERROR)
+
+    /** The human's next error or blunder (game index, list position): later in this game, or in a later game of the match. */
+    val nextMistake: Pair<Int, Int>?
+        get() {
+            val list = decisions
+            (position + 1 until list.size).firstOrNull { isMistake(list[it].value) }?.let { return gameIndex to it }
+            for (gi in gameIndex + 1 until games.size) {
+                val other = copy(gameIndex = gi, position = 0).decisions
+                other.indices.firstOrNull { isMistake(other[it].value) }?.let { return gi to it }
+            }
+            return null
+        }
+
     /**
      * True for a game played after the Crawford game. A .mat file cannot say that the
      * Crawford game is over, so on its own such a game is read as the Crawford game.
@@ -245,15 +259,10 @@ class ReviewViewModel(
 
     fun dismissMessage() = _state.update { it.copy(message = null) }
 
-    /** Next decision of the human with an error or blunder. */
+    /** Next decision of the human with an error or blunder, in a later game of the match after this game's last. */
     fun nextMistake() {
-        val s = _state.value
-        val list = s.decisions
-        val idx = (s.position + 1 until list.size).firstOrNull {
-            val d = list[it].value
-            d.player == Player.HUMAN && s.severityOf(d).atLeast(Severity.ERROR)
-        }
-        if (idx != null) go(idx)
+        val (game, pos) = _state.value.nextMistake ?: return
+        _state.update { it.copy(gameIndex = game, position = pos, candidate = null, showAfter = false) }
     }
 }
 
@@ -467,6 +476,8 @@ private fun ReviewBoard(st: ReviewState, modifier: Modifier) {
         dice = listOfNotNull(dice),
         cube = d?.let { decisionCube(it).first } ?: CubeState(),
         cubeOffered = d?.let { decisionCube(it).second } ?: false,
+        crawford = d?.crawford ?: st.game?.crawford ?: false,
+        crawfordSign = st.settings.crawfordSign,
         pips = listOf(board.pipCount(Player.HUMAN), board.pipCount(Player.CPU)),
         arrows = if (after) emptyList() else arrowsOf(st),
     )
@@ -477,7 +488,10 @@ private fun BottomBar(st: ReviewState, vm: ReviewViewModel) {
     val d = st.current
     var saving by remember { mutableStateOf(false) }
     val study = remember(d, st.match) { st.match?.let { m -> d?.let { StudyPosition.of(it, m.length, m.jacoby) } } }
-    if (saving && study != null) SaveToPositionsDialog(vm.app, study, "Game review") { saving = false }
+    if (saving && study != null) {
+        val labels = d?.let { dec -> com.boldblot.backgammonplyground.core.Labels.of(dec, st.match?.length ?: 0, opponent = dec.player != Player.HUMAN).mapTo(HashSet()) { it.name } }
+        SaveToPositionsDialog(vm.app, study, "Game review", labels) { saving = false }
+    }
     val a = d?.checker
     if (d != null && a != null && a.candidates.isNotEmpty()) {
         val played = a.candidates.getOrNull(a.playedIndex)
@@ -496,7 +510,7 @@ private fun BottomBar(st: ReviewState, vm: ReviewViewModel) {
         IconButton(onClick = { vm.go(st.position - 1) }, enabled = st.position > 0) { Icon(Icons.AutoMirrored.Filled.NavigateBefore, "Previous") }
         Text(if (n == 0) "0 / 0" else "${st.position + 1} / $n", style = MaterialTheme.typography.titleSmall)
         IconButton(onClick = { vm.go(st.position + 1) }, enabled = st.position < n - 1) { Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next") }
-        TextButton(onClick = vm::nextMistake) { Text("Next mistake") }
+        TextButton(onClick = vm::nextMistake, enabled = st.nextMistake != null) { Text("Next mistake") }
         if (d?.move != null) TextButton(onClick = vm::toggleAfter) { Text(if (st.showAfter) "Show arrows" else "After move") }
         if (study != null) IconButton(onClick = { saving = true }) { Icon(Icons.Default.BookmarkAdd, "Save to My positions") }
     }

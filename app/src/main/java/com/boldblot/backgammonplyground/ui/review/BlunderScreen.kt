@@ -95,18 +95,18 @@ private fun context(b: SavedBlunder): String {
     val e = b.entity
     val d = b.decision
     val level = Opponent.name(e.cpuLevel)
-    val what = if (e.matchLength == 0) "Money" else "${e.matchLength}-pt match"
+    val what = (if (e.opponent) "Opponent's · " else "") + if (e.matchLength == 0) "Money" else "${e.matchLength}-pt match"
     val score = if (e.matchLength == 0) "" else " · score ${d.score[0]}-${d.score[1]}" + if (d.crawford) " Crawford" else ""
     val cube = if (d.cube.value > 1) " · cube ${d.cube.value}" else ""
     return "$what vs $level$score$cube · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(e.playedAt))}"
 }
 
-/** The human's saved blunders (History tab); a tap opens one. */
+/** The human's saved blunders (Match Library tab); a tap opens one. */
 @Composable
-fun BlunderList(blunders: List<SavedBlunder>, onOpen: (Long) -> Unit, modifier: Modifier = Modifier) {
+fun BlunderList(blunders: List<SavedBlunder>, onOpen: (Long) -> Unit, modifier: Modifier = Modifier, filtered: Boolean = false) {
     if (blunders.isEmpty()) {
         Text(
-            "No blunders saved. Every blunder you make (an error of more than 0.080) is kept here until you remove it.",
+            if (filtered) "No blunders pass the filter." else "No blunders saved. Every blunder you make (an error of more than 0.080) is kept here until you remove it.",
             modifier.padding(24.dp),
         )
         return
@@ -162,7 +162,8 @@ class BlunderViewModel(val app: PlyGroundApp, private val startId: Long) : ViewM
 
     init {
         viewModelScope.launch {
-            val list = app.repository.blunders(app.settings.settings.first().blunderSort)
+            val s = app.settings.settings.first()
+            val list = app.repository.blunders(s.blunderSort, s.visible(s.blunderFilter))
             val i = list.indexOfFirst { it.entity.id == startId }.coerceAtLeast(0)
             _state.update { it.copy(loading = false, blunders = list, index = i) }
         }
@@ -219,7 +220,8 @@ class BlunderViewModel(val app: PlyGroundApp, private val startId: Long) : ViewM
     fun undoRemove(e: BlunderEntity) {
         viewModelScope.launch {
             app.repository.restoreBlunder(e)
-            val list = app.repository.blunders(_state.value.settings.blunderSort)
+            val s = _state.value.settings
+            val list = app.repository.blunders(s.blunderSort, s.visible(s.blunderFilter))
             _state.update { s -> s.copy(blunders = list, index = list.indexOfFirst { it.entity.id == e.id }.coerceAtLeast(0)) }
         }
     }
@@ -256,7 +258,7 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
     var saving by remember { mutableStateOf(false) }
     val jacoby by produceState(true, b.entity.matchId) { value = vm.app.repository.match(b.entity.matchId)?.jacoby ?: true }
     val study = remember(b, jacoby) { StudyPosition.of(b.decision, b.entity.matchLength, jacoby) }
-    if (saving && study != null) SaveToPositionsDialog(vm.app, study, "Blunder list") { saving = false }
+    if (saving && study != null) SaveToPositionsDialog(vm.app, study, "Blunder list", b.labels) { saving = false }
     val onSave = { saving = true }.takeIf { study != null }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth > maxHeight) {
@@ -311,6 +313,8 @@ private fun Board(st: BlunderState, d: DecisionRecord, modifier: Modifier) {
         dice = listOfNotNull(dice),
         cube = decisionCube(d).first,
         cubeOffered = decisionCube(d).second,
+        crawford = d.crawford,
+        crawfordSign = st.settings.crawfordSign,
         pips = listOf(board.pipCount(Player.HUMAN), board.pipCount(Player.CPU)),
         arrows = if (after) emptyList() else decisionArrows(d, st.candidate, st.factor),
     )

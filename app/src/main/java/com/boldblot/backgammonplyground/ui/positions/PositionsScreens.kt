@@ -36,6 +36,13 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.automirrored.filled.Label
+import com.boldblot.backgammonplyground.core.Labels
+import com.boldblot.backgammonplyground.ui.components.LabelFilterButton
+import com.boldblot.backgammonplyground.ui.components.LabelTags
+import com.boldblot.backgammonplyground.ui.components.LabelsDialog
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -106,7 +113,7 @@ import java.io.File
 
 /** A screen title with an "Experimental" tag. */
 @Composable
-private fun Title(text: String) {
+internal fun Title(text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = MaterialTheme.shapes.small, modifier = Modifier.padding(start = 8.dp)) {
@@ -129,7 +136,6 @@ fun MyPositionsScreen(app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?)
     var categories by remember { mutableStateOf<List<CategoryCount>?>(null) }
     var uncategorized by remember { mutableIntStateOf(0) }
     var total by remember { mutableIntStateOf(0) }
-    var chosen by remember { mutableStateOf(setOf<Long>()) }
     var menu by remember { mutableStateOf(false) }
     var newCategory by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<CategoryCount?>(null) }
@@ -164,7 +170,7 @@ fun MyPositionsScreen(app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?)
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("New category") }, onClick = { menu = false; newCategory = true })
+                            DropdownMenuItem(text = { Text("New folder") }, onClick = { menu = false; newCategory = true })
                             DropdownMenuItem(text = { Text("Import a file…") }, onClick = { menu = false; pick.launch(arrayOf("*/*")) })
                             DropdownMenuItem(text = { Text("Export…") }, enabled = total > 0, onClick = { menu = false; exporting = true })
                         }
@@ -184,30 +190,10 @@ fun MyPositionsScreen(app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?)
                     "review or Analyze Position (\"Save to My positions\"), or import a file, then quiz yourself on them.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(12.dp))
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp)) {
-                    Text("Quiz", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text("Pick the categories to practise:", style = MaterialTheme.typography.bodySmall)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        cats.filter { it.count > 0 }.forEach { c ->
-                            FilterChip(
-                                selected = c.id in chosen, onClick = { chosen = if (c.id in chosen) chosen - c.id else chosen + c.id },
-                                label = { Text("${c.name} (${c.count})") },
-                            )
-                        }
-                        if (uncategorized > 0) {
-                            FilterChip(
-                                selected = UNCATEGORIZED in chosen,
-                                onClick = { chosen = if (UNCATEGORIZED in chosen) chosen - UNCATEGORIZED else chosen + UNCATEGORIZED },
-                                label = { Text("No category ($uncategorized)") },
-                            )
-                        }
-                    }
-                    Button(onClick = { onQuiz(chosen.toList()) }, enabled = chosen.isNotEmpty(), modifier = Modifier.padding(top = 6.dp)) {
-                        Text("Start the quiz")
-                    }
-                }
+            Button(onClick = { onQuiz(emptyList()) }, enabled = total > 0, modifier = Modifier.padding(top = 12.dp)) {
+                Icon(Icons.Default.School, null)
+                Spacer(Modifier.width(6.dp))
+                Text("Quiz…")
             }
             Spacer(Modifier.height(12.dp))
             CategoryRow("All positions", total, onClick = { onCategory(null) })
@@ -219,22 +205,22 @@ fun MyPositionsScreen(app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?)
                     DropdownMenuItem(text = { Text("Delete") }, onClick = { close(); deleting = c })
                 }
             }
-            if (uncategorized > 0) CategoryRow("No category", uncategorized, onClick = { onCategory(UNCATEGORIZED) })
+            if (uncategorized > 0) CategoryRow("No folder", uncategorized, onClick = { onCategory(UNCATEGORIZED) })
             TextButton(onClick = { newCategory = true }) {
                 Icon(Icons.Default.Add, null)
                 Spacer(Modifier.width(4.dp))
-                Text("New category")
+                Text("New folder")
             }
         }
     }
     if (newCategory) {
-        NameDialog("New category", "") { name ->
+        NameDialog("New folder", "") { name ->
             newCategory = false
             if (!name.isNullOrBlank()) scope.launch { app.positions.createCategory(name); refresh++ }
         }
     }
     renaming?.let { c ->
-        NameDialog("Rename category", c.name) { name ->
+        NameDialog("Rename folder", c.name) { name ->
             renaming = null
             if (!name.isNullOrBlank()) scope.launch { app.positions.renameCategory(c.id, name); refresh++ }
         }
@@ -243,7 +229,7 @@ fun MyPositionsScreen(app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?)
         AlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("Delete \"${c.name}\"?") },
-            text = { Text("Its positions stay in My positions (in their other categories, or in none).") },
+            text = { Text("Its positions stay in My positions (in their other folders, or in none).") },
             confirmButton = { TextButton(onClick = { deleting = null; scope.launch { app.positions.deleteCategory(c.id); refresh++ } }) { Text("Delete") } },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
@@ -278,7 +264,7 @@ private fun CategoryRow(name: String, count: Int, onClick: () -> Unit, menu: (@C
         Text("$count", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (menu != null) {
             Box {
-                IconButton(onClick = { open = true }) { Icon(Icons.Default.MoreVert, "Category options") }
+                IconButton(onClick = { open = true }) { Icon(Icons.Default.MoreVert, "Folder options") }
                 DropdownMenu(expanded = open, onDismissRequest = { open = false }) { menu { open = false } }
             }
         } else {
@@ -310,7 +296,7 @@ private fun ExportDialog(categories: List<CategoryCount>, uncategorized: Int, on
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    "One file with the positions as XGIDs, their categories, notes, your answers and the analysis. " +
+                    "One file with the positions as XGIDs, their folders, notes, your answers and the analysis. " +
                         "Share it by Bluetooth, Quick Share, email or any other app; PlyGround imports it.",
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -318,7 +304,7 @@ private fun ExportDialog(categories: List<CategoryCount>, uncategorized: Int, on
                     CheckRow("${c.name} (${c.count})", c.id in chosen) { chosen = if (c.id in chosen) chosen - c.id else chosen + c.id }
                 }
                 if (uncategorized > 0) {
-                    CheckRow("No category ($uncategorized)", UNCATEGORIZED in chosen) {
+                    CheckRow("No folder ($uncategorized)", UNCATEGORIZED in chosen) {
                         chosen = if (UNCATEGORIZED in chosen) chosen - UNCATEGORIZED else chosen + UNCATEGORIZED
                     }
                 }
@@ -345,7 +331,7 @@ private fun ImportDialog(preview: ImportPreview, onDismiss: () -> Unit, onImport
                     style = MaterialTheme.typography.bodySmall,
                 )
                 if (preview.categories.isNotEmpty()) {
-                    Text("Categories to import:", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+                    Text("Folders to import:", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
                     preview.categories.forEach { c ->
                         val n = preview.positions.count { c in it.categories }
                         CheckRow("$c ($n)", c in chosen) { chosen = if (c in chosen) chosen - c else chosen + c }
@@ -354,7 +340,7 @@ private fun ImportDialog(preview: ImportPreview, onDismiss: () -> Unit, onImport
                 if (preview.uncategorized > 0) {
                     OutlinedTextField(
                         value = other, onValueChange = { other = it.take(40) }, singleLine = true,
-                        label = { Text("Category for the ${preview.uncategorized} without one") },
+                        label = { Text("Folder for the ${preview.uncategorized} without one") },
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     )
                 }
@@ -399,24 +385,28 @@ fun sharePositions(context: Context, name: String, json: String) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> Unit, onOpen: (Long) -> Unit, onQuiz: (List<Long>) -> Unit) {
-    var list by remember { mutableStateOf<List<SavedPosition>?>(null) }
+    var all by remember { mutableStateOf<List<SavedPosition>?>(null) }
+    var filter by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var name by remember { mutableStateOf("") }
     val settings by app.settings.settings.collectAsState(initial = Settings())
     LaunchedEffect(categoryId) {
         name = when (categoryId) {
             null -> "All positions"
-            UNCATEGORIZED -> "No category"
+            UNCATEGORIZED -> "No folder"
             else -> app.positions.categories().firstOrNull { it.id == categoryId }?.name ?: ""
         }
-        list = app.positions.positions(categoryId)
+        all = app.positions.positions(categoryId)
     }
+    val shownFilter = settings.visible(filter)
+    val list = all?.filter { shownFilter.isEmpty() || Labels.matches(settings.visible(it.labels), shownFilter) }
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Title(name) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
-                    if (categoryId != null && !list.isNullOrEmpty()) TextButton(onClick = { onQuiz(listOf(categoryId)) }) { Text("Quiz") }
+                    if (!all.isNullOrEmpty()) LabelFilterButton(settings.labelKeys, filter, { filter = it }, compact = true)
+                    if (!all.isNullOrEmpty()) TextButton(onClick = { onQuiz(listOfNotNull(categoryId)) }) { Text("Quiz") }
                 },
             )
         },
@@ -424,7 +414,7 @@ fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> 
         val l = list
         when {
             l == null -> Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            l.isEmpty() -> Text("No positions here yet.", Modifier.padding(padding).padding(24.dp))
+            l.isEmpty() -> Text(if (all.isNullOrEmpty()) "No positions here yet." else "No positions pass the filter.", Modifier.padding(padding).padding(24.dp))
             else -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(horizontal = 12.dp)) {
                 items(l, key = { it.id }) { p -> PositionRow(p, settings) { onOpen(p.id) } }
             }
@@ -448,6 +438,7 @@ private fun PositionRow(p: SavedPosition, settings: Settings, onClick: () -> Uni
                     Text(p.entity.note, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 p.answer?.let { Text("My answer: ${answerText(sp, it)}", style = MaterialTheme.typography.labelSmall) }
+                LabelTags(settings.visible(p.labels), Modifier.padding(top = 2.dp))
                 p.entity.lastRight?.let {
                     Text(if (it) "Last quiz: right" else "Last quiz: missed", style = MaterialTheme.typography.labelSmall, color = if (it) ArrowColors.best else MaterialTheme.colorScheme.error)
                 }
@@ -472,6 +463,7 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
     var noting by remember { mutableStateOf(false) }
     var answering by remember { mutableStateOf(false) }
     var filing by remember { mutableStateOf(false) }
+    var labelling by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     LaunchedEffect(id, refresh) { p = app.positions.position(id) }
@@ -549,9 +541,15 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                     FilterChip(
                         selected = false, onClick = { filing = true },
                         leadingIcon = { Icon(Icons.Default.Folder, null, Modifier.size(18.dp)) },
-                        label = { Text("Categories", maxLines = 1, softWrap = false) },
+                        label = { Text("Folders", maxLines = 1, softWrap = false) },
+                    )
+                    FilterChip(
+                        selected = false, onClick = { labelling = true },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, null, Modifier.size(18.dp)) },
+                        label = { Text("Labels", maxLines = 1, softWrap = false) },
                     )
                 }
+                LabelTags(settings.visible(cur.labels), Modifier.padding(bottom = 4.dp)) { labelling = true }
                 when {
                     analyzing -> Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -602,11 +600,19 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                 scope.launch { app.positions.setCategories(cur.id, ids) }
             }
         }
+        if (labelling) {
+            LabelsDialog(settings.labelKeys, settings.visible(cur.labels), onDismiss = { labelling = false }) { chosen ->
+                labelling = false
+                // Labels turned off in Settings stay on the position, hidden.
+                val hidden = cur.labels - settings.labelKeys.toSet()
+                scope.launch { app.positions.setLabels(cur.id, chosen + hidden); refresh++ }
+            }
+        }
         if (removing) {
             AlertDialog(
                 onDismissRequest = { removing = false },
                 title = { Text("Remove this position?") },
-                text = { Text("It leaves My positions and all its categories.") },
+                text = { Text("It leaves My positions and all its folders.") },
                 confirmButton = { TextButton(onClick = { removing = false; scope.launch { app.positions.remove(cur.id); onBack() } }) { Text("Remove") } },
                 dismissButton = { TextButton(onClick = { removing = false }) { Text("Cancel") } },
             )
@@ -697,7 +703,7 @@ private fun AnswerDialog(
  */
 @Composable
 private fun CategoriesDialog(
-    app: PlyGroundApp, initial: Set<Long>?, positionId: Long?, withNote: Boolean = false, title: String = "Categories",
+    app: PlyGroundApp, initial: Set<Long>?, positionId: Long?, withNote: Boolean = false, title: String = "Folders",
     onDismiss: () -> Unit, onDone: (Set<Long>, String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -718,7 +724,7 @@ private fun CategoriesDialog(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = newName, onValueChange = { newName = it.take(40) }, singleLine = true,
-                        label = { Text("New category") }, modifier = Modifier.weight(1f),
+                        label = { Text("New folder") }, modifier = Modifier.weight(1f),
                     )
                     IconButton(onClick = {
                         val n = newName.trim()
@@ -728,7 +734,7 @@ private fun CategoriesDialog(
                             chosen = chosen + id
                             newName = ""
                         }
-                    }, enabled = newName.isNotBlank()) { Icon(Icons.Default.Add, "Add category") }
+                    }, enabled = newName.isNotBlank()) { Icon(Icons.Default.Add, "Add folder") }
                 }
                 if (withNote) {
                     OutlinedTextField(
@@ -748,12 +754,17 @@ private fun CategoriesDialog(
  * position is analyzed at the depths in Settings once saved.
  */
 @Composable
-fun SaveToPositionsDialog(app: PlyGroundApp, position: StudyPosition, source: String, onDismiss: () -> Unit) {
+fun SaveToPositionsDialog(
+    app: PlyGroundApp, position: StudyPosition, source: String,
+    /** The decision's labels from its game (error size, whose it was); null = from the position. */
+    labels: Set<String>? = null,
+    onDismiss: () -> Unit,
+) {
     val context = LocalContext.current
     CategoriesDialog(app, initial = emptySet(), positionId = null, withNote = true, title = "Save to My positions", onDismiss = onDismiss) { ids, note ->
         onDismiss()
         app.appScope.launch {
-            val id = app.positions.save(position, source, note, ids)
+            val id = app.positions.save(position, source, note, ids, labels = labels)
             val s = app.settings.settings.first()
             runCatching { analyzePosition(app, position, s) }.onSuccess { app.positions.setAnalysis(id, it) }
         }
@@ -778,7 +789,7 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit) {
         Box(Modifier.padding(padding).fillMaxSize()) {
             when {
                 st.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                st.total == 0 -> Text("No positions in these categories.", Modifier.padding(24.dp))
+                st.total == 0 -> Text("No positions to ask.", Modifier.padding(24.dp))
                 st.finished -> QuizSummary(st, vm, onBack)
                 else -> QuizContent(st, vm)
             }

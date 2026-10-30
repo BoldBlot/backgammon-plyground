@@ -1,5 +1,7 @@
 package com.boldblot.backgammonplyground.data
 
+import com.boldblot.backgammonplyground.core.AutoLabel
+import com.boldblot.backgammonplyground.core.Labels
 import com.boldblot.backgammonplyground.core.MyAnswer
 import com.boldblot.backgammonplyground.core.PositionAnalysis
 import com.boldblot.backgammonplyground.core.StudyPosition
@@ -11,6 +13,8 @@ data class SavedPosition(
     val position: StudyPosition,
     val analysis: PositionAnalysis?,
     val answer: MyAnswer?,
+    /** Its labels' keys (all of them; Settings may hide some automatic ones). */
+    val labels: Set<String>,
 ) {
     val id: Long get() = entity.id
 }
@@ -40,6 +44,7 @@ data class PositionRecord(
     val categories: List<String> = emptyList(),
     val myAnswer: MyAnswer? = null,
     val analysis: PositionAnalysis? = null,
+    val labels: List<String> = emptyList(),
 )
 
 /** What an imported file holds, before the player picks the categories to bring in. */
@@ -59,12 +64,78 @@ class PositionsRepository(db: AppDatabase) {
     private val dao = db.positions()
 
     private fun decode(e: PositionEntity): SavedPosition? = runCatching {
-        SavedPosition(
-            e, StudyPosition.stored(e.xgid, e.doubled, e.beavers),
-            e.analysis?.let { AppJson.decodeFromString<PositionAnalysis>(it) },
-            e.myAnswer?.let { AppJson.decodeFromString<MyAnswer>(it) },
-        )
+        val p = StudyPosition.stored(e.xgid, e.doubled, e.beavers)
+        val a = e.analysis?.let { AppJson.decodeFromString<PositionAnalysis>(it) }
+        SavedPosition(e, p, a, e.myAnswer?.let { AppJson.decodeFromString<MyAnswer>(it) }, storedLabels(e.labels) ?: autoLabels(p, a))
     }.getOrNull()
+
+    /** The labels a position gets from what it is: [p] and its analysis [a] (no error size, no owner). */
+    fun autoLabels(p: StudyPosition, a: PositionAnalysis?): Set<String> {
+        val best = a?.checker?.candidates?.firstOrNull()
+        return Labels.of(
+            p.board, cubeDecision = !p.isChecker, doubled = p.doubled, matchLength = p.setup.matchLength, score = p.setup.score,
+            crawford = p.setup.crawford, moves = listOfNotNull(best?.move), probs = best?.probs ?: a?.cube?.probs,
+        ).mapTo(HashSet()) { it.name }
+    }
+
+    suspend fun setLabels(id: Long, labels: Set<String>) = dao.setLabels(id, encodeLabels(labels))
+
+    /** Renames the player's own label [from] to [to] on every position. */
+    suspend fun renameLabel(from: String, to: String) = editLabels { it.map { k -> if (k == Labels.myKey(from)) Labels.myKey(to) else k }.toSet() }
+
+    /** Removes the player's own label [name] from every position. */
+    suspend fun deleteLabel(name: String) = editLabels { it - Labels.myKey(name) }
+
+    private suspend fun editLabels(change: (Set<String>) -> Set<String>) {
+        for (r in dao.allLabels()) {
+            val old = storedLabels(r.labels) ?: continue
+            val new = change(old)
+            if (new != old) dao.setLabels(r.id, encodeLabels(new))
+        }
+    }
+
+    // ---- folders linked to the blunder list ------------------------------------------------------
+
+    /** The folder linked to [filter], created (named after it) if [create] and there is none. */
+    suspend fun linkedFolder(filter: Set<String>, create: Boolean): Long? {
+        val key = Labels.encode(filter)
+        dao.categories().firstOrNull { it.filter == key }?.let { return it.id }
+        if (!create) return null
+        val sort = (dao.categories().maxOfOrNull { it.sort } ?: 0) + 1
+        return dao.insertCategory(CategoryEntity(name = Labels.folderName(filter), sort = sort, filter = key))
+    }
+
+    /** Checker blunders and Cube blunders, the two folders every player has (made once). */
+    suspend fun makeBuiltInFolders() {
+        val have = dao.categories()
+        for ((label, name) in listOf(AutoLabel.CHECKER to "Checker blunders", AutoLabel.CUBE to "Cube blunders")) {
+            val key = Labels.encode(setOf(label.name))
+            if (have.none { it.filter == key }) dao.insertCategory(CategoryEntity(name = name, sort = -2 + label.ordinal, filter = key))
+        }
+    }
+
+    suspend fun setAutoAdd(id: Long, on: Boolean) = dao.setAutoAdd(id, on)
+
+    /**
+     * Adds [blunders] to folder [folderId] with their labels and the game's analysis; those already
+     * there are left as they are. Returns how many were added to the folder.
+     */
+    suspend fun addBlunders(blunders: List<SavedBlunder>, folderId: Long, jacoby: suspend (Long) -> Boolean): Int {
+        val inFolder = dao.inCategory(folderId).map { it.xgid to it.doubled }.toHashSet()
+        var added = 0
+        for (b in blunders) {
+            val p = StudyPosition.of(b.decision, b.entity.matchLength, jacoby(b.entity.matchId)) ?: continue
+            if ((p.xgid to p.doubled) in inFolder) continue
+            val d = b.decision
+            val analysis = if (d.checker != null || d.cubeEval != null) {
+                PositionAnalysis(checker = d.checker, cube = d.cubeEval, label = "Game analysis")
+            } else null
+            save(p, "Blunder list", "", listOf(folderId), analysis, labels = b.labels)
+            inFolder += p.xgid to p.doubled
+            added++
+        }
+        return added
+    }
 
     suspend fun categories(): List<CategoryCount> = dao.categories()
 
@@ -115,14 +186,20 @@ class PositionsRepository(db: AppDatabase) {
      * Saves [p] in [categoryIds]; a position already saved (same XGID and decision) gets the
      * categories added (and [note] if it had none) instead of a copy. Returns its id.
      */
-    suspend fun save(p: StudyPosition, source: String, note: String, categoryIds: Collection<Long>, analysis: PositionAnalysis? = null, answer: MyAnswer? = null): Long {
+    suspend fun save(
+        p: StudyPosition, source: String, note: String, categoryIds: Collection<Long>, analysis: PositionAnalysis? = null, answer: MyAnswer? = null,
+        /** Labels from the game (with the error's size and whose it was); null = from the position. */
+        labels: Set<String>? = null,
+    ): Long {
         val existing = dao.find(p.xgid, p.doubled)
         val id = if (existing != null) {
+            val had = storedLabels(existing.labels)
             dao.update(
                 existing.copy(
                     note = existing.note.ifBlank { note.trim() },
                     analysis = existing.analysis ?: analysis?.let { AppJson.encodeToString(it) },
                     myAnswer = existing.myAnswer ?: answer?.let { AppJson.encodeToString(it) },
+                    labels = if (had == null && labels != null) encodeLabels(labels) else existing.labels,
                 ),
             )
             existing.id
@@ -131,6 +208,7 @@ class PositionsRepository(db: AppDatabase) {
                 xgid = p.xgid, doubled = p.doubled, beavers = p.beavers, note = note.trim(), source = source,
                 savedAt = System.currentTimeMillis(),
                 analysis = analysis?.let { AppJson.encodeToString(it) }, myAnswer = answer?.let { AppJson.encodeToString(it) },
+                labels = labels?.let { encodeLabels(it) } ?: "",
             ),
         )
         categoryIds.filter { it != UNCATEGORIZED }.forEach { dao.link(PositionCategoryEntity(id, it)) }
@@ -184,6 +262,7 @@ class PositionsRepository(db: AppDatabase) {
                 xgid = e.xgid, doubled = e.doubled, beavers = e.beavers, note = e.note, source = e.source, categories = cats,
                 myAnswer = e.myAnswer?.let { runCatching { AppJson.decodeFromString<MyAnswer>(it) }.getOrNull() },
                 analysis = e.analysis?.let { runCatching { AppJson.decodeFromString<PositionAnalysis>(it) }.getOrNull() },
+                labels = storedLabels(e.labels)?.let { Labels.sorted(it) } ?: emptyList(),
             )
         }
         val file = PositionsFile(categories = records.flatMap { it.categories }.distinct(), positions = records)
@@ -223,7 +302,7 @@ class PositionsRepository(db: AppDatabase) {
             val target = if (r.categories.isEmpty()) listOfNotNull(otherCategory?.takeIf { it.isNotBlank() }) else inFile
             val p = runCatching { StudyPosition.stored(r.xgid, r.doubled, r.beavers) }.getOrNull() ?: continue
             if (dao.find(p.xgid, p.doubled) == null) added++
-            save(p, r.source.ifBlank { "Imported" }, r.note, target.map { categoryId(it) }, r.analysis, r.myAnswer)
+            save(p, r.source.ifBlank { "Imported" }, r.note, target.map { categoryId(it) }, r.analysis, r.myAnswer, r.labels.toSet().takeIf { it.isNotEmpty() })
         }
         return added
     }
@@ -231,6 +310,18 @@ class PositionsRepository(db: AppDatabase) {
     companion object {
         /** Stands for "in no category" in lists and quizzes. */
         const val UNCATEGORIZED = -1L
+
+        /** Stored when the player took every label off ("" = never set: the labels come from the position). */
+        private const val NO_LABELS = "-"
+
+        fun encodeLabels(labels: Set<String>): String = if (labels.isEmpty()) NO_LABELS else Labels.encode(labels)
+
+        /** The stored labels, or null if they were never set. */
+        fun storedLabels(text: String): Set<String>? = when (text) {
+            "" -> null
+            NO_LABELS -> emptySet()
+            else -> Labels.decode(text)
+        }
 
         private val EXPORT_JSON = kotlinx.serialization.json.Json {
             prettyPrint = true

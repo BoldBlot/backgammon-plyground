@@ -49,17 +49,30 @@ Errors and the Performance Rating (PR) follow the definitions published by
   with the cube in the middle, or more points than needed to win the match) are
   ignored in both directions.
 - **Review** any finished game decision by decision: a list of all decisions with
-  coloured severity dots, *Next mistake*, played vs best arrows (curved so they never
+  coloured severity dots, *Next mistake* (on to the next game of the match after a
+  game's last), played vs best arrows (curved so they never
   hide each other), full candidate
   analysis and cube equities (No double / Double-take / Double-pass). *Analyze again*
   re-runs the game or the whole match at another engine and depth.
-- **My blunders** (History tab): every blunder you make (> 0.080, hinted decisions
+- **Match Library** (once History): your matches, and matches imported from `.mat`
+  files (from XG, GNU Backgammon or PlyGround itself). On import you pick which player
+  you are and whether the opponent's mistakes go on your blunder list too; the match is
+  analyzed in the background and left out of the statistics.
+- **My blunders** (Match Library tab): every blunder you make (> 0.080, hinted decisions
   excluded) is saved there with its position, played vs best arrows and the full
   analysis, sorted by biggest error or newest, until you remove it with *Remove from
-  list*. Blunders stay when their match is deleted. A match can be left out of the
-  statistics (game menu, or its menu in History). Settings → Data (or "Clear…" in
-  History): clear game records but keep the statistics, clear statistics but keep the
-  games, delete all matches, clear the blunder list.
+  list*. A Filter menu narrows the list by label (checker or cube, contact, race,
+  bear-off, money or match, Crawford, error size, opening, gammonish, whose mistake,
+  and rule-of-thumb themes). The library button adds the blunders shown to the My
+  positions folder linked to the filter (Checker blunders and Cube blunders are built
+  in), and a linked folder can take new blunders as they come. Blunders stay when their
+  match is deleted. A match can be left out of the statistics (game menu, or its menu
+  in the Match Library). Settings → Data (or "Clear…" in the Match Library): clear game
+  records but keep the statistics, clear statistics but keep the games, delete all
+  matches, clear the blunder list (with a filter on, only the blunders shown).
+- **Labels and quiz**: saved positions carry labels (Settings → My positions turns
+  automatic ones off and adds your own); the Quiz menu picks folders, labels, how many
+  questions and the order.
 - **Export to eXtreme Gammon / GNU Backgammon**: from Review, share or save a game
   or the whole match as a `.mat` file (the Jellyfish match format both programs
   import) for cross-evaluation. For a game played after the Crawford game, export the

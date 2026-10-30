@@ -962,6 +962,8 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     private class PendingDecision(
         val matchId: Long, val gameNumber: Int, val index: Int, val decision: DecisionRecord,
         val matchLength: Int, val jacoby: Boolean, val opponentKey: String, val saved: Boolean,
+        /** The opponent's mistakes go on the blunder list too (imported matches). */
+        val blundersBoth: Boolean = false,
     )
 
     /** [m] with the decisions of its game that the background analysis has finished. */
@@ -1010,7 +1012,10 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                 pendingGames.remove(key)
                 continue
             }
-            return PendingDecision(key.matchId, key.number, i, saved.second.decisions[i], match.length, match.jacoby, match.cpuLevel, saved = true)
+            return PendingDecision(
+                key.matchId, key.number, i, saved.second.decisions[i], match.length, match.jacoby, match.cpuLevel, saved = true,
+                blundersBoth = match.blundersBoth,
+            )
         }
         val m = _state.value.match ?: return null
         // A finished game's decisions are taken from its saved record (handleGameOver).
@@ -1046,8 +1051,11 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             analyzedNow[p.gameNumber to p.index] = done
             _state.value.match?.takeIf { it.id == p.matchId }?.let { repo.saveCurrent(withAnalyzed(it)) }
         }
-        if (done.player == Player.HUMAN) {
-            repo.saveIfBlunder(done, p.matchId, p.gameNumber, p.index, p.matchLength, p.opponentKey, s.blunderList.minSeverity)
+        if (done.player == Player.HUMAN || p.blundersBoth) {
+            repo.saveIfBlunder(
+                done, p.matchId, p.gameNumber, p.index, p.matchLength, p.opponentKey, s.blunderList.minSeverity,
+                opponent = done.player != Player.HUMAN,
+            )
         }
     }
 
@@ -1102,6 +1110,12 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             _state.update { st -> st.copy(gameOver = st.gameOver?.takeIf { it.matchId == matchId }?.let { it.copy(notAnalyzed = it.notAnalyzed + dropped) } ?: st.gameOver) }
             updateAnalysisLeft()
         }
+    }
+
+    /** Games of an imported match: their decisions go to the background analysis. */
+    fun queueAnalysis(games: List<GameKey>) {
+        pendingGames += games
+        startBackgroundAnalysis()
     }
 
     /** "Analyze now" after a match played without analysis: its decisions go to the background analysis. */
