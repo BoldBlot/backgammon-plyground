@@ -151,7 +151,6 @@ class MainActivity : ComponentActivity() {
                     onNewMatch = { nav.navigate("new") },
                     onPosition = { nav.navigate("position") },
                     onMyPositions = { nav.navigate("positions") },
-                    onQuiz = { nav.navigate("quizmenu") },
                     onStats = { nav.navigate("stats") },
                     onHistory = { nav.navigate("history") },
                     onSettings = { nav.navigate("settings") },

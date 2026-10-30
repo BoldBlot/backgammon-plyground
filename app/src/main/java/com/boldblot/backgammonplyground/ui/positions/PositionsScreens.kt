@@ -125,6 +125,12 @@ internal fun Title(text: String) {
     }
 }
 
+/** What My positions can import (⋮ → Import a file…, or a file opened or shared with PlyGround). */
+private const val IMPORT_FORMATS =
+    "Import (⋮ → Import a file…) reads a Backgammon PlyGround positions file (.plyground.json, made with ⋮ → Export…), " +
+        "or a text file with one position per line: an XGID (XGID=…) or a GNU Backgammon Position ID, with its Match ID " +
+        "if it has one (4HPwATDgc/ABMA:cAkAAAAAAAAA). Lines that are not positions are skipped."
+
 // ---- My positions: categories and quiz ------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -154,7 +160,7 @@ fun MyPositionsScreen(app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?)
         app.pendingImport.value = null
         runCatching { app.positions.preview(text) }
             .onSuccess { importing = it }
-            .onFailure { Toast.makeText(context, it.message ?: "Could not read that file.", Toast.LENGTH_LONG).show() }
+            .onFailure { Toast.makeText(context, (it.message ?: "Could not read that file.") + " " + IMPORT_FORMATS, Toast.LENGTH_LONG).show() }
     }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -189,6 +195,11 @@ fun MyPositionsScreen(app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?)
                 "Experimental: this part of the app may still change. Save positions from your blunder list, a game " +
                     "review or Analyze Position (\"Save to My positions\"), or import a file, then quiz yourself on them.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                IMPORT_FORMATS,
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
             )
             Button(onClick = { onQuiz(emptyList()) }, enabled = total > 0, modifier = Modifier.padding(top = 12.dp)) {
                 Icon(Icons.Default.School, null)

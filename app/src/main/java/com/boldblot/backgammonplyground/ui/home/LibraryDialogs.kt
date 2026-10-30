@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.boldblot.backgammonplyground.PlyGroundApp
+import com.boldblot.backgammonplyground.core.AutoLabel
 import com.boldblot.backgammonplyground.core.Labels
 import com.boldblot.backgammonplyground.core.MatImport
 import com.boldblot.backgammonplyground.data.CategoryCount
@@ -88,9 +89,10 @@ fun MatchImportDialog(match: MatImport.ParsedMatch, onDismiss: () -> Unit, onImp
 }
 
 /**
- * The blunder list's library button: [blunders] (those the filter shows) go to the My positions
- * folder linked to [filter], made now if there is none, with their labels. The folder can also
- * take every new blunder that passes the filter.
+ * The blunder list's library button: [blunders] (those the filter shows) are copied to the My
+ * positions folder linked to [filter] (made now if there is none), or, split, to Checker blunders
+ * and Cube blunders, with their labels. Folders that collect new blunders by themselves are set
+ * in Settings → My positions.
  */
 @Composable
 fun AddBlundersDialog(app: PlyGroundApp, blunders: List<SavedBlunder>, filter: Set<String>, onDismiss: () -> Unit) {
@@ -98,39 +100,61 @@ fun AddBlundersDialog(app: PlyGroundApp, blunders: List<SavedBlunder>, filter: S
     val folder by produceState<CategoryCount?>(null, filter) {
         value = app.positions.categories().firstOrNull { it.filter == Labels.encode(filter) }
     }
-    var auto by remember(folder) { mutableStateOf(folder?.autoAdd ?: false) }
+    var split by remember { mutableStateOf(false) }
     val name = folder?.name ?: Labels.folderName(filter)
-    val n = blunders.size
+    val cube = blunders.count { AutoLabel.CUBE.name in it.labels }
+    val checker = blunders.size - cube
+    fun plural(n: Int, what: String) = "$n $what blunder${if (n == 1) "" else "s"}"
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add to My positions") },
         text = {
             Column {
                 Text(
-                    "$n blunder${if (n == 1) "" else "s"} go${if (n == 1) "es" else ""} to the folder “$name”" +
-                        (if (folder == null) ", made now for this filter" else "") + ". Positions already in it are skipped. " +
-                        "Each one keeps its labels; you can change them in My positions.",
+                    if (split) {
+                        "${plural(checker, "checker")} go${if (checker == 1) "es" else ""} to Checker blunders and " +
+                            "${plural(cube, "cube")} to Cube blunders."
+                    } else {
+                        val n = blunders.size
+                        "$n blunder${if (n == 1) "" else "s"} go${if (n == 1) "es" else ""} to the folder \u201c$name\u201d" +
+                            (if (folder == null) ", made now for this filter" else "") + "."
+                    } + " Positions already in a folder are skipped. Each one keeps its labels; you can change them in My positions.",
                 )
                 Row(
-                    Modifier.fillMaxWidth().toggleable(auto, role = Role.Switch, onValueChange = { auto = it }).padding(top = 12.dp),
+                    Modifier.fillMaxWidth().toggleable(split, role = Role.Switch, onValueChange = { split = it }).padding(top = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Also add new blunders that pass this filter", Modifier.weight(1f))
-                    Switch(checked = auto, onCheckedChange = null)
+                    Text("Split into Checker blunders and Cube blunders", Modifier.weight(1f))
+                    Switch(checked = split, onCheckedChange = null)
                 }
+                Text(
+                    "This copies the blunders shown now. A folder can also collect new blunders by itself: Settings → My positions.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
             }
         },
         confirmButton = {
             TextButton(onClick = {
                 onDismiss()
                 app.appScope.launch {
-                    val id = app.positions.linkedFolder(filter, create = true) ?: return@launch
-                    app.positions.setAutoAdd(id, auto)
-                    val added = app.positions.addBlunders(blunders, id) { m -> app.repository.match(m)?.jacoby ?: true }
-                    withContext(Dispatchers.Main) {
-                        val text = if (added == 0) "All of them were already in “$name”." else "Added $added to “$name”."
-                        Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+                    val jacoby: suspend (Long) -> Boolean = { m -> app.repository.match(m)?.jacoby ?: true }
+                    val text = if (split) {
+                        // The two folders every player has (made again if they were deleted).
+                        app.positions.makeBuiltInFolders()
+                        var added = 0
+                        for (kind in listOf(AutoLabel.CHECKER, AutoLabel.CUBE)) {
+                            val list = blunders.filter { kind.name in it.labels }
+                            val id = app.positions.linkedFolder(setOf(kind.name), create = true) ?: continue
+                            if (list.isNotEmpty()) added += app.positions.addBlunders(list, id, jacoby)
+                        }
+                        if (added == 0) "All of them were already there." else "Added $added to Checker blunders and Cube blunders."
+                    } else {
+                        val id = app.positions.linkedFolder(filter, create = true) ?: return@launch
+                        val added = app.positions.addBlunders(blunders, id, jacoby)
+                        if (added == 0) "All of them were already in \u201c$name\u201d." else "Added $added to \u201c$name\u201d."
                     }
+                    withContext(Dispatchers.Main) { Toast.makeText(context, text, Toast.LENGTH_SHORT).show() }
                 }
             }) { Text("Add") }
         },

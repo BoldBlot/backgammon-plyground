@@ -137,7 +137,6 @@ fun HomeScreen(
     onNewMatch: () -> Unit,
     onPosition: () -> Unit,
     onMyPositions: () -> Unit = {},
-    onQuiz: () -> Unit = {},
     onStats: () -> Unit,
     onHistory: () -> Unit,
     onSettings: () -> Unit,
@@ -183,8 +182,7 @@ fun HomeScreen(
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(onClick = onMyPositions, modifier = w) { Text("My positions (experimental)") }
                 Spacer(Modifier.height(10.dp))
-                OutlinedButton(onClick = onQuiz, modifier = w) { Text("Quiz") }
-                Spacer(Modifier.height(10.dp))
+
                 OutlinedButton(onClick = onStats, modifier = w) { Text("Statistics") }
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(onClick = onHistory, modifier = w) { Text("Match Library") }
