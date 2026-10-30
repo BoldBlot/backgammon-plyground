@@ -32,6 +32,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -531,11 +534,23 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                 )
                 if (cur.entity.note.isNotBlank()) Text(cur.entity.note, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
                 cur.answer?.let { Text("★ My answer: ${answerText(sp, it)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp)) }
-                // Labels on one line; the buttons wrap to a second row when they don't fit.
+                // Chips on one line (they wrap to a second row only with a very large font).
                 FlowRow(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedButton(onClick = { answering = true }, enabled = a != null) { Text("Set my answer", maxLines = 1, softWrap = false) }
-                    OutlinedButton(onClick = { noting = true }) { Text("Note", maxLines = 1, softWrap = false) }
-                    OutlinedButton(onClick = { filing = true }) { Text("Categories", maxLines = 1, softWrap = false) }
+                    FilterChip(
+                        selected = false, onClick = { answering = true }, enabled = a != null,
+                        leadingIcon = { Icon(Icons.Default.Check, null, Modifier.size(18.dp)) },
+                        label = { Text("Set my answer", maxLines = 1, softWrap = false) },
+                    )
+                    FilterChip(
+                        selected = false, onClick = { noting = true },
+                        leadingIcon = { Icon(Icons.Default.Edit, null, Modifier.size(18.dp)) },
+                        label = { Text("Note", maxLines = 1, softWrap = false) },
+                    )
+                    FilterChip(
+                        selected = false, onClick = { filing = true },
+                        leadingIcon = { Icon(Icons.Default.Folder, null, Modifier.size(18.dp)) },
+                        label = { Text("Categories", maxLines = 1, softWrap = false) },
+                    )
                 }
                 when {
                     analyzing -> Row(verticalAlignment = Alignment.CenterVertically) {

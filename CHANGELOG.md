@@ -1,5 +1,36 @@
 # Changelog
 
+Build 38 — 2026-10-30:
+- My positions (experimental): save a position from your blunder list, a game review or Analyze
+  Position into categories of your own, with a note and, if you like, your own right answer (marked
+  with a ✓ in the analysis). Quiz yourself on the categories you pick: make the play or the cube
+  decision, and see how it compares. Export categories as a file to share by Bluetooth, Quick Share
+  or email; PlyGround imports it, and also imports a list of XGIDs.
+- Analysis no longer holds up play when nothing is shown during the game ("Show mistakes after the
+  match", or immediately with the practice prompt off): with PureTD analyzing it runs on a second
+  copy of the engine in the background, or not at all (Settings → Training); with GNU BG or Open
+  Sage it runs between games. The summary shows how many decisions are left and about how long,
+  with Stop.
+- Settings → Advanced engine settings: threads for the game and for the background analysis,
+  analyze during play, background priority.
+- Settings are grouped into Training, Analysis, Advanced engine settings, Play, Display, and Data
+  and help; the game's ⋮ menu opens them during a match.
+- Double and Pass ask for confirmation (Settings → Play): a bar across the board with Cancel and
+  Double or Pass, and "Don't ask again".
+- Hint, Keep rolling, Autofinish and Resign stay in place beside the board and grey out when they
+  can't be used.
+- Keep rolling: rolls for you even when you could double, until you turn it off, the cube changes
+  hands or the game ends.
+- Auto-roll no longer skips your cube decision when you are on the bar against a closed board.
+- Bear off automatically once contact is broken (Settings → Play, off by default; not counted).
+- Arrows for the computer's move: until your move, for 1 second, or off (Settings → Display).
+- Winning chances meter: one bar for both sides with gammons and backgammons, in portrait too;
+  numbers on request (Settings → Display). Turning it on mid-game shows it at once.
+- Blunder list: blunders only, or errors and blunders (Settings → Training).
+- When the computer's cube decision is analyzed at the same depth and engine it played with, it is
+  worked out once instead of twice.
+- About shows the Bold Blot logo.
+
 Build 37 — 2026-10-28:
 - Welcome screen, shown once on a new install or after an update, and again for each new version:
   what a ply is, and how long you want to wait for analysis during the game. Zero wait (1-ply),

@@ -24,11 +24,11 @@ android {
         minSdk = 26
         targetSdk = 36
         // Play's upload code: one more for every bundle uploaded to Play (internal or closed).
-        versionCode = 41
+        versionCode = 42
         versionName = "0.7.1"
         // The build number the app shows: internal test pushes 36.1, 36.2, …; the closed-track
         // (alpha) release of the tested code then becomes the next whole number, 37.
-        buildConfigField("String", "BUILD_LABEL", "\"37.2\"")
+        buildConfigField("String", "BUILD_LABEL", "\"38\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
