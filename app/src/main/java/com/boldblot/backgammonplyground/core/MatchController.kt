@@ -8,6 +8,9 @@ fun interface DiceSource {
 
     fun roll(): Dice = Dice(die(), die())
 
+    /** False while the next roll is still to be entered (manual dice): the computer then waits ([MatchController.CpuAction.NeedsDice]). */
+    fun ready(): Boolean = true
+
     companion object {
         /** Cryptographically strong, unbiased dice. */
         fun secure(): DiceSource {
@@ -33,6 +36,8 @@ data class AnalysisSettings(
     val deferred: Boolean = false,
     /** Nothing is analyzed during play (pending or not): the player analyzes later. */
     val none: Boolean = false,
+    /** XG plies with which autofinish plays the human's side (no noise). */
+    val autoPlies: Int = 1,
 ) {
     val analyzeCpu: Boolean get() = cpuPlies != null && !none
 }
@@ -379,14 +384,15 @@ class MatchController(
         else cpu(m).cubeDecisionAtLevel(m.game.board, m.ctx(), m.cpuLevel)
     }
 
-    /** Autofinish: the human's checker play, chosen by the engine at [AUTOFINISH_LEVEL]. */
+    /** Autofinish: the human's checker play, the engine's best at [AnalysisSettings.autoPlies] (deeper looks: moves within 0.04). */
     fun autoMove(m: MatchState): Move {
         val d = requireNotNull(m.game.dice)
-        return engine.chooseMove(m.game.board, m.ctx(), d.d1, d.d2, AUTOFINISH_LEVEL)
+        val depth = if (settings.autoPlies <= 1) Depth(1) else Depth(settings.autoPlies, MoveFilter.NARROW)
+        return engine.rankMoves(m.game.board, m.ctx(), d.d1, d.d2, depth.code, null).candidates.firstOrNull()?.move ?: Move.NONE
     }
 
     /** Autofinish: the engine's cube view for the human (as doubler before the roll, or as taker). */
-    fun autoCube(m: MatchState): CubeEval = engine.cubeDecisionAtLevel(m.game.board, m.ctx(), AUTOFINISH_LEVEL)
+    fun autoCube(m: MatchState): CubeEval = engine.cubeDecision(m.game.board, m.ctx(), Depth(settings.autoPlies.coerceAtLeast(1)).code)
 
     /** Ranked candidate plays for the human's current roll (the hint). */
     fun hintMoves(m: MatchState): CheckerAnalysis {
@@ -399,9 +405,17 @@ class MatchController(
     sealed interface CpuAction {
         data object Doubled : CpuAction
         data object Rolled : CpuAction
+        /** The computer will roll, but the dice are still to be entered ([DiceSource.ready]): then [cpuRoll]. */
+        data object NeedsDice : CpuAction
         data class Moved(val move: Move) : CpuAction
         data class OffersResign(val type: WinType) : CpuAction
     }
+
+    private fun cpuRollOrWait(m: MatchState): Pair<MatchState, CpuAction> =
+        if (dice.ready()) rollDice(m) to CpuAction.Rolled else m to CpuAction.NeedsDice
+
+    /** The computer's roll after [CpuAction.NeedsDice] (the dice have been entered). */
+    fun cpuRoll(m: MatchState): MatchState = rollDice(m)
 
     /** Performs the computer's next action (cube decision, roll, or move). */
     fun cpuStep(m: MatchState): Pair<MatchState, CpuAction> {
@@ -423,10 +437,10 @@ class MatchController(
                     val recorded = if (analysis != null) analysis.cubeAvailable else how == Analysis.LATER
                     if (view.cubeAvailable && recorded) {
                         val rec = recordDoubleDecision(m, doubled = false, eval = analysis, hinted = false).later(how)
-                        return rollDice(m.copy(game = g.record(rec))) to CpuAction.Rolled
+                        return cpuRollOrWait(m.copy(game = g.record(rec)))
                     }
                 }
-                rollDice(m) to CpuAction.Rolled
+                cpuRollOrWait(m)
             }
             Phase.MOVING -> {
                 val d = requireNotNull(g.dice)
@@ -446,9 +460,6 @@ class MatchController(
         /** Candidates kept per checker decision (plus the played move if outside). */
         const val MAX_CANDIDATES = 10
 
-
-        /** Strength that plays the human's side in autofinish (2-ply, no noise). */
-        val AUTOFINISH_LEVEL = CpuLevel.WORLD_CLASS
 
         /** Deepest look (XG plies) that confirms the computer's resignation; only outcome chances count. */
         const val RESIGN_CONFIRM_PLIES = 2

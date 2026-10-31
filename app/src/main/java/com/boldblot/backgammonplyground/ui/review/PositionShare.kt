@@ -8,20 +8,24 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BookmarkAdd
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -30,6 +34,7 @@ import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.boldblot.backgammonplyground.core.Board
@@ -41,6 +46,7 @@ import com.boldblot.backgammonplyground.core.PositionIds
 import com.boldblot.backgammonplyground.core.Severity
 import com.boldblot.backgammonplyground.core.StudyPosition
 import com.boldblot.backgammonplyground.core.XgRules
+import com.boldblot.backgammonplyground.ui.components.PlayedBestBar
 import com.boldblot.backgammonplyground.ui.components.eq
 import com.boldblot.backgammonplyground.ui.theme.Quality
 import kotlinx.coroutines.launch
@@ -49,15 +55,45 @@ import java.io.File
 /** What a review board shows: the decision with arrows, the bare position, or the position after a move. */
 enum class ReviewView(val label: String) { ARROWS("Arrows"), BOARD("Board"), AFTER("After") }
 
-/** The chips that pick [ReviewView]; After only for a decision with a move. */
+/**
+ * The chips that pick [ReviewView] (After greyed out for a decision without a move), then a Save chip
+ * that saves the position to My positions ([onSave]; none when it cannot be saved).
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ReviewViewChips(view: ReviewView, hasMove: Boolean, onPick: (ReviewView) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        ReviewView.entries.filter { hasMove || it != ReviewView.AFTER }.forEach { v ->
-            FilterChip(selected = view == v, onClick = { onPick(v) }, label = { Text(v.label) })
+fun ReviewViewChips(view: ReviewView, hasMove: Boolean, onPick: (ReviewView) -> Unit, onSave: (() -> Unit)?, modifier: Modifier = Modifier) {
+    val shown = if (!hasMove && view == ReviewView.AFTER) ReviewView.BOARD else view
+    FlowRow(
+        modifier, horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
+        ReviewView.entries.forEach { v ->
+            FilterChip(
+                selected = shown == v, onClick = { onPick(v) }, label = { Text(v.label) },
+                enabled = hasMove || v != ReviewView.AFTER,
+            )
+        }
+        if (onSave != null) {
+            AssistChip(
+                onClick = onSave, label = { Text("Save") },
+                leadingIcon = { Icon(Icons.Default.BookmarkAdd, null, Modifier.size(AssistChipDefaults.IconSize)) },
+            )
         }
     }
 }
+
+/**
+ * Keeps the room of [content] when it is not [shown] (in landscape the board takes what is left, so
+ * it would change size between decisions with and without a played/best bar).
+ */
+@Composable
+fun KeepRoom(shown: Boolean, content: @Composable () -> Unit) {
+    if (shown) content() else Box(Modifier.alpha(0f).clearAndSetSemantics {}) { content() }
+}
+
+/** The played/best bar's room, for [KeepRoom] on decisions without one. */
+@Composable
+fun EmptyPlayedBestBar() = PlayedBestBar("", null, Severity.NONE, "", null, Modifier.padding(top = 4.dp))
 
 /**
  * The board of a review showing [view] of decision [d]: the position after the move chosen in the
@@ -68,16 +104,6 @@ fun reviewBoard(d: DecisionRecord, view: ReviewView, candidate: Int?): Pair<Boar
     if (view != ReviewView.AFTER) return d.board to false
     val move = candidate?.let { d.checker?.candidates?.getOrNull(it)?.move } ?: d.move ?: return d.board to false
     return d.board.applyMove(d.player, move) to true
-}
-
-/** The labelled button that saves the position shown to My positions. */
-@Composable
-fun SaveButton(onClick: () -> Unit) {
-    FilledTonalButton(onClick = onClick) {
-        Icon(Icons.Default.BookmarkAdd, null, Modifier.size(18.dp))
-        Spacer(Modifier.width(6.dp))
-        Text("Save")
-    }
 }
 
 /** Records what a board draws, so that it can be shared as a picture. */
@@ -119,7 +145,7 @@ fun SharePositionItems(
         text = { Text("Share board picture…") },
         onClick = {
             onDone()
-            scope.launch { PositionShare.image(context, capture.image().asAndroidBitmap(), "board") }
+            scope.launch { PositionShare.image(context, PositionShare.withAnalysis(capture.image().asAndroidBitmap(), title, emptyList(), null), "board") }
         },
     )
     val lines = PositionShare.analysisLines(d, XgRules.errorFactor(matchLength))
@@ -200,26 +226,27 @@ object PositionShare {
         )
     }
 
-    /** [board] with [title], the analysis [lines] and the [xgid] below it, on a white card. */
+    /** [board] under [title], with the analysis [lines] and the [xgid] below it (if any), on a white card. */
     fun withAnalysis(board: Bitmap, title: String, lines: List<Line>, xgid: String?): Bitmap {
         val w = board.width
         val pad = w / 30f
         val text = w / 30f
         val small = text * 0.7f
         val row = text * 1.45f
-        val h = (board.height + pad * 2 + row * (lines.size + 1) + (if (xgid != null) small * 2 else 0f) + pad).toInt()
+        val top = pad + row
+        val below = (if (lines.isNotEmpty()) pad + row * lines.size else 0f) + (if (xgid != null) small * 2 else 0f) + pad / 2
+        val h = (top + board.height + below).toInt()
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(out)
         c.drawColor(android.graphics.Color.WHITE)
-        c.drawBitmap(board.copy(Bitmap.Config.ARGB_8888, false), 0f, 0f, null)
         val dark = android.graphics.Color.rgb(0x22, 0x22, 0x22)
         val grey = android.graphics.Color.rgb(0x66, 0x66, 0x66)
         val sans = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = text; color = dark }
         val bold = Paint(sans).apply { typeface = Typeface.DEFAULT_BOLD }
         val mono = Paint(sans).apply { typeface = Typeface.MONOSPACE; textAlign = Paint.Align.RIGHT }
-        var y = board.height + pad + text
-        c.drawText(title, pad, y, bold)
-        y += row
+        c.drawText(title, pad, pad + text, bold)
+        c.drawBitmap(board.copy(Bitmap.Config.ARGB_8888, false), 0f, top, null)
+        var y = top + board.height + pad + text
         for (l in lines) {
             if (l.played) {
                 c.drawRect(pad / 2, y - text * 1.05f, w - pad / 2, y + text * 0.4f, Paint().apply { color = android.graphics.Color.rgb(0xEC, 0xEF, 0xF6) })
@@ -238,11 +265,11 @@ object PositionShare {
         return out
     }
 
-    /** "5-point match · score 2-1 · cube 2" (or "Money"), the heading of a shared picture. */
+    /** "5-point match · 2-1 · Cube 2 · Roll 64" (or "Money game"), the heading of a shared picture. */
     fun title(d: DecisionRecord, matchLength: Int): String = buildString {
-        append(if (matchLength == 0) "Money" else "$matchLength-point match · score ${d.score[0]}-${d.score[1]}")
+        append(if (matchLength == 0) "Money game" else "$matchLength-point match · ${d.score[0]}-${d.score[1]}")
         if (d.crawford) append(" Crawford")
-        if (d.cube.value > 1) append(" · cube ${d.cube.value}")
-        d.dice?.let { append(" · roll $it") }
+        if (d.cube.value > 1) append(" · Cube ${d.cube.value}")
+        d.dice?.let { append(" · Roll $it") }
     }
 }

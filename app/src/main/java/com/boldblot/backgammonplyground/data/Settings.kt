@@ -61,8 +61,20 @@ enum class MeterMode(val label: String) { OFF("Off"), BAR("Bar"), BAR_AND_NUMBER
 /** What counts as a right answer in the My positions quiz. */
 enum class QuizCorrect(val label: String) { NOT_ERROR("Not an error"), BEST_ONLY("Best play only") }
 
+/** How new errors reach My positions: through New errors, or filed at once ([ErrorsSort]). */
+enum class ErrorsMode(val label: String) { MANUAL("Manual"), AUTOMATIC("Automatic") }
+
+/** Where new errors are filed: in no folder, or checker plays in Checker and cube decisions in Cube. */
+enum class ErrorsSort(val label: String) { NO_FOLDER("No folder"), SPLIT("Checker and Cube folders") }
+
 /** Order of the blunder list. */
 enum class BlunderSort(val label: String) { BIGGEST("Biggest first"), NEWEST("Newest first") }
+
+/** The analysis depth while mistakes are shown immediately (Intuition training); [plies] 0 = as in Settings → Analysis. */
+enum class IntuitionDepth(val label: String, val plies: Int) { SAME("Same as Analysis", 0), ONE("1-ply", 1), TWO("2-ply", 2), THREE("3-ply", 3) }
+
+/** How deep autofinish looks when it plays the human's side; never noise. */
+enum class AutoFinishDepth(val label: String, val plies: Int) { ONE("1-ply", 1), TWO("2-ply", 2), THREE("3-ply", 3) }
 
 /** Pause after each move while autofinish plays the game out. */
 enum class AutoFinishSpeed(val label: String, val pauseMillis: Long) {
@@ -127,9 +139,15 @@ data class Settings(
     /** Cube analysis depth (XG plies 1-4); 4-ply halves the cube error of 3-ply against XG. */
     val cubePlies: Int = 4,
     val blunderSort: BlunderSort = BlunderSort.BIGGEST,
-    val autoFinishSpeed: AutoFinishSpeed = AutoFinishSpeed.S05,
+    val autoFinishSpeed: AutoFinishSpeed = AutoFinishSpeed.S03,
+    val autoFinishDepth: AutoFinishDepth = AutoFinishDepth.ONE,
+    /** Every roll (both sides' and the opening roll) is entered by the player instead of rolled. */
+    val manualDice: Boolean = false,
+    /** Matches with entered dice still count in statistics and rating (otherwise they are left out). */
+    val manualDiceStats: Boolean = false,
     val feedback: FeedbackLevel = FeedbackLevel.ERRORS,
     val trainingMode: TrainingMode = TrainingMode.AFTER_GAME,
+    val intuitionDepth: IntuitionDepth = IntuitionDepth.SAME,
     /** Wait for the player to dismiss the prompt before the computer continues. */
     val pauseOnMistake: Boolean = true,
     /** The mistake prompt draws the best move's arrows too (otherwise only the played move's). */
@@ -155,6 +173,8 @@ data class Settings(
     val confirmDouble: Boolean = true,
     val confirmPass: Boolean = true,
     val blunderList: BlunderListLevel = BlunderListLevel.BLUNDERS,
+    val errorsMode: ErrorsMode = ErrorsMode.MANUAL,
+    val errorsSort: ErrorsSort = ErrorsSort.SPLIT,
     val quizCorrect: QuizCorrect = QuizCorrect.NOT_ERROR,
     /** The quiz brings missed positions back until each has been answered right. */
     val quizRepeat: Boolean = false,
@@ -184,8 +204,10 @@ data class Settings(
     val myLabels: List<String> = emptyList(),
     /** The blunder list's filter (label keys). */
     val blunderFilter: Set<String> = emptySet(),
-    /** Checker blunders and Cube blunders were made in My positions (once). */
+    /** Checker blunders and Cube blunders were made in My positions (once; no longer made). */
     val builtInFolders: Boolean = false,
+    /** The 0.7.4 folder changes were made ([com.boldblot.backgammonplyground.data.Positions.migrateFolders074]). */
+    val folders074: Boolean = false,
 ) {
     /** The label keys in use: the automatic ones not turned off, then the player's own. */
     val labelKeys: List<String>
@@ -197,6 +219,14 @@ data class Settings(
 
     val checkerDepth: Depth get() = Depth(checkerPlies, moveFilter)
     val cubeDepth: Depth get() = Depth(cubePlies)
+
+    /** The depths decisions are analyzed at during play: in Intuition training [intuitionDepth] when set. */
+    val playCheckerDepth: Depth
+        get() = intuitionPlies?.let { Depth(it, moveFilter) } ?: checkerDepth
+    val playCubeDepth: Depth
+        get() = intuitionPlies?.let { Depth(it) } ?: cubeDepth
+    private val intuitionPlies: Int?
+        get() = intuitionDepth.plies.takeIf { it > 0 && trainingMode == TrainingMode.IMMEDIATE }
 
     /**
      * Nothing about the player's decisions is shown during play, so they need not be analyzed on the
@@ -233,6 +263,10 @@ class SettingsStore(private val context: Context) {
         val maxMistake = floatPreferencesKey("mistake_max")
         val blunderSort = stringPreferencesKey("blunder_sort")
         val autoFinish = stringPreferencesKey("autofinish_speed")
+        val autoFinishDepth = stringPreferencesKey("autofinish_depth")
+        val intuitionDepth = stringPreferencesKey("intuition_depth")
+        val manualDice = booleanPreferencesKey("manual_dice")
+        val manualDiceStats = booleanPreferencesKey("manual_dice_stats")
         val feedback = stringPreferencesKey("feedback")
         val trainingMode = stringPreferencesKey("training_mode")
         val pause = booleanPreferencesKey("pause_on_mistake")
@@ -252,6 +286,8 @@ class SettingsStore(private val context: Context) {
         val confirmDouble = booleanPreferencesKey("confirm_double")
         val confirmPass = booleanPreferencesKey("confirm_pass")
         val blunderList = stringPreferencesKey("blunder_list_level")
+        val errorsMode = stringPreferencesKey("errors_mode")
+        val errorsSort = stringPreferencesKey("errors_sort")
         val quizCorrect = stringPreferencesKey("quiz_correct")
         val quizRepeat = booleanPreferencesKey("quiz_repeat")
         val theme = stringPreferencesKey("board_theme")
@@ -270,6 +306,7 @@ class SettingsStore(private val context: Context) {
         val myLabels = stringPreferencesKey("my_labels")
         val blunderFilter = stringPreferencesKey("blunder_filter")
         val builtInFolders = booleanPreferencesKey("built_in_folders")
+        val folders074 = booleanPreferencesKey("folders_074")
     }
 
     private fun lines(text: String?): List<String> = text?.split('\n')?.filter { it.isNotBlank() } ?: emptyList()
@@ -304,6 +341,10 @@ class SettingsStore(private val context: Context) {
             welcomeSeen = p[Keys.welcomeSeen] ?: d.welcomeSeen,
             blunderSort = p.enum(Keys.blunderSort, d.blunderSort),
             autoFinishSpeed = p.enum(Keys.autoFinish, d.autoFinishSpeed),
+            autoFinishDepth = p.enum(Keys.autoFinishDepth, d.autoFinishDepth),
+            intuitionDepth = p.enum(Keys.intuitionDepth, d.intuitionDepth),
+            manualDice = p[Keys.manualDice] ?: d.manualDice,
+            manualDiceStats = p[Keys.manualDiceStats] ?: d.manualDiceStats,
             feedback = p.enum(Keys.feedback, d.feedback),
             trainingMode = p.enum(Keys.trainingMode, d.trainingMode),
             pauseOnMistake = p[Keys.pause] ?: d.pauseOnMistake,
@@ -322,6 +363,8 @@ class SettingsStore(private val context: Context) {
             confirmDouble = p[Keys.confirmDouble] ?: d.confirmDouble,
             confirmPass = p[Keys.confirmPass] ?: d.confirmPass,
             blunderList = p.enum(Keys.blunderList, d.blunderList),
+            errorsMode = p.enum(Keys.errorsMode, d.errorsMode),
+            errorsSort = p.enum(Keys.errorsSort, d.errorsSort),
             quizCorrect = p.enum(Keys.quizCorrect, d.quizCorrect),
             quizRepeat = p[Keys.quizRepeat] ?: d.quizRepeat,
             boardTheme = p.enum(Keys.theme, d.boardTheme),
@@ -343,6 +386,7 @@ class SettingsStore(private val context: Context) {
             myLabels = lines(p[Keys.myLabels]),
             blunderFilter = lines(p[Keys.blunderFilter]).toSet(),
             builtInFolders = p[Keys.builtInFolders] ?: d.builtInFolders,
+            folders074 = p[Keys.folders074] ?: d.folders074,
         )
     }
 
@@ -373,6 +417,10 @@ class SettingsStore(private val context: Context) {
             p[Keys.cubePlies] = s.cubePlies
             p[Keys.blunderSort] = s.blunderSort.name
             p[Keys.autoFinish] = s.autoFinishSpeed.name
+            p[Keys.autoFinishDepth] = s.autoFinishDepth.name
+            p[Keys.intuitionDepth] = s.intuitionDepth.name
+            p[Keys.manualDice] = s.manualDice
+            p[Keys.manualDiceStats] = s.manualDiceStats
             p[Keys.feedback] = s.feedback.name
             p[Keys.trainingMode] = s.trainingMode.name
             p[Keys.pause] = s.pauseOnMistake
@@ -390,6 +438,8 @@ class SettingsStore(private val context: Context) {
             p[Keys.confirmDouble] = s.confirmDouble
             p[Keys.confirmPass] = s.confirmPass
             p[Keys.blunderList] = s.blunderList.name
+            p[Keys.errorsMode] = s.errorsMode.name
+            p[Keys.errorsSort] = s.errorsSort.name
             p[Keys.quizCorrect] = s.quizCorrect.name
             p[Keys.quizRepeat] = s.quizRepeat
             p[Keys.theme] = s.boardTheme.name
@@ -408,6 +458,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.myLabels] = s.myLabels.joinToString("\n")
             p[Keys.blunderFilter] = s.blunderFilter.joinToString("\n")
             p[Keys.builtInFolders] = s.builtInFolders
+            p[Keys.folders074] = s.folders074
         }
     }
 }

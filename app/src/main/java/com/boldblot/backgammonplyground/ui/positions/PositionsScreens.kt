@@ -101,6 +101,7 @@ import com.boldblot.backgammonplyground.core.Player
 import com.boldblot.backgammonplyground.core.Severity
 import com.boldblot.backgammonplyground.core.StudyPosition
 import com.boldblot.backgammonplyground.data.CategoryCount
+import com.boldblot.backgammonplyground.data.ErrorsMode
 import com.boldblot.backgammonplyground.data.ImportPreview
 import com.boldblot.backgammonplyground.data.PositionsRepository.Companion.UNCATEGORIZED
 import com.boldblot.backgammonplyground.data.SavedPosition
@@ -218,11 +219,15 @@ fun MyPositionsScreen(
                     Spacer(Modifier.width(6.dp))
                     Text("Quiz…")
                 }
-                // The errors from games, waiting to be added to a folder or deleted.
-                FilledTonalButton(onClick = onNewErrors) {
-                    Icon(Icons.Default.Inbox, null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("New errors ($newErrors)")
+                // The errors from games, waiting to be added to a folder or deleted. With automatic
+                // filing only while some are left from before.
+                val manual by produceState(true) { app.settings.settings.collect { value = it.errorsMode == ErrorsMode.MANUAL } }
+                if (manual || newErrors > 0) {
+                    FilledTonalButton(onClick = onNewErrors) {
+                        Icon(Icons.Default.Inbox, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("New errors ($newErrors)")
+                    }
                 }
             }
             Spacer(Modifier.height(12.dp))

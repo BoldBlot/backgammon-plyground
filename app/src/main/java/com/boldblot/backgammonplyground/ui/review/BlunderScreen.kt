@@ -298,6 +298,7 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
             Row(Modifier.fillMaxSize().padding(6.dp)) {
                 Column(Modifier.width(sideWidth).fillMaxHeight()) {
                     TopRow(onBack, onRemove, share)
+                    ReviewViewChips(st.view, b.decision.move != null, vm::setView, onSave, Modifier.fillMaxWidth().padding(bottom = 4.dp))
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { Detail(st, b, vm) }
                 }
                 Spacer(Modifier.width(8.dp))
@@ -305,14 +306,14 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         Board(st, b.decision, Modifier.aspectRatio(1.38f).then(capture.modifier))
                     }
-                    Bar(st, b.decision, vm, onKeep, onSave)
+                    Bar(st, b.decision, vm, onKeep, onSave, landscape = true)
                 }
             }
         } else {
             Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
                 TopRow(onBack, onRemove, share)
                 Board(st, b.decision, Modifier.fillMaxWidth().aspectRatio(1.38f).then(capture.modifier))
-                Bar(st, b.decision, vm, onKeep, onSave)
+                Bar(st, b.decision, vm, onKeep, onSave, landscape = false)
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { Detail(st, b, vm) }
             }
         }
@@ -353,7 +354,7 @@ private fun Board(st: BlunderState, d: DecisionRecord, modifier: Modifier) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKeep: () -> Unit, onSave: (() -> Unit)?) {
+private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKeep: () -> Unit, onSave: (() -> Unit)?, landscape: Boolean) {
     val a = d.checker
     if (a != null && a.candidates.isNotEmpty()) {
         val played = a.candidates.getOrNull(a.playedIndex)
@@ -366,6 +367,8 @@ private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKee
             onPlayed = { vm.selectCandidate(a.playedIndex) },
             onBest = { vm.selectCandidate(0) },
         )
+    } else if (landscape) {
+        KeepRoom(false) { EmptyPlayedBestBar() }
     }
     FlowRow(
         Modifier.fillMaxWidth(), itemVerticalAlignment = Alignment.CenterVertically,
@@ -379,8 +382,7 @@ private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKee
             }
             Button(onClick = onKeep) { Text(if (st.index < st.blunders.size - 1) "Keep, next" else "Keep") }
         }
-        ReviewViewChips(st.view, d.move != null, vm::setView)
-        if (onSave != null) SaveButton(onSave)
+        if (!landscape) ReviewViewChips(st.view, d.move != null, vm::setView, onSave)
     }
 }
 

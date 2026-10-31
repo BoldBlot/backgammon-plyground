@@ -90,6 +90,7 @@ import com.boldblot.backgammonplyground.core.MoveFilter
 import com.boldblot.backgammonplyground.core.Opponent
 import com.boldblot.backgammonplyground.core.Labels
 import com.boldblot.backgammonplyground.core.AutoLabel
+import com.boldblot.backgammonplyground.core.LabelGroup
 import com.boldblot.backgammonplyground.data.CategoryCount
 import com.boldblot.backgammonplyground.core.MatImport
 import com.boldblot.backgammonplyground.data.GameKey
@@ -97,6 +98,10 @@ import com.boldblot.backgammonplyground.ui.components.LabelFilterButton
 import com.boldblot.backgammonplyground.core.Elo
 import com.boldblot.backgammonplyground.core.PerformanceTotals
 import com.boldblot.backgammonplyground.data.AnalysisTiming
+import com.boldblot.backgammonplyground.data.AutoFinishDepth
+import com.boldblot.backgammonplyground.data.ErrorsMode
+import com.boldblot.backgammonplyground.data.ErrorsSort
+import com.boldblot.backgammonplyground.data.IntuitionDepth
 import com.boldblot.backgammonplyground.data.AnimationSpeed
 import com.boldblot.backgammonplyground.data.AppJson
 import com.boldblot.backgammonplyground.data.AutoFinishSpeed
@@ -819,7 +824,7 @@ private fun SettingsGroup.summary(s: Settings): String = when (this) {
     SettingsGroup.DISPLAY -> listOfNotNull(
         s.boardTheme.label, "pip counts".takeIf { s.showPips }, "meter: ${s.meter.label.lowercase()}".takeIf { s.meter != MeterMode.OFF },
     ).joinToString(" · ")
-    SettingsGroup.POSITIONS -> "Quiz, labels (${s.labelKeys.size} in use), folders that collect new errors"
+    SettingsGroup.POSITIONS -> "Quiz, labels (${s.labelKeys.size} in use), autofilters"
     SettingsGroup.DATA -> "Your name in exported files, clearing data, error report"
 }
 
@@ -897,6 +902,11 @@ private fun TrainingSettings(s: Settings, update: (f: (Settings) -> Settings) ->
     FeedbackLevel.entries.forEach { f -> Radio(f.label, s.feedback == f, enabled = during) { update { it.copy(feedback = f) } } }
     if (s.trainingMode == TrainingMode.IMMEDIATE) {
         Toggle("Wait for me before the computer continues", s.pauseOnMistake) { v -> update { it.copy(pauseOnMistake = v) } }
+        Chips("Analysis depth in this mode", IntuitionDepth.entries, s.intuitionDepth, { it.label }) { v -> update { it.copy(intuitionDepth = v) } }
+        Note(
+            "Your checker plays and cube decisions are judged at this depth as you play (and kept for the review: " +
+                "Analyze again there goes deeper). The engine starts on each decision while you think about it.",
+        )
     }
     if (during) {
         Toggle("Show the best move's arrows with my move", s.bestMoveArrows) { v -> update { it.copy(bestMoveArrows = v) } }
@@ -919,7 +929,15 @@ private fun TrainingSettings(s: Settings, update: (f: (Settings) -> Settings) ->
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("New errors")
     Chips("Add to New errors", BlunderListLevel.entries, s.blunderList, { it.label }) { v -> update { it.copy(blunderList = v) } }
-    Note("Applies to your decisions from now on; New errors keeps what it has. Find it in My positions, next to Quiz.")
+    Note("Applies to your decisions from now on; New errors keeps what it has.")
+    Chips("Filing", ErrorsMode.entries, s.errorsMode, { it.label }) { v -> update { it.copy(errorsMode = v) } }
+    if (s.errorsMode == ErrorsMode.MANUAL) {
+        Note("Go through your new errors with the New errors button in My positions, next to Quiz, then add the ones you keep to My positions.")
+    } else {
+        Chips("Sort into", ErrorsSort.entries, s.errorsSort, { it.label }) { v -> update { it.copy(errorsSort = v) } }
+        Note("Every new error goes straight to My positions; the Checker and Cube folders are made when needed. No New errors button.")
+    }
+    Note("Autofilters (Settings → My positions) take the errors they match in both cases.")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("After each game")
     Toggle("Show the summary after each game", s.gameSummary) { v -> update { it.copy(gameSummary = v) } }
@@ -1019,34 +1037,123 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
         )
     }
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
-    Header("Folders that collect new errors")
+    Header("My autofilters")
     Note(
-        "Checker blunders, Cube blunders and All blunders (and folders made earlier for a filter) are each linked to a " +
-            "filter. Switched on, a folder takes " +
-            "every new error that passes its filter straight away, and the error skips New errors.",
+        "An autofilter puts every new error that matches all its conditions straight into its own folder, and the " +
+            "error skips New errors. Labels that can't both be true (Checker or Cube, Contact or Race, Money or Match…) " +
+            "count as either.",
     )
-    var linked by remember { mutableStateOf<List<CategoryCount>>(emptyList()) }
-    LaunchedEffect(Unit) { linked = app.positions.categories().filter { it.filter != null } }
-    linked.forEach { c ->
+    var filters by remember { mutableStateOf<List<CategoryCount>>(emptyList()) }
+    suspend fun reload() { filters = app.positions.categories().filter { it.filter != null && !app.positions.isSortFolder(it.filter) } }
+    LaunchedEffect(Unit) { reload() }
+    var ending by remember { mutableStateOf<CategoryCount?>(null) }
+    filters.forEach { c ->
         Row(
             Modifier.fillMaxWidth().toggleable(c.autoAdd, role = Role.Switch) { v ->
-                scope.launch {
-                    app.positions.setAutoAdd(c.id, v)
-                    linked = app.positions.categories().filter { it.filter != null }
-                }
+                scope.launch { app.positions.setAutoAdd(c.id, v); reload() }
             }.padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
                 Text(c.name)
                 Text(
-                    "Filter: ${Labels.folderName(Labels.decode(c.filter.orEmpty()))} · ${c.count} position${if (c.count == 1) "" else "s"}",
+                    "${autofilterText(Labels.decode(c.filter.orEmpty()))} · ${c.count} position${if (c.count == 1) "" else "s"}",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            IconButton(onClick = { ending = c }) { Icon(Icons.Default.Delete, "Delete autofilter ${c.name}") }
             Switch(checked = c.autoAdd, onCheckedChange = null)
         }
     }
+    var adding by remember { mutableStateOf(false) }
+    OutlinedButton(onClick = { adding = true }, modifier = Modifier.padding(top = 4.dp)) {
+        Icon(Icons.Default.Add, null)
+        Spacer(Modifier.width(6.dp))
+        Text("New autofilter")
+    }
+    if (adding) {
+        NewAutofilterDialog(s, onDismiss = { adding = false }) { name, filter ->
+            adding = false
+            scope.launch { app.positions.addAutofilter(name, filter); reload() }
+        }
+    }
+    ending?.let { c ->
+        AlertDialog(
+            onDismissRequest = { ending = null },
+            title = { Text("Delete autofilter \u201c${c.name}\u201d?") },
+            text = { Text("The folder and its positions stay; it just stops collecting new errors.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    ending = null
+                    scope.launch { app.positions.removeAutofilter(c.id); reload() }
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { ending = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** "Blunders · Checker · Contact or Race · Hit", what an autofilter asks for; "Every new error" without conditions. */
+private fun autofilterText(filter: Set<String>): String {
+    if (filter.isEmpty()) return "Every new error"
+    return Labels.sorted(filter).groupBy { Labels.group(it) }.entries.joinToString(" · ") { (g, keys) ->
+        when {
+            g == LabelGroup.SIZE && keys.size > 1 -> "Errors and blunders"
+            g == LabelGroup.SIZE -> if (keys.single() == AutoLabel.BLUNDER.name) "Blunders" else "Errors"
+            else -> keys.joinToString(if (g.allOf) " and " else " or ") { Labels.title(it) }
+        }
+    }
+}
+
+/** Error levels an autofilter can ask for (the Size labels it gets). */
+private enum class AutofilterLevel(val label: String, val keys: Set<String>) {
+    ANY("Any", emptySet()),
+    ERRORS("Errors and blunders", setOf(AutoLabel.ERROR.name, AutoLabel.BLUNDER.name)),
+    BLUNDERS("Blunders only", setOf(AutoLabel.BLUNDER.name)),
+}
+
+/** Name, error level and labels of a new autofilter; every condition must be met. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun NewAutofilterDialog(s: Settings, onDismiss: () -> Unit, onAdd: (name: String, filter: Set<String>) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var level by remember { mutableStateOf(AutofilterLevel.ANY) }
+    var picked by remember { mutableStateOf(emptySet<String>()) }
+    val filter = level.keys + picked
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New autofilter") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it.replace("\n", "").take(40) }, singleLine = true,
+                    label = { Text("Folder name") }, modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Error level", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AutofilterLevel.entries.forEach { l -> FilterChip(selected = level == l, onClick = { level = l }, label = { Text(l.label) }) }
+                }
+                s.labelKeys.filter { Labels.group(it) != LabelGroup.SIZE }.groupBy { Labels.group(it) }.forEach { (g, keys) ->
+                    Text(g.title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        keys.forEach { k ->
+                            FilterChip(
+                                selected = k in picked, label = { Text(Labels.title(k)) },
+                                onClick = { picked = if (k in picked) picked - k else picked + k },
+                            )
+                        }
+                    }
+                }
+                Text(
+                    "Takes: ${autofilterText(filter)}. Only errors that reach New errors count (Settings → Training → Add to New errors).",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onAdd(name.trim(), filter) }, enabled = name.isNotBlank()) { Text("Add") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+
 }
 
 @Composable
@@ -1182,10 +1289,18 @@ private fun PlaySettings(s: Settings, update: (f: (Settings) -> Settings) -> Uni
     Toggle("Confirm before I double", s.confirmDouble) { v -> update { it.copy(confirmDouble = v) } }
     Toggle("Confirm before I pass", s.confirmPass) { v -> update { it.copy(confirmPass = v) } }
     Note("A bar across the board asks (\"Double to 2?\", \"Pass and lose 1 point?\") with Cancel and Double or Pass.")
+    Toggle("Manual dice", s.manualDice) { v -> update { it.copy(manualDice = v) } }
+    Note("You enter every roll, yours, the computer's and the opening roll, for example to play out a game from a real board.")
+    if (s.manualDice) {
+        Toggle("Count matches with manual dice in statistics", s.manualDiceStats) { v -> update { it.copy(manualDiceStats = v) } }
+        Note("Off: a match is left out of the statistics and rating once a roll is entered.")
+    }
+    Chips("Autofinish: strength", AutoFinishDepth.entries, s.autoFinishDepth, { it.label }) { v -> update { it.copy(autoFinishDepth = v) } }
     Chips("Autofinish: pause after each move", AutoFinishSpeed.entries, s.autoFinishSpeed, { it.label }) { a -> update { it.copy(autoFinishSpeed = a) } }
     Note(
-        "Autofinish (in the game) lets the engine at 3-ply play your side to the end of the game; " +
-            "tap the screen to stop. Its moves are not counted in your statistics.",
+        "Autofinish (in the game) lets the engine play your side to the end of the game, without noise; " +
+            "tap the screen to stop. Its moves are not counted in your statistics. 1-ply is the quickest and plays " +
+            "endgames and bear-offs almost perfectly.",
     )
 }
 
@@ -1198,8 +1313,6 @@ private fun DisplaySettings(s: Settings, update: (f: (Settings) -> Settings) -> 
     Chips("Computer move animation", AnimationSpeed.entries, s.animation, { it.label }) { a -> update { it.copy(animation = a) } }
     Toggle("Crawford sign", s.crawfordSign) { v -> update { it.copy(crawfordSign = v) } }
     Note("In the Crawford game nobody may double, so a CRAWFORD sign stands on the bar instead of the cube. Off: the bar is left empty.")
-    Chips("Side panel (landscape)", listOf(false, true), s.railRight, { if (it) "Right of the board" else "Left of the board" }) { v -> update { it.copy(railRight = v) } }
-    Note("The column with the players, Undo and Done. Put it on the side of your home board, where Roll and Double appear, to keep your thumb close to all of them.")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Board")
     BoardSettings(s) { f -> update(f) }

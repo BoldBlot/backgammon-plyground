@@ -85,7 +85,7 @@ fun MatchImportDialog(match: MatImport.ParsedMatch, onDismiss: () -> Unit, onImp
 
 /**
  * New errors' library button: [errors] (those the filter shows) are copied to My positions with
- * their labels, split into Checker blunders and Cube blunders or all into All blunders, and leave
+ * their labels, sorted into the Checker and Cube folders or into no folder, and leave
  * New errors. [onAdded] runs once they are gone from the list.
  */
 @Composable
@@ -98,21 +98,11 @@ fun AddErrorsDialog(app: PlyGroundApp, errors: List<SavedBlunder>, onDismiss: ()
         onDismiss()
         app.appScope.launch {
             val jacoby: suspend (Long) -> Boolean = { m -> app.repository.match(m)?.jacoby ?: true }
-            val text = if (split) {
-                // The two folders every player has (made again if they were deleted).
-                app.positions.makeBuiltInFolders()
-                var added = 0
-                for (kind in listOf(AutoLabel.CHECKER, AutoLabel.CUBE)) {
-                    val list = errors.filter { kind.name in it.labels }
-                    val id = app.positions.linkedFolder(setOf(kind.name), create = true) ?: continue
-                    if (list.isNotEmpty()) added += app.positions.addBlunders(list, id, jacoby)
-                }
-                if (added == 0) "All of them were already there." else "Added $added to Checker blunders and Cube blunders."
-            } else {
-                val id = app.positions.linkedFolder(emptySet(), create = true) ?: return@launch
-                val added = app.positions.addBlunders(errors, id, jacoby)
-                val name = Labels.folderName(emptySet())
-                if (added == 0) "All of them were already in \u201c$name\u201d." else "Added $added to \u201c$name\u201d."
+            val added = app.positions.fileErrors(errors, split, jacoby)
+            val text = when {
+                added == 0 -> "All of them were already there."
+                split -> "Added $added to Checker and Cube."
+                else -> "Added $added to My positions."
             }
             app.repository.removeBlunders(errors.map { it.entity.id })
             withContext(Dispatchers.Main) {
@@ -126,15 +116,15 @@ fun AddErrorsDialog(app: PlyGroundApp, errors: List<SavedBlunder>, onDismiss: ()
         title = { Text("Add $n error${if (n == 1) "" else "s"} to My positions") },
         text = {
             Text(
-                "Split them into Checker blunders ($checker) and Cube blunders ($cube)? Otherwise they all go to " +
-                    "All blunders. Positions already in the folder are skipped; each one keeps its labels. " +
+                "Sort them into the Checker ($checker) and Cube ($cube) folders, or add them to no folder? " +
+                    "Missing folders are made. Positions already there are skipped; each one keeps its labels. " +
                     "Added errors leave New errors.",
             )
         },
         confirmButton = {
             Row {
-                TextButton(onClick = { add(split = false) }) { Text("All blunders") }
-                TextButton(onClick = { add(split = true) }) { Text("Split") }
+                TextButton(onClick = { add(split = false) }) { Text("No folder") }
+                TextButton(onClick = { add(split = true) }) { Text("Checker and Cube") }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

@@ -319,6 +319,9 @@ interface PositionDao {
     @Query("UPDATE categories SET autoAdd = :on WHERE id = :id")
     suspend fun setAutoAdd(id: Long, on: Boolean)
 
+    @Query("UPDATE categories SET filter = NULL, autoAdd = 0 WHERE id = :id")
+    suspend fun unlinkFolder(id: Long)
+
     @Query("UPDATE positions SET labels = :labels WHERE id = :id")
     suspend fun setLabels(id: Long, labels: String)
 

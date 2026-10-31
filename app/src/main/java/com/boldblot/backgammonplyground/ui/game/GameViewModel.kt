@@ -48,6 +48,9 @@ import com.boldblot.backgammonplyground.data.TrainingMode
 import com.boldblot.backgammonplyground.ui.board.ArrowColors
 import com.boldblot.backgammonplyground.ui.board.MoveArrow
 import com.boldblot.backgammonplyground.ui.board.arrowsFor
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -92,8 +95,13 @@ data class BoardNotice(val kind: Kind, val title: String, val detail: String? = 
     enum class Kind { NO_MOVE, FORCED }
 }
 
+/** A roll to enter (Settings → Play → Manual dice): the opening roll (one die each, no tie) or [player]'s roll. */
+data class DiceRequest(val opening: Boolean, val player: Int)
+
 data class GameUiState(
     val loading: Boolean = true,
+    /** Manual dice: the roll the player is asked to enter. */
+    val diceRequest: DiceRequest? = null,
     val match: MatchState? = null,
     /** False if the player left this match out of the statistics. */
     val inStats: Boolean = true,
@@ -183,9 +191,14 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     private val secureDice = DiceSource.secure()
     /** Debug builds only: dice values queued for the next rolls. */
     private val forcedDice = ArrayDeque<Int>()
-    private val controller = MatchController(
-        app.engine.analysis, DiceSource { forcedDice.removeFirstOrNull() ?: secureDice.die() }, opponents = { app.engine.of(it) },
-    )
+    /** Dice values queued for the next rolls: debug builds' forced dice, and the dice entered with manual dice. */
+    private val queuedDice = object : DiceSource {
+        override fun die() = forcedDice.removeFirstOrNull() ?: secureDice.die()
+        override fun ready() = !settings.manualDice || forcedDice.size >= 2
+    }
+    private val controller = MatchController(app.engine.analysis, queuedDice, opponents = { app.engine.of(it) })
+    /** The answer to [GameUiState.diceRequest] (null: the player cancelled their roll). */
+    private var diceAnswer: CompletableDeferred<Pair<Int, Int>?>? = null
 
     private val _state = MutableStateFlow(GameUiState())
     val state: StateFlow<GameUiState> = _state.asStateFlow()
@@ -212,11 +225,12 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     init {
         viewModelScope.launch {
             app.settings.settings.collect { s ->
-                val checker = s.checkerDepth.code
+                val checker = s.playCheckerDepth.code
                 controller.settings = AnalysisSettings(
-                    plies = checker, cubePlies = s.cubeDepth.code, cpuPlies = if (s.cpuAnalysis) checker else null,
+                    plies = checker, cubePlies = s.playCubeDepth.code, cpuPlies = if (s.cpuAnalysis) checker else null,
                     deferred = s.quietPlay && s.analysisTiming == AnalysisTiming.BACKGROUND,
                     none = s.quietPlay && s.analysisTiming == AnalysisTiming.NONE,
+                    autoPlies = s.autoFinishDepth.plies,
                 )
                 val meterOn = s.meter != MeterMode.OFF && _state.value.settings.meter == MeterMode.OFF
                 _state.update { it.copy(settings = s) }
@@ -275,7 +289,40 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         }
     }
 
+    /**
+     * Manual dice: asks the player for a roll and queues it for the controller. False if they
+     * cancelled (only their own roll can be cancelled). With manual dice off, or a roll already
+     * queued, nothing is asked.
+     */
+    private suspend fun enterDice(opening: Boolean, player: Int): Boolean {
+        if (!settings.manualDice || forcedDice.size >= 2) return true
+        val answer = CompletableDeferred<Pair<Int, Int>?>()
+        diceAnswer = answer
+        _state.update { it.copy(diceRequest = DiceRequest(opening, player)) }
+        val dice = try { answer.await() } finally {
+            diceAnswer = null
+            _state.update { it.copy(diceRequest = null) }
+        }
+        if (dice == null) return false
+        forcedDice.clear()
+        forcedDice += listOf(dice.first, dice.second)
+        // Entered dice leave the match out of the statistics unless the player counts them (Settings).
+        val m = _state.value.match
+        if (m != null && !settings.manualDiceStats && _state.value.inStats) {
+            _state.update { it.copy(inStats = false) }
+            repo.setInStats(m.id, false)
+        }
+        return true
+    }
+
+    /** The player entered the dice asked for (null: cancelled their own roll). */
+    fun answerDice(dice: Pair<Int, Int>?) {
+        diceAnswer?.complete(dice)
+    }
+
     private suspend fun startGame(m: MatchState) {
+        forcedDice.clear()
+        enterDice(opening = true, player = Player.HUMAN)
         val opened = engine { controller.openingRoll(m) }
         val g = opened.game
         val opening = g.rolls.last().dice
@@ -356,8 +403,11 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         val st = _state.value
         val m = st.match ?: return
         val g = m.game
-        // A "Try again" prompt always waits for the player.
-        if (st.feedback != null && (settings.pauseOnMistake || st.retry != null) && autoMode == null) return
+        // A "Try again" prompt always waits for the player; meanwhile the computer works out its reply.
+        if (st.feedback != null && (settings.pauseOnMistake || st.retry != null) && autoMode == null) {
+            if (g.turn == Player.CPU && g.resignOffer == null) cpuAhead(m)
+            return
+        }
         if (g.phase == Phase.OVER && autoMode == AutoMode.FINISH) stopAutoFinish()
         if (g.phase == Phase.OVER && st.queuedResign != null) _state.update { it.copy(queuedResign = null) }
         val queued = st.queuedResign
@@ -378,9 +428,75 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             // Rolls by themselves when there is no cube decision to make, or with "Keep rolling" on.
             g.turn == Player.HUMAN && g.phase == Phase.PRE_ROLL &&
                 ((settings.autoRoll && !g.mayDouble(m.rules, m.score)) || st.keepRolling) -> roll()
-            g.turn == Player.HUMAN && g.phase == Phase.MOVING -> playIfNoChoice(m)
-            else -> Unit // waiting for the human
+            g.turn == Player.HUMAN && g.phase == Phase.MOVING -> {
+                playIfNoChoice(m)
+                thinkAhead(m)
+            }
+            else -> thinkAhead(m) // waiting for the human
         }
+    }
+
+    /**
+     * While the player thinks, the engine analyzes their decision ahead (their roll, or their cube
+     * decision), so the verdict on what they do is ready sooner: the analysis of their decision then
+     * finds it in the engine's cache. Only when decisions are analyzed during play.
+     */
+    private fun thinkAhead(m: MatchState) {
+        val s = controller.settings
+        val g = m.game
+        if (s.deferred || s.none || autoMode != null || g.turn != Player.HUMAN || g.resignOffer != null) return
+        val work: (() -> Unit) = when {
+            g.phase == Phase.MOVING && options?.let { it.canMove && !it.isForced } == true -> { { controller.hintMoves(m) } }
+            g.phase == Phase.PRE_ROLL && g.mayDouble(m.rules, m.score) -> { { controller.analyzeCube(m) } }
+            else -> return
+        }
+        if (aheadFor == m) return
+        aheadFor = m
+        viewModelScope.launch {
+            runCatching { engineService.run { work() } }.onFailure {
+                if (it !is kotlinx.coroutines.CancellationException) AppLog.error("Analysis ahead failed", it)
+            }
+        }
+    }
+
+    /** The state [thinkAhead] last worked on. */
+    private var aheadFor: MatchState? = null
+
+    /** The computer's steps worked out ahead ([cpuAhead]): each step's state, the state after it and the action. */
+    private var cpuSteps: Deferred<List<Triple<MatchState, MatchState, MatchController.CpuAction>>>? = null
+    private var cpuStepsFor: MatchState? = null
+
+    /**
+     * While the player reads the feedback on their move, the computer works out its next steps (its
+     * cube decision and roll, then its move); [runCpu] takes them instead of thinking again.
+     */
+    private fun cpuAhead(m: MatchState) {
+        if (cpuStepsFor == m) return
+        cpuStepsFor = m
+        cpuSteps = viewModelScope.async {
+            engineService.run {
+                val first = controller.cpuStep(m)
+                val steps = mutableListOf(Triple(m, first.first, first.second))
+                if (first.second == MatchController.CpuAction.Rolled) {
+                    val second = controller.cpuStep(first.first)
+                    steps += Triple(first.first, second.first, second.second)
+                }
+                steps
+            }
+        }
+    }
+
+    /** The step [cpuAhead] worked out for [m], if any (waiting for it if it is still being worked out). */
+    private suspend fun aheadStep(m: MatchState): Pair<MatchState, MatchController.CpuAction>? {
+        val job = cpuSteps ?: return null
+        if (!job.isCompleted) _state.update { it.copy(busy = true, busyText = "Computer is thinking…") }
+        val steps = try { job.await() } catch (e: Exception) {
+            if (e !is kotlinx.coroutines.CancellationException) AppLog.error("Computer's steps ahead failed", e)
+            null
+        } finally {
+            _state.update { it.copy(busy = false, busyText = null) }
+        }
+        return steps?.firstOrNull { it.first == m }?.let { it.second to it.third }
     }
 
     private fun runCpu() {
@@ -390,7 +506,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             delay(250)
             while (m.game.turn == Player.CPU && m.game.phase in setOf(Phase.PRE_ROLL, Phase.MOVING)) {
                 val before = m
-                val (next, action) = engine("Computer is thinking…") { controller.cpuStep(m) }
+                val (next, action) = aheadStep(m) ?: engine("Computer is thinking…") { controller.cpuStep(m) }
                 when (action) {
                     is MatchController.CpuAction.Doubled -> {
                         setMatch(next, message = "Computer doubles to ${before.game.cube.value * 2}.")
@@ -407,7 +523,18 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                         setMatch(next, message = "Computer rolls ${next.game.dice}.", keepCpuMarkers = false)
                         delay(settings.animation.stepMillis.coerceAtLeast(150) + 250)
                     }
+                    is MatchController.CpuAction.NeedsDice -> {
+                        // Manual dice: the computer has decided not to double; its roll is entered, then made.
+                        enterDice(opening = false, player = Player.CPU)
+                        val rolled = engine { controller.cpuRoll(next) }
+                        setMatch(rolled, message = "Computer rolls ${rolled.game.dice}.", keepCpuMarkers = false)
+                        delay(settings.animation.stepMillis.coerceAtLeast(150) + 250)
+                        m = rolled
+                        continue
+                    }
                     is MatchController.CpuAction.Moved -> {
+                        // The player's cube decision is analyzed during the animation.
+                        thinkAhead(next)
                         animateCpuMove(before.game.board, action.move)
                         val text = if (action.move.isEmpty) "Computer cannot move." else
                             "Computer plays ${MoveNotation.format(before.game.board, Player.CPU, action.move)}."
@@ -703,9 +830,12 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
 
     fun roll() {
         val m = _state.value.match ?: return
-        if (m.game.phase != Phase.PRE_ROLL || m.game.turn != Player.HUMAN || _state.value.busy) return
+        if (m.game.phase != Phase.PRE_ROLL || m.game.turn != Player.HUMAN || _state.value.busy || diceAnswer != null) return
         val hinted = _state.value.hinted
-        viewModelScope.launch { applyHuman(engine { controller.humanRoll(m, hinted) }, before = m) }
+        viewModelScope.launch {
+            if (!enterDice(opening = false, player = Player.HUMAN)) return@launch
+            applyHuman(engine { controller.humanRoll(m, hinted) }, before = m)
+        }
     }
 
     fun double() {
@@ -1191,7 +1321,9 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                     val wantDouble = g.mayDouble(m.rules, m.score) &&
                         engine { if (auto) controller.autoCube(m) else controller.analyzeCube(m) }.let { it.cubeAvailable && it.shouldDouble }
                     if (wantDouble) doDouble(m, hinted = false, auto = auto)
-                    else applyHuman(engine { controller.humanRoll(m, hinted = false, auto = auto) }, before = m)
+                    else if (enterDice(opening = false, player = Player.HUMAN)) {
+                        applyHuman(engine { controller.humanRoll(m, hinted = false, auto = auto) }, before = m)
+                    } else stopAutoFinish()
                 }
                 g.phase == Phase.MOVING && g.turn == Player.HUMAN -> {
                     val d = g.dice!!

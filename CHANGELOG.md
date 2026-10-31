@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.4 — 2026-10-31 (build 49, internal test)
+
+Choose how your mistakes reach My positions, make your own autofilters, enter the dice yourself, and
+Intuition training waits less.
+
+- Settings → Training → New errors: Manual (go through them with the New errors button, as before)
+  or Automatic (every new error is filed at once, no button). Sort them into no folder or into the
+  Checker and Cube folders, made when needed. Add to library asks the same.
+- Checker blunders and Cube blunders are now called Checker and Cube (only if you hadn't renamed
+  them). If one of them collected new errors, filing is set to Automatic.
+- My autofilters (Settings → My positions): a folder that takes every new error matching all its
+  conditions, an error level and any labels. Labels that can't both be true (Checker or Cube,
+  Contact or Race…) count as either.
+- Manual dice (Settings → Play): enter every roll, yours, the computer's and the opening roll, from
+  two columns of dice. Such matches are left out of the statistics unless you count them.
+- Intuition training: the engine starts on your decision while you think (your roll as soon as the
+  dice land, your cube decision as soon as the computer has chosen its move) and works out the
+  computer's reply while you read the feedback. Its own analysis depth, if you want it quicker.
+- Autofinish strength: 1-ply (now the default, quickest), 2-ply or 3-ply, without noise; the pause
+  after each move is 0.3 s by default.
+- The side panel setting moved next to Bear off direction (Settings → Display → Board).
+- A shared board picture has the match, score and roll above it, like the one with the top five.
+- Arrows, Board, After and Save are chips; in landscape they sit beside the board, which keeps its
+  size from one decision to the next. After is greyed out for decisions without a move.
+- Back from a review to the game's summary works like the back arrow; if the summary ever
+  disappears, a Show game summary button brings it back.
+
 ## 0.7.3 — 2026-10-31 (build 48, internal test)
 
 New errors: the mistakes from your games wait in My positions until you file them or delete them.

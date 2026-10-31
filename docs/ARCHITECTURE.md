@@ -81,7 +81,8 @@ Schema 3 adds `matches.imported` / `blundersBoth` (imported matches: the opponen
 name, `Opponent.imported`), `blunders.opponent` (the opponent's mistakes, stored turned so
 that their player is at the bottom), `positions.labels` (label keys; empty = worked out
 from the position) and `categories.filter` / `autoAdd` (My positions folders linked to a
-blunder list filter; Checker blunders and Cube blunders are made once at start).
+blunder list filter: autofilters when `autoAdd`; the Checker and Cube folders that new
+errors are sorted into are made when first needed).
 Settings live in DataStore.
 
 ## UI

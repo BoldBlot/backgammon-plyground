@@ -1,5 +1,13 @@
 package com.boldblot.backgammonplyground.ui.game
 
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -69,6 +77,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -143,6 +153,8 @@ fun GameScreen(
     var chooseResign by remember { mutableStateOf(false) }
     // A money session just ended with its mistakes held back ("after the match" training): its summary.
     var endedSession by remember { mutableStateOf<Long?>(null) }
+    // Bumped to open the end-of-game summary again.
+    var summaryKey by remember { mutableIntStateOf(0) }
     fun endSession(id: Long, finishedGames: Boolean, end: () -> Unit) {
         end()
         if (finishedGames && st.settings.trainingMode == TrainingMode.AFTER_GAME) endedSession = id else onBack()
@@ -155,6 +167,15 @@ fun GameScreen(
             else -> GameContent(st, m, vm, onBack, onAbandon = { confirmAbandon = true }, onResign = { chooseResign = true }, onSettings = onSettings)
         }
         if (st.autoFinishing) AutoFinishOverlay(st.settings.railRight, vm::stopAutoFinishAndPlay)
+        // In portrait below the board (where the screen is free), in landscape over it.
+        val portrait = LocalConfiguration.current.orientation != Configuration.ORIENTATION_LANDSCAPE
+        st.diceRequest?.let { r ->
+            ManualDicePicker(r, vm::answerDice, if (portrait) Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp) else Modifier.align(Alignment.Center))
+        }
+        // Under the end-of-game summary: if its dialog window is ever lost, this brings it back.
+        if (st.gameOver != null) {
+            Button(onClick = { summaryKey++ }, Modifier.align(Alignment.Center)) { Text("Show game summary") }
+        }
     }
 
     if (chooseResign && m != null) {
@@ -193,15 +214,81 @@ fun GameScreen(
     }
 
     st.gameOver?.let { info ->
-        GameOverDialog(info, st.inStats, st.settings.gameSummary, st.analysisLeft, st.analysisEta, vm, onReview, onReviewMistakes, onBack) {
+        key(summaryKey) { GameOverDialog(info, st.inStats, st.settings.gameSummary, st.analysisLeft, st.analysisEta, vm, onReview, onReviewMistakes, onBack) {
             endSession(info.matchId, true, vm::endSession)
-        }
+        } }
     }
     endedSession?.let { id ->
         SavedSummaryDialog(
             vm.app, id, gameNumber = null, startWithMatch = true, onDismiss = { endedSession = null; onBack() },
             onReviewMistakes = { game -> endedSession = null; onReviewMistakes(id, game) },
         )
+    }
+}
+
+/**
+ * Manual dice: two columns of dice 1-6 (one die each for the opening roll, which cannot be a tie)
+ * and ✓ to roll them. The player's own roll can be cancelled (to double instead).
+ */
+@Composable
+private fun ManualDicePicker(r: DiceRequest, onDone: (Pair<Int, Int>?) -> Unit, modifier: Modifier) {
+    var first by remember(r) { mutableStateOf<Int?>(null) }
+    var second by remember(r) { mutableStateOf<Int?>(null) }
+    val ok = first != null && second != null && !(r.opening && first == second)
+    Surface(modifier, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, shadowElevation = 8.dp) {
+        Column(Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                when {
+                    r.opening -> "Opening roll"
+                    r.player == Player.HUMAN -> "Your roll"
+                    else -> "Computer's roll"
+                },
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                listOf(first to { v: Int -> first = v }, second to { v: Int -> second = v }).forEachIndexed { i, (picked, pick) ->
+                    Column(Modifier.padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        if (r.opening) Text(if (i == 0) "You" else "Computer", style = MaterialTheme.typography.labelSmall)
+                        (1..6).forEach { v -> PickDie(v, picked == v) { pick(v) } }
+                    }
+                }
+                Column(Modifier.padding(start = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    FilledIconButton(onClick = { onDone(first!! to second!!) }, enabled = ok, modifier = Modifier.size(52.dp)) {
+                        Icon(Icons.Default.Check, "Roll these dice")
+                    }
+                    if (!r.opening && r.player == Player.HUMAN) {
+                        IconButton(onClick = { onDone(null) }) { Icon(Icons.Default.Close, "Cancel") }
+                    }
+                }
+            }
+            if (r.opening && first != null && first == second) {
+                Text("A tie is rolled again", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+/** One die face [value] to tap in [ManualDicePicker]. */
+@Composable
+private fun PickDie(value: Int, selected: Boolean, onClick: () -> Unit) {
+    val face = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
+    val pip = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+    val pips = when (value) {
+        1 -> listOf(1 to 1)
+        2 -> listOf(0 to 0, 2 to 2)
+        3 -> listOf(0 to 0, 1 to 1, 2 to 2)
+        4 -> listOf(0 to 0, 2 to 0, 0 to 2, 2 to 2)
+        5 -> listOf(0 to 0, 2 to 0, 1 to 1, 0 to 2, 2 to 2)
+        else -> listOf(0 to 0, 0 to 1, 0 to 2, 2 to 0, 2 to 1, 2 to 2)
+    }
+    Canvas(
+        Modifier.padding(2.dp).size(38.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(7.dp))
+            .background(face, RoundedCornerShape(7.dp))
+            .clickable(onClickLabel = "$value", onClick = onClick),
+    ) {
+        val step = size.width / 4f
+        pips.forEach { (x, y) -> drawCircle(pip, radius = size.width / 11f, center = Offset(step * (x + 1), step * (y + 1))) }
     }
 }
 

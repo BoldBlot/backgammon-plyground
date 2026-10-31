@@ -1,12 +1,13 @@
 package com.boldblot.backgammonplyground.core
 
 /** The groups of [AutoLabel]s, in the order they are listed and named. */
-enum class LabelGroup(val title: String) {
+/** [allOf]: the group's labels can all be true at once, so an autofilter needs each one it names ([Labels.matchesAll]). */
+enum class LabelGroup(val title: String, val allOf: Boolean = false) {
     DECISION("Decision"), CUBE_SIDE("Cube side"), POSITION("Position"), GAME("Game"), SIZE("Size"),
-    STAGE("Stage"), STAKES("Stakes"), WHOSE("Whose"),
-    THEMES("Themes (rule of thumb)"),
+    STAGE("Stage", true), STAKES("Stakes", true), WHOSE("Whose"),
+    THEMES("Themes (rule of thumb)", true),
     /** The player's own labels. */
-    MINE("My labels"),
+    MINE("My labels", true),
 }
 
 /**
@@ -56,6 +57,13 @@ object Labels {
     fun sorted(keys: Collection<String>): List<String> = keys.sortedWith(
         compareBy<String>({ group(it).ordinal }, { auto(it)?.ordinal ?: Int.MAX_VALUE }, { title(it).lowercase() }),
     )
+
+    /**
+     * True if [labels] pass autofilter [filter]: all its labels, except that in a group whose labels
+     * exclude each other (Checker or Cube, Contact or Race, Money or Match…) one of them is enough.
+     */
+    fun matchesAll(labels: Set<String>, filter: Set<String>): Boolean =
+        filter.groupBy { group(it) }.all { (g, keys) -> if (g.allOf) keys.all { it in labels } else keys.any { it in labels } }
 
     /** True if [labels] pass [filter]: in each group the filter uses, at least one of its labels. */
     fun matches(labels: Set<String>, filter: Set<String>): Boolean =

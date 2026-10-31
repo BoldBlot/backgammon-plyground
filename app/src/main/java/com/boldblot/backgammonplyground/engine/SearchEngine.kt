@@ -52,6 +52,15 @@ abstract class SearchEngine : AnalysisEngine {
             val idx = if (target == null) -1 else hit.candidates.indexOfFirst { board.applyMove(mover, it.move) == target }
             val searched = idx >= 0 && (Depth.of(plies).plies <= 1 || hit.candidates[idx].plies == plies)
             if (target == null || searched) return hit.copy(playedIndex = idx)
+            if (idx >= 0) {
+                // The roll was ranked ahead (while the player thought) but the move played was left at
+                // 1-ply by the filter: search it alone, as a ranking with it would have.
+                val e = evaluate(board, ctx, listOf(target), Depth.of(plies).plies).first()
+                val moved = hit.candidates[idx].copy(equity = e.equity, probs = e.probs, plies = plies)
+                val list = (hit.candidates.filterIndexed { i, _ -> i != idx } + moved)
+                    .sortedWith(compareByDescending<Candidate> { it.plies }.thenByDescending { it.equity })
+                return RankResult(list, list.indexOf(moved)).also { cached = it }
+            }
         }
         return rank(board, ctx, d1, d2, plies, played).also { cacheKey = key; cached = it }
     }

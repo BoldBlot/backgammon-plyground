@@ -305,6 +305,7 @@ private fun ReviewContent(st: ReviewState, vm: ReviewViewModel, onBack: () -> Un
             Row(Modifier.fillMaxSize().padding(6.dp)) {
                 Column(Modifier.width(sideWidth).fillMaxHeight()) {
                     Header(st, vm, onBack, capture)
+                    ReviewTools(st, vm, Modifier.fillMaxWidth().padding(bottom = 4.dp))
                     DecisionList(st, vm, Modifier.weight(1f))
                 }
                 Spacer(Modifier.width(8.dp))
@@ -312,14 +313,14 @@ private fun ReviewContent(st: ReviewState, vm: ReviewViewModel, onBack: () -> Un
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         ReviewBoard(st, Modifier.aspectRatio(1.38f).then(capture.modifier))
                     }
-                    BottomBar(st, vm)
+                    BottomBar(st, vm, landscape = true)
                 }
             }
         } else {
             Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
                 Header(st, vm, onBack, capture)
                 ReviewBoard(st, Modifier.fillMaxWidth().aspectRatio(1.38f).then(capture.modifier))
-                BottomBar(st, vm)
+                BottomBar(st, vm, landscape = false)
                 DecisionList(st, vm, Modifier.weight(1f))
             }
         }
@@ -497,16 +498,27 @@ private fun ReviewBoard(st: ReviewState, modifier: Modifier) {
     )
 }
 
+/** The view chips and Save for the decision shown. */
+@Composable
+private fun ReviewTools(st: ReviewState, vm: ReviewViewModel, modifier: Modifier = Modifier) {
+    val d = st.current ?: return
+    var saving by remember { mutableStateOf(false) }
+    val study = remember(d, st.match) { st.match?.let { m -> StudyPosition.of(d, m.length, m.jacoby) } }
+    if (saving && study != null) {
+        val labels = com.boldblot.backgammonplyground.core.Labels.of(d, st.match?.length ?: 0, opponent = d.player != Player.HUMAN).mapTo(HashSet()) { it.name }
+        SaveToPositionsDialog(vm.app, study, "Game review", labels, com.boldblot.backgammonplyground.core.MyAnswer.played(d)) { saving = false }
+    }
+    ReviewViewChips(st.view, d.move != null, vm::setView, { saving = true }.takeIf { study != null }, modifier)
+}
+
+/**
+ * Under the board: the played and best moves, the decision stepper and (in portrait) the view chips.
+ * In landscape the played/best bar keeps its room on cube decisions, so the board keeps its size.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun BottomBar(st: ReviewState, vm: ReviewViewModel) {
+private fun BottomBar(st: ReviewState, vm: ReviewViewModel, landscape: Boolean) {
     val d = st.current
-    var saving by remember { mutableStateOf(false) }
-    val study = remember(d, st.match) { st.match?.let { m -> d?.let { StudyPosition.of(it, m.length, m.jacoby) } } }
-    if (saving && study != null) {
-        val labels = d?.let { dec -> com.boldblot.backgammonplyground.core.Labels.of(dec, st.match?.length ?: 0, opponent = dec.player != Player.HUMAN).mapTo(HashSet()) { it.name } }
-        SaveToPositionsDialog(vm.app, study, "Game review", labels, d?.let { com.boldblot.backgammonplyground.core.MyAnswer.played(it) }) { saving = false }
-    }
     val a = d?.checker
     if (d != null && a != null && a.candidates.isNotEmpty()) {
         val played = a.candidates.getOrNull(a.playedIndex)
@@ -519,6 +531,8 @@ private fun BottomBar(st: ReviewState, vm: ReviewViewModel) {
             onPlayed = { vm.selectCandidate(a.playedIndex) },
             onBest = { vm.selectCandidate(0) },
         )
+    } else if (landscape) {
+        KeepRoom(false) { EmptyPlayedBestBar() }
     }
     val n = st.decisions.size
     FlowRow(
@@ -531,8 +545,7 @@ private fun BottomBar(st: ReviewState, vm: ReviewViewModel) {
             IconButton(onClick = { vm.go(st.position + 1) }, enabled = st.position < n - 1) { Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next") }
             TextButton(onClick = vm::nextMistake, enabled = st.nextMistake != null) { Text("Next mistake") }
         }
-        if (d != null) ReviewViewChips(st.view, d.move != null, vm::setView)
-        if (study != null) SaveButton { saving = true }
+        if (!landscape) ReviewTools(st, vm)
     }
 }
 

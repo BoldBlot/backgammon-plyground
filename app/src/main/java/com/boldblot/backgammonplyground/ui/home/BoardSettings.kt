@@ -103,6 +103,15 @@ fun BoardSettings(s: Settings, update: ((Settings) -> Settings) -> Unit) {
         FilterChip(selected = s.mirrorBoard, onClick = { update { it.copy(mirrorBoard = true) } }, label = { Text("Left") })
         FilterChip(selected = !s.mirrorBoard, onClick = { update { it.copy(mirrorBoard = false) } }, label = { Text("Right") })
     }
+    Text("Side panel (landscape)", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FilterChip(selected = !s.railRight, onClick = { update { it.copy(railRight = false) } }, label = { Text("Left") })
+        FilterChip(selected = s.railRight, onClick = { update { it.copy(railRight = true) } }, label = { Text("Right") })
+    }
+    Text(
+        "The column with the players, Undo and Done. Put it on your bear-off side, where Roll and Double appear, to keep your thumb close to all of them.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
     Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         OutlinedButton(onClick = { designer = true }) {
             Icon(Icons.Default.Palette, null)

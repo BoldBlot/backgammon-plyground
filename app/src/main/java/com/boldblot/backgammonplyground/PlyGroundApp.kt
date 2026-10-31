@@ -3,6 +3,8 @@ package com.boldblot.backgammonplyground
 import android.app.Application
 import com.boldblot.backgammonplyground.data.AppDatabase
 import com.boldblot.backgammonplyground.data.BackgroundPriority
+import com.boldblot.backgammonplyground.data.ErrorsMode
+import com.boldblot.backgammonplyground.data.ErrorsSort
 import com.boldblot.backgammonplyground.data.PositionsRepository
 import com.boldblot.backgammonplyground.data.Repository
 import com.boldblot.backgammonplyground.data.SettingsStore
@@ -32,24 +34,29 @@ class PlyGroundApp : Application() {
         AppLog.init(this)
         // Warm up the engine (data extraction + neural net loading) in the background.
         appScope.launch { engine.start() }
-        // My positions: the Checker blunders and Cube blunders folders (once), and folders linked to a
-        // filter that take new errors at once.
+        // 0.7.4, for the testers' phones; remove before the production release (see Positions.migrateFolders074).
         appScope.launch {
-            if (!settings.settings.first().builtInFolders) {
-                positions.makeBuiltInFolders()
-                settings.update { it.copy(builtInFolders = true) }
+            if (!settings.settings.first().folders074) {
+                val collecting = positions.migrateFolders074()
+                settings.update { it.copy(folders074 = true, errorsMode = if (collecting) ErrorsMode.AUTOMATIC else it.errorsMode) }
             }
         }
-        // A new error that a folder collects goes straight to My positions and skips New errors.
+        // A new error: autofilters take the ones they match, and with automatic filing every error is
+        // filed at once ([Settings.errorsSort]). A filed error skips New errors.
         repository.onNewBlunder = { b ->
             val s = settings.settings.first()
+            val jacoby: suspend (Long) -> Boolean = { id -> repository.match(id)?.jacoby ?: true }
             var filed = false
             for (c in positions.categories()) {
                 val filter = c.filter?.takeIf { c.autoAdd }?.let { com.boldblot.backgammonplyground.core.Labels.decode(it) } ?: continue
-                if (com.boldblot.backgammonplyground.core.Labels.matches(b.labels, s.visible(filter))) {
-                    positions.addBlunders(listOf(b), c.id) { id -> repository.match(id)?.jacoby ?: true }
+                if (com.boldblot.backgammonplyground.core.Labels.matchesAll(b.labels, s.visible(filter))) {
+                    positions.addBlunders(listOf(b), c.id, jacoby)
                     filed = true
                 }
+            }
+            if (s.errorsMode == ErrorsMode.AUTOMATIC) {
+                positions.fileErrors(listOf(b), s.errorsSort == ErrorsSort.SPLIT, jacoby)
+                filed = true
             }
             if (filed) repository.removeBlunder(b.entity.id)
         }

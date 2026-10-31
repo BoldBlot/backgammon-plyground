@@ -126,23 +126,66 @@ class PositionsRepository(db: AppDatabase) {
         return dao.insertCategory(CategoryEntity(name = Labels.folderName(filter), sort = sort, filter = key))
     }
 
-    /** Checker blunders and Cube blunders, the two folders every player has (made once). */
-    suspend fun makeBuiltInFolders() {
-        val have = dao.categories()
-        for ((label, name) in listOf(AutoLabel.CHECKER to "Checker blunders", AutoLabel.CUBE to "Cube blunders")) {
-            val key = Labels.encode(setOf(label.name))
-            if (have.none { it.filter == key }) dao.insertCategory(CategoryEntity(name = name, sort = -2 + label.ordinal, filter = key))
-        }
+    suspend fun setAutoAdd(id: Long, on: Boolean) = dao.setAutoAdd(id, on)
+
+    /** The Checker and Cube folders new errors are sorted into ([fileErrors]): not autofilters. */
+    fun isSortFolder(filter: String?): Boolean =
+        filter == Labels.encode(setOf(AutoLabel.CHECKER.name)) || filter == Labels.encode(setOf(AutoLabel.CUBE.name))
+
+    /** A new autofilter: folder [name] that takes every new error passing [filter] ([Labels.matches]). */
+    suspend fun addAutofilter(name: String, filter: Set<String>): Long {
+        val sort = (dao.categories().maxOfOrNull { it.sort } ?: 0) + 1
+        return dao.insertCategory(CategoryEntity(name = name.trim(), sort = sort, filter = Labels.encode(filter), autoAdd = true))
     }
 
-    suspend fun setAutoAdd(id: Long, on: Boolean) = dao.setAutoAdd(id, on)
+    /** Ends autofilter [id]: its folder stays, as an ordinary folder. */
+    suspend fun removeAutofilter(id: Long) = dao.unlinkFolder(id)
+
+    /**
+     * Files [errors] in My positions: in no folder, or ([split]) checker plays in Checker and cube
+     * decisions in Cube (each folder made if missing). Returns how many were added.
+     */
+    suspend fun fileErrors(errors: List<SavedBlunder>, split: Boolean, jacoby: suspend (Long) -> Boolean): Int {
+        if (!split) return addBlunders(errors, UNCATEGORIZED, jacoby)
+        var added = 0
+        for (kind in listOf(AutoLabel.CHECKER, AutoLabel.CUBE)) {
+            val list = errors.filter { kind.name in it.labels }
+            if (list.isEmpty()) continue
+            val id = linkedFolder(setOf(kind.name), create = true) ?: continue
+            added += addBlunders(list, id, jacoby)
+        }
+        return added
+    }
+
+    /**
+     * 0.7.4, for the testers' phones; remove before the production release. Renames "Checker
+     * blunders" and "Cube blunders" to "Checker" and "Cube" (only names the player left as they
+     * were), and ends their collecting switches. Returns whether one of them was collecting (the
+     * player then gets automatic filing into them).
+     */
+    suspend fun migrateFolders074(): Boolean {
+        var collecting = false
+        for (c in dao.categories()) {
+            if (!isSortFolder(c.filter)) continue
+            when (c.name) {
+                "Checker blunders" -> dao.renameCategory(c.id, "Checker")
+                "Cube blunders" -> dao.renameCategory(c.id, "Cube")
+            }
+            if (c.autoAdd) {
+                collecting = true
+                dao.setAutoAdd(c.id, false)
+            }
+        }
+        return collecting
+    }
 
     /**
      * Adds [blunders] to folder [folderId] with their labels and the game's analysis; those already
      * there are left as they are. Returns how many were added to the folder.
      */
     suspend fun addBlunders(blunders: List<SavedBlunder>, folderId: Long, jacoby: suspend (Long) -> Boolean): Int {
-        val inFolder = dao.inCategory(folderId).map { it.xgid to it.doubled }.toHashSet()
+        // [UNCATEGORIZED]: no folder; then a position already anywhere in My positions is skipped.
+        val inFolder = (if (folderId == UNCATEGORIZED) dao.all() else dao.inCategory(folderId)).map { it.xgid to it.doubled }.toHashSet()
         var added = 0
         for (b in blunders) {
             val p = StudyPosition.of(b.decision, b.entity.matchLength, jacoby(b.entity.matchId)) ?: continue
