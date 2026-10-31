@@ -5,6 +5,7 @@ Uses the Google Play Developer API with a service account key (JSON), signing th
 request with the openssl command, so it needs no Python packages.
 
     scripts/play-upload.py app/build/outputs/bundle/release/app-release.aab --notes "What changed"
+    scripts/play-upload.py --code 51 --track alpha --notes "..."   (promote a build already uploaded)
 
 Key file: $PLAY_KEY, default ~/.config/boldblot/play-service-account.json (never commit it).
 """
@@ -50,20 +51,26 @@ def call(method, url, tok, data=None, ctype="application/json"):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("bundle")
+    ap.add_argument("bundle", nargs="?")
+    ap.add_argument("--code", help="publish this already uploaded version code instead of uploading a bundle")
     ap.add_argument("--track", default="internal", help="track, or several separated by commas (e.g. alpha,internal)")
     ap.add_argument("--name", help="release name, e.g. '0.6 (29)'")
     ap.add_argument("--notes", default="", help="release notes")
     ap.add_argument("--lang", default="en-US", help="language of the notes, e.g. en-CA")
     a = ap.parse_args()
+    if bool(a.bundle) == bool(a.code):
+        ap.error("give either a bundle or --code")
     key = json.load(open(os.environ.get("PLAY_KEY", os.path.expanduser("~/.config/boldblot/play-service-account.json"))))
     tok = token(key)
     base = f"{API}/androidpublisher/v3/applications/{PACKAGE}/edits"
     edit = call("POST", base, tok, b"{}")["id"]
-    with open(a.bundle, "rb") as f:
-        up = call("POST", f"{API}/upload/androidpublisher/v3/applications/{PACKAGE}/edits/{edit}/bundles?uploadType=media",
-                  tok, f.read(), "application/octet-stream")
-    code = str(up["versionCode"])
+    if a.code:
+        code = a.code
+    else:
+        with open(a.bundle, "rb") as f:
+            up = call("POST", f"{API}/upload/androidpublisher/v3/applications/{PACKAGE}/edits/{edit}/bundles?uploadType=media",
+                      tok, f.read(), "application/octet-stream")
+        code = str(up["versionCode"])
     release = {"name": a.name or code, "versionCodes": [code], "status": "completed"}
     if a.notes:
         release["releaseNotes"] = [{"language": a.lang, "text": a.notes}]
@@ -71,7 +78,7 @@ def main():
     for t in tracks:
         call("PUT", f"{base}/{edit}/tracks/{t}", tok, json.dumps({"track": t, "releases": [release]}).encode())
     call("POST", f"{base}/{edit}:commit", tok, b"")
-    print(f"Uploaded version code {code} and published it on: {', '.join(tracks)}.")
+    print(f"{'Promoted' if a.code else 'Uploaded'} version code {code} and published it on: {', '.join(tracks)}.")
 
 
 if __name__ == "__main__":

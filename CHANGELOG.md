@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.6 — 2026-10-31 (build 51, internal test)
+## 0.7.6 — 2026-10-31 (build 51)
 
 - Quiz: every position counts its right and missed answers, and their balance (right minus missed).
   My positions and the position show them; a position answered before starts with its last answer.
@@ -13,13 +13,13 @@
 - The computer resigns a backgammon again when one is certain; since 0.7.3 it could offer only a
   gammon there.
 
-## 0.7.5 — 2026-10-31 (build 50, internal test)
+## 0.7.5 — 2026-10-31 (build 50)
 
 - New errors settings moved to Settings → My positions, above My autofilters, and say plainly that
   Manual has a New errors button and Automatic doesn't.
 - Review in landscape: a thin scroll bar under the game and filter chips shows that the row scrolls.
 
-## 0.7.4 — 2026-10-31 (build 49, internal test)
+## 0.7.4 — 2026-10-31 (build 49)
 
 Choose how your mistakes reach My positions, make your own autofilters, enter the dice yourself, and
 Intuition training waits less.
@@ -46,7 +46,7 @@ Intuition training waits less.
 - Back from a review to the game's summary works like the back arrow; if the summary ever
   disappears, a Show game summary button brings it back.
 
-## 0.7.3 — 2026-10-31 (build 48, internal test)
+## 0.7.3 — 2026-10-31 (build 48)
 
 New errors: the mistakes from your games wait in My positions until you file them or delete them.
 Share a position as an XGID or a picture.
