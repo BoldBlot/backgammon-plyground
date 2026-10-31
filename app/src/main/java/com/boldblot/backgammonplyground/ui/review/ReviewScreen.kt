@@ -2,6 +2,8 @@ package com.boldblot.backgammonplyground.ui.review
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -54,6 +56,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -367,7 +372,8 @@ private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, cap
     }
     // One row: the game picker (a menu, so a long match takes no extra row) and the filters.
     var summary by remember { mutableStateOf(false) }
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    val chipsScroll = rememberScrollState()
+    Row(Modifier.horizontalScroll(chipsScroll), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         if (st.games.size > 1) GamePicker(st, vm)
         FilterChip(
             selected = false, onClick = { summary = true }, label = { Text("Summary") },
@@ -377,11 +383,28 @@ private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, cap
             FilterChip(selected = st.filter == f, onClick = { vm.setFilter(f) }, label = { Text(f.label) })
         }
     }
+    ScrollHint(chipsScroll)
     st.match?.let { m ->
         if (summary) SavedSummaryDialog(
             vm.app, m.id, gameNumber = st.games.getOrNull(st.gameIndex)?.first?.number, startWithMatch = false,
             onDismiss = { summary = false },
         )
+    }
+}
+
+/** A thin bar under a sideways-scrolling row, showing that it scrolls and where it is; none when all fits. */
+@Composable
+private fun ScrollHint(scroll: ScrollState) {
+    if (scroll.maxValue == 0 || scroll.maxValue == Int.MAX_VALUE) return
+    val track = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+    val thumb = MaterialTheme.colorScheme.outline
+    Canvas(Modifier.fillMaxWidth().padding(top = 2.dp).height(3.dp)) {
+        val w = size.width
+        val viewport = w * w / (w + scroll.maxValue)
+        val x = (w - viewport) * scroll.value / scroll.maxValue
+        val r = CornerRadius(size.height / 2)
+        drawRoundRect(track, cornerRadius = r)
+        drawRoundRect(thumb, topLeft = Offset(x, 0f), size = Size(viewport, size.height), cornerRadius = r)
     }
 }
 

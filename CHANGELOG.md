@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.5 — 2026-10-31 (build 50, internal test)
+
+- New errors settings moved to Settings → My positions, above My autofilters, and say plainly that
+  Manual has a New errors button and Automatic doesn't.
+- Review in landscape: a thin scroll bar under the game and filter chips shows that the row scrolls.
+
 ## 0.7.4 — 2026-10-31 (build 49, internal test)
 
 Choose how your mistakes reach My positions, make your own autofilters, enter the dice yourself, and

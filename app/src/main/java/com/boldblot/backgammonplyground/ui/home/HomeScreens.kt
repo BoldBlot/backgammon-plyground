@@ -824,7 +824,7 @@ private fun SettingsGroup.summary(s: Settings): String = when (this) {
     SettingsGroup.DISPLAY -> listOfNotNull(
         s.boardTheme.label, "pip counts".takeIf { s.showPips }, "meter: ${s.meter.label.lowercase()}".takeIf { s.meter != MeterMode.OFF },
     ).joinToString(" · ")
-    SettingsGroup.POSITIONS -> "Quiz, labels (${s.labelKeys.size} in use), autofilters"
+    SettingsGroup.POSITIONS -> "Quiz, labels (${s.labelKeys.size} in use), new errors, autofilters"
     SettingsGroup.DATA -> "Your name in exported files, clearing data, error report"
 }
 
@@ -927,24 +927,12 @@ private fun TrainingSettings(s: Settings, update: (f: (Settings) -> Settings) ->
             "Which mistakes set to Off, the analysis can run in the background instead, or not at all.",
     )
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
-    Header("New errors")
-    Chips("Add to New errors", BlunderListLevel.entries, s.blunderList, { it.label }) { v -> update { it.copy(blunderList = v) } }
-    Note("Applies to your decisions from now on; New errors keeps what it has.")
-    Chips("Filing", ErrorsMode.entries, s.errorsMode, { it.label }) { v -> update { it.copy(errorsMode = v) } }
-    if (s.errorsMode == ErrorsMode.MANUAL) {
-        Note("Go through your new errors with the New errors button in My positions, next to Quiz, then add the ones you keep to My positions.")
-    } else {
-        Chips("Sort into", ErrorsSort.entries, s.errorsSort, { it.label }) { v -> update { it.copy(errorsSort = v) } }
-        Note("Every new error goes straight to My positions; the Checker and Cube folders are made when needed. No New errors button.")
-    }
-    Note("Autofilters (Settings → My positions) take the errors they match in both cases.")
-    HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("After each game")
     Toggle("Show the summary after each game", s.gameSummary) { v -> update { it.copy(gameSummary = v) } }
     Note("PR, rating, luck and errors for both players. The end of a match always shows it, and the game's ⋮ menu has the last game's summary.")
 }
 
-/** Settings → My positions: the quiz, the labels (automatic ones on or off, the player's own) and the linked folders. */
+/** Settings → My positions: the quiz, the labels (automatic ones on or off, the player's own), New errors filing and the autofilters. */
 @Composable
 private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) -> Settings) -> Unit) {
     val scope = rememberCoroutineScope()
@@ -1036,6 +1024,25 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
     }
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Header("New errors")
+    Chips("Add to New errors", BlunderListLevel.entries, s.blunderList, { it.label }) { v -> update { it.copy(blunderList = v) } }
+    Note("Applies to your decisions from now on; New errors keeps what it has.")
+    Chips("Filing", ErrorsMode.entries, s.errorsMode, { it.label }) { v -> update { it.copy(errorsMode = v) } }
+    if (s.errorsMode == ErrorsMode.MANUAL) {
+        Note(
+            "Manual: My positions has a New errors button, next to Quiz. Go through your new errors there and add " +
+                "the ones you keep to My positions. (Automatic has no New errors button.)",
+        )
+    } else {
+        Note(
+            "Automatic: there is no New errors button. Every new error goes straight to My positions, sorted as set " +
+                "below. (Manual has a New errors button, to go through them first.)",
+        )
+        Chips("Sort into", ErrorsSort.entries, s.errorsSort, { it.label }) { v -> update { it.copy(errorsSort = v) } }
+        Note("The Checker and Cube folders are made when needed.")
+    }
+    Note("Your autofilters (below) take the errors they match in both cases.")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("My autofilters")
     Note(
@@ -1145,7 +1152,7 @@ private fun NewAutofilterDialog(s: Settings, onDismiss: () -> Unit, onAdd: (name
                     }
                 }
                 Text(
-                    "Takes: ${autofilterText(filter)}. Only errors that reach New errors count (Settings → Training → Add to New errors).",
+                    "Takes: ${autofilterText(filter)}. Only errors that reach New errors count (Add to New errors, above).",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp),
                 )
             }
