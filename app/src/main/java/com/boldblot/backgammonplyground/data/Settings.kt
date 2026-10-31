@@ -176,6 +176,8 @@ data class Settings(
     val backgroundPriority: BackgroundPriority = BackgroundPriority.LOW,
     /** In the Crawford game a "CRAWFORD" sign stands on the bar instead of the cube (off: the bar is empty). */
     val crawfordSign: Boolean = true,
+    /** Landscape: the side column (players, Undo / Done, menus) right of the board instead of left. */
+    val railRight: Boolean = false,
     /** Automatic labels turned off in Settings → My positions ([com.boldblot.backgammonplyground.core.AutoLabel] names): hidden everywhere. */
     val labelsOff: Set<String> = emptySet(),
     /** The player's own labels, in their order. */
@@ -263,6 +265,7 @@ class SettingsStore(private val context: Context) {
         val analyzeDuringPlay = booleanPreferencesKey("analyze_during_play")
         val backgroundPriority = stringPreferencesKey("background_priority")
         val crawfordSign = booleanPreferencesKey("crawford_sign")
+        val railRight = booleanPreferencesKey("rail_right")
         val labelsOff = stringPreferencesKey("labels_off")
         val myLabels = stringPreferencesKey("my_labels")
         val blunderFilter = stringPreferencesKey("blunder_filter")
@@ -335,6 +338,7 @@ class SettingsStore(private val context: Context) {
             analyzeDuringPlay = p[Keys.analyzeDuringPlay] ?: d.analyzeDuringPlay,
             backgroundPriority = p.enum(Keys.backgroundPriority, d.backgroundPriority),
             crawfordSign = p[Keys.crawfordSign] ?: d.crawfordSign,
+            railRight = p[Keys.railRight] ?: d.railRight,
             labelsOff = lines(p[Keys.labelsOff]).toSet(),
             myLabels = lines(p[Keys.myLabels]),
             blunderFilter = lines(p[Keys.blunderFilter]).toSet(),
@@ -399,6 +403,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.analyzeDuringPlay] = s.analyzeDuringPlay
             p[Keys.backgroundPriority] = s.backgroundPriority.name
             p[Keys.crawfordSign] = s.crawfordSign
+            p[Keys.railRight] = s.railRight
             p[Keys.labelsOff] = s.labelsOff.joinToString("\n")
             p[Keys.myLabels] = s.myLabels.joinToString("\n")
             p[Keys.blunderFilter] = s.blunderFilter.joinToString("\n")

@@ -154,7 +154,7 @@ fun GameScreen(
             m == null -> NoMatch(onBack)
             else -> GameContent(st, m, vm, onBack, onAbandon = { confirmAbandon = true }, onResign = { chooseResign = true }, onSettings = onSettings)
         }
-        if (st.autoFinishing) AutoFinishOverlay(vm::stopAutoFinishAndPlay)
+        if (st.autoFinishing) AutoFinishOverlay(st.settings.railRight, vm::stopAutoFinishAndPlay)
     }
 
     if (chooseResign && m != null) {
@@ -298,7 +298,7 @@ private fun GameMenu(st: GameUiState, m: MatchState, vm: GameViewModel, onAbando
  * in the middle of the side column in landscape (where the buttons were), never over the board.
  */
 @Composable
-private fun AutoFinishOverlay(onStop: () -> Unit) {
+private fun AutoFinishOverlay(railRight: Boolean, onStop: () -> Unit) {
     BoxWithConstraints(
         Modifier.fillMaxSize().clickable(
             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
@@ -307,7 +307,7 @@ private fun AutoFinishOverlay(onStop: () -> Unit) {
     ) {
         val landscape = maxWidth > maxHeight
         Row(
-            Modifier.align(if (landscape) Alignment.CenterStart else Alignment.BottomCenter)
+            Modifier.align(if (!landscape) Alignment.BottomCenter else if (railRight) Alignment.CenterEnd else Alignment.CenterStart)
                 .padding(if (landscape) 6.dp else 16.dp)
                 .then(if (landscape) Modifier.widthIn(max = RAIL_MIN_WIDTH) else Modifier)
                 .background(MaterialTheme.colorScheme.inverseSurface, RoundedCornerShape(20.dp))
@@ -339,17 +339,28 @@ private fun GameContent(
                 (maxHeight - pad * 2) * BOARD_ASPECT,
                 maxWidth - pad * 2 - gap - RAIL_MIN_WIDTH,
             )
+            // The side column goes left of the board, or right of it (Settings → Display).
+            val railRight = st.settings.railRight
             Row(Modifier.fillMaxSize().padding(pad)) {
-                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
-                    if (hasPanel(st)) {
-                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { Panels(st, m, vm) }
-                    } else {
-                        Rail(st, m, vm, onBack, onAbandon, onResign, onSettings, Modifier.widthIn(max = RAIL_MAX_WIDTH).fillMaxSize())
+                val side: @Composable () -> Unit = {
+                    Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
+                        if (hasPanel(st)) {
+                            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { Panels(st, m, vm) }
+                        } else {
+                            Rail(st, m, vm, onBack, onAbandon, onResign, onSettings, Modifier.widthIn(max = RAIL_MAX_WIDTH).fillMaxSize())
+                        }
                     }
                 }
-                Spacer(Modifier.width(gap))
+                if (!railRight) {
+                    side()
+                    Spacer(Modifier.width(gap))
+                }
                 Box(Modifier.width(boardWidth).fillMaxHeight(), contentAlignment = Alignment.Center) {
                     BoardArea(st, m, vm, Modifier.fillMaxWidth().aspectRatio(BOARD_ASPECT))
+                }
+                if (railRight) {
+                    Spacer(Modifier.width(gap))
+                    side()
                 }
             }
         } else {

@@ -19,6 +19,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
@@ -64,8 +65,6 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -73,11 +72,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -414,15 +411,13 @@ private fun Toggle(label: String, value: Boolean, enabled: Boolean = true, onCha
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(
-    app: PlyGroundApp, onReview: (Long) -> Unit, onBlunder: (Long) -> Unit, onBack: () -> Unit,
+    app: PlyGroundApp, onReview: (Long) -> Unit, onBack: () -> Unit,
     /** An imported match's games, for the background analysis. */
     onImported: (List<GameKey>) -> Unit,
 ) {
     var matches by remember { mutableStateOf<List<MatchEntity>?>(null) }
-    var blunders by remember { mutableStateOf<List<SavedBlunder>?>(null) }
     var toDelete by remember { mutableStateOf<MatchEntity?>(null) }
     var summaryOf by remember { mutableStateOf<MatchEntity?>(null) }
-    var tab by rememberSaveable { mutableIntStateOf(0) }
     var clear by remember { mutableStateOf<ClearKind?>(null) }
     // Selecting matches for export (Matches tab).
     var selecting by remember { mutableStateOf(false) }
@@ -430,12 +425,6 @@ fun HistoryScreen(
     var exporting by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val settings by app.settings.settings.collectAsState(initial = null)
-    val sort = settings?.blunderSort ?: BlunderSort.BIGGEST
-    // The blunder list's filter (labels turned off in Settings are left out) and what passes it.
-    val filter = settings?.let { it.visible(it.blunderFilter) } ?: emptySet()
-    val shown = blunders?.filter { filter.isEmpty() || Labels.matches(it.labels, filter) }
-    var clearShown by remember { mutableStateOf(false) }
-    var adding by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     // Importing a .mat file: picked here, or opened with PlyGround from another app.
     var importing by remember { mutableStateOf<MatImport.ParsedMatch?>(null) }
@@ -449,7 +438,6 @@ fun HistoryScreen(
     LaunchedEffect(pendingMatch) {
         pendingMatch?.let { text ->
             app.pendingMatch.value = null
-            tab = 0
             readMatch(text)
         }
     }
@@ -461,9 +449,8 @@ fun HistoryScreen(
     }
     suspend fun reload() {
         matches = app.repository.history()
-        blunders = app.repository.blunders(sort)
     }
-    LaunchedEffect(sort) { reload() }
+    LaunchedEffect(Unit) { reload() }
     /** The selected matches as .mat files (matches whose records were cleared have none). */
     suspend fun selectedFiles(): List<Pair<String, String>> = withContext(Dispatchers.IO) {
         MatFiles.unique(
@@ -493,7 +480,7 @@ fun HistoryScreen(
     }
     Scaffold(
         topBar = {
-            if (selecting && tab == 0) TopAppBar(
+            if (selecting) TopAppBar(
                 title = { Text("${selected.size} selected") },
                 navigationIcon = {
                     IconButton(onClick = { selecting = false; selected = emptySet() }) { Icon(Icons.Default.Close, "Stop selecting") }
@@ -514,28 +501,16 @@ fun HistoryScreen(
                 title = { Text("Match Library") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
-                    if (tab == 0) {
-                        IconButton(onClick = { matchPicker.launch(arrayOf("*/*")) }) { Icon(Icons.Default.FileOpen, "Import a match (.mat)") }
-                    }
-                    if (tab == 0 && !matches.isNullOrEmpty()) {
+                    IconButton(onClick = { matchPicker.launch(arrayOf("*/*")) }) { Icon(Icons.Default.FileOpen, "Import a match (.mat)") }
+                    if (!matches.isNullOrEmpty()) {
                         IconButton(onClick = { selecting = true }) { Icon(Icons.Default.Share, "Export matches") }
                     }
-                    if (tab == 1) {
-                        IconButton(onClick = { adding = true }, enabled = !shown.isNullOrEmpty()) {
-                            Icon(Icons.Default.LibraryAdd, "Add the blunders shown to My positions")
-                        }
-                    }
-                    // Clears what the open tab shows (with a filter on, only the blunders that pass it).
-                    val empty = if (tab == 0) matches.isNullOrEmpty() else shown.isNullOrEmpty()
                     var menu by remember { mutableStateOf(false) }
                     Box {
-                        TextButton(
-                            onClick = { if (tab == 0) menu = true else if (filter.isEmpty()) clear = ClearKind.BLUNDERS else clearShown = true },
-                            enabled = !empty,
-                        ) {
+                        TextButton(onClick = { menu = true }, enabled = !matches.isNullOrEmpty()) {
                             Icon(Icons.Default.DeleteSweep, null)
                             Spacer(Modifier.width(4.dp))
-                            Text(if (tab == 0) "Clear…" else if (filter.isEmpty()) ClearKind.BLUNDERS.button else "Clear ${shown?.size ?: 0}")
+                            Text("Clear…")
                         }
                         DropdownMenu(menu, onDismissRequest = { menu = false }) {
                             for (k in listOf(ClearKind.GAME_RECORDS, ClearKind.STATISTICS, ClearKind.MATCHES)) {
@@ -548,30 +523,8 @@ fun HistoryScreen(
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            TabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Matches") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("My blunders" + (shown?.let { " (${it.size})" } ?: "")) })
-            }
             val list = matches
             when {
-                tab == 1 -> shown?.let {
-                    Column {
-                        if (!blunders.isNullOrEmpty()) {
-                            Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                BlunderSort.entries.forEach { o ->
-                                    FilterChip(
-                                        selected = sort == o, label = { Text(o.label) },
-                                        onClick = { scope.launch { app.settings.update { s -> s.copy(blunderSort = o) } } },
-                                    )
-                                }
-                                LabelFilterButton(settings?.labelKeys.orEmpty().filterNot { Labels.isMine(it) }, filter, { f ->
-                                    scope.launch { app.settings.update { s -> s.copy(blunderFilter = f) } }
-                                })
-                            }
-                        }
-                        BlunderList(it, onBlunder, filtered = filter.isNotEmpty())
-                    }
-                }
                 list == null -> Unit
                 list.isEmpty() -> Text("No games played yet.", Modifier.padding(24.dp))
                 else -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
@@ -602,26 +555,6 @@ fun HistoryScreen(
             }
         }
     }
-    if (clearShown) {
-        val n = shown?.size ?: 0
-        AlertDialog(
-            onDismissRequest = { clearShown = false },
-            title = { Text("Clear $n blunder${if (n == 1) "" else "s"}?") },
-            text = { Text("The blunders the filter shows are removed from the list; the others stay. This cannot be undone.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    clearShown = false
-                    val ids = shown.orEmpty().map { it.entity.id }
-                    scope.launch {
-                        app.repository.removeBlunders(ids)
-                        reload()
-                    }
-                }) { Text("Clear") }
-            },
-            dismissButton = { TextButton(onClick = { clearShown = false }) { Text("Cancel") } },
-        )
-    }
-    if (adding) AddBlundersDialog(app, shown.orEmpty(), filter, onDismiss = { adding = false })
     importing?.let { parsed ->
         MatchImportDialog(parsed, onDismiss = { importing = null }) { you, both ->
             importing = null
@@ -661,7 +594,7 @@ fun HistoryScreen(
         AlertDialog(
             onDismissRequest = { toDelete = null },
             title = { Text("Delete this match?") },
-            text = { Text("Its games will be removed from history and statistics. Its blunders stay in your blunder list.") },
+            text = { Text("Its games will be removed from history and statistics. Its errors stay in New errors.") },
             confirmButton = {
                 TextButton(onClick = {
                     toDelete = null
@@ -674,6 +607,129 @@ fun HistoryScreen(
             dismissButton = { TextButton(onClick = { toDelete = null }) { Text("Cancel") } },
         )
     }
+}
+
+/**
+ * New errors (from My positions): the errors from games, to go through, delete the ones not worth
+ * keeping and add the rest to My positions, which takes them off this list. Long-press selects
+ * several to delete.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Unit) {
+    var errors by remember { mutableStateOf<List<SavedBlunder>?>(null) }
+    var selected by remember { mutableStateOf<Set<Long>?>(null) }
+    var clear by remember { mutableStateOf<ClearKind?>(null) }
+    var clearShown by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+    var adding by remember { mutableStateOf(false) }
+    val settings by app.settings.settings.collectAsState(initial = null)
+    val sort = settings?.blunderSort ?: BlunderSort.BIGGEST
+    // The filter (labels turned off in Settings are left out) and what passes it.
+    val filter = settings?.let { it.visible(it.blunderFilter) } ?: emptySet()
+    val shown = errors?.filter { filter.isEmpty() || Labels.matches(it.labels, filter) }
+    val scope = rememberCoroutineScope()
+    suspend fun reload() { errors = app.repository.blunders(sort) }
+    LaunchedEffect(sort) { reload() }
+    Scaffold(
+        topBar = {
+            val sel = selected
+            if (sel != null) TopAppBar(
+                title = { Text("${sel.size} selected") },
+                navigationIcon = { IconButton(onClick = { selected = null }) { Icon(Icons.Default.Close, "Stop selecting") } },
+                actions = {
+                    val all = shown.orEmpty().map { it.entity.id }.toSet()
+                    TextButton(onClick = { selected = if (sel == all) emptySet() else all }) {
+                        Text(if (sel == all && all.isNotEmpty()) "None" else "All")
+                    }
+                    IconButton(onClick = { deleting = true }, enabled = sel.isNotEmpty()) { Icon(Icons.Default.Delete, "Delete") }
+                },
+            ) else TopAppBar(
+                title = { Text("New errors" + (shown?.let { " (${it.size})" } ?: "")) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                actions = {
+                    // Clears what the list shows (with a filter on, only the errors that pass it).
+                    TextButton(
+                        onClick = { if (filter.isEmpty()) clear = ClearKind.BLUNDERS else clearShown = true },
+                        enabled = !shown.isNullOrEmpty(),
+                    ) {
+                        Icon(Icons.Default.DeleteSweep, null)
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (filter.isEmpty()) ClearKind.BLUNDERS.button else "Clear ${shown?.size ?: 0}")
+                    }
+                },
+            )
+        },
+        bottomBar = {
+            if (selected == null && !shown.isNullOrEmpty()) {
+                Button(onClick = { adding = true }, modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp)) {
+                    Icon(Icons.Default.LibraryAdd, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Add ${shown.size} to library")
+                }
+            }
+        },
+    ) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize()) {
+            if (!errors.isNullOrEmpty()) {
+                Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    BlunderSort.entries.forEach { o ->
+                        FilterChip(
+                            selected = sort == o, label = { Text(o.label) },
+                            onClick = { scope.launch { app.settings.update { s -> s.copy(blunderSort = o) } } },
+                        )
+                    }
+                    LabelFilterButton(settings?.labelKeys.orEmpty().filterNot { Labels.isMine(it) }, filter, { f ->
+                        scope.launch { app.settings.update { s -> s.copy(blunderFilter = f) } }
+                    })
+                }
+            }
+            shown?.let { list ->
+                val sel = selected
+                BlunderList(
+                    list, filtered = filter.isNotEmpty(), selection = sel,
+                    onLongClick = { id -> selected = (sel ?: emptySet()).let { if (id in it) it - id else it + id } },
+                    onOpen = { id -> if (sel != null) selected = if (id in sel) sel - id else sel + id else onOpen(id) },
+                )
+            }
+        }
+    }
+    if (clearShown || deleting) {
+        val ids = if (deleting) selected.orEmpty().toList() else shown.orEmpty().map { it.entity.id }
+        val n = ids.size
+        AlertDialog(
+            onDismissRequest = { clearShown = false; deleting = false },
+            title = { Text("Delete $n error${if (n == 1) "" else "s"}?") },
+            text = {
+                Text(
+                    if (deleting) "The selected errors are removed from New errors. This cannot be undone."
+                    else "The errors the filter shows are removed from New errors; the others stay. This cannot be undone.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    clearShown = false
+                    deleting = false
+                    selected = null
+                    scope.launch {
+                        app.repository.removeBlunders(ids)
+                        reload()
+                    }
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { clearShown = false; deleting = false }) { Text("Cancel") } },
+        )
+    }
+    clear?.let { kind ->
+        ClearDialog(kind, onDismiss = { clear = null }) { days ->
+            clear = null
+            scope.launch {
+                kind.run(app, days)
+                reload()
+            }
+        }
+    }
+    if (adding) AddErrorsDialog(app, shown.orEmpty(), onDismiss = { adding = false }) { scope.launch { reload() } }
 }
 
 @Composable
@@ -763,7 +819,7 @@ private fun SettingsGroup.summary(s: Settings): String = when (this) {
     SettingsGroup.DISPLAY -> listOfNotNull(
         s.boardTheme.label, "pip counts".takeIf { s.showPips }, "meter: ${s.meter.label.lowercase()}".takeIf { s.meter != MeterMode.OFF },
     ).joinToString(" · ")
-    SettingsGroup.POSITIONS -> "Quiz, labels (${s.labelKeys.size} in use), folders linked to the blunder list"
+    SettingsGroup.POSITIONS -> "Quiz, labels (${s.labelKeys.size} in use), folders that collect new errors"
     SettingsGroup.DATA -> "Your name in exported files, clearing data, error report"
 }
 
@@ -861,9 +917,9 @@ private fun TrainingSettings(s: Settings, update: (f: (Settings) -> Settings) ->
             "Which mistakes set to Off, the analysis can run in the background instead, or not at all.",
     )
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
-    Header("Blunder list")
-    Chips("Add to my blunder list", BlunderListLevel.entries, s.blunderList, { it.label }) { v -> update { it.copy(blunderList = v) } }
-    Note("Applies to your decisions from now on; the list keeps what it has.")
+    Header("New errors")
+    Chips("Add to New errors", BlunderListLevel.entries, s.blunderList, { it.label }) { v -> update { it.copy(blunderList = v) } }
+    Note("Applies to your decisions from now on; New errors keeps what it has. Find it in My positions, next to Quiz.")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("After each game")
     Toggle("Show the summary after each game", s.gameSummary) { v -> update { it.copy(gameSummary = v) } }
@@ -881,7 +937,7 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Automatic labels")
     Note(
-        "Every blunder and saved position gets labels from what it is, for the Filter menus of My blunders, My positions " +
+        "Every error and saved position gets labels from what it is, for the Filter menus of New errors, My positions " +
             "and the quiz. A position's labels can be changed on it. Turn off the ones you don't use: they leave the menus " +
             "and the positions' tags, and come back if you turn them on again. The themes are guesses by rule of thumb.",
     )
@@ -963,10 +1019,11 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
         )
     }
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
-    Header("Folders linked to the blunder list")
+    Header("Folders that collect new errors")
     Note(
-        "Checker blunders and Cube blunders, and the folders the library button on My blunders makes: each one is linked to " +
-            "a filter. Switched on, a folder also takes every new blunder that passes its filter.",
+        "Checker blunders, Cube blunders and All blunders (and folders made earlier for a filter) are each linked to a " +
+            "filter. Switched on, a folder takes " +
+            "every new error that passes its filter straight away, and the error skips New errors.",
     )
     var linked by remember { mutableStateOf<List<CategoryCount>>(emptyList()) }
     LaunchedEffect(Unit) { linked = app.positions.categories().filter { it.filter != null } }
@@ -1141,6 +1198,8 @@ private fun DisplaySettings(s: Settings, update: (f: (Settings) -> Settings) -> 
     Chips("Computer move animation", AnimationSpeed.entries, s.animation, { it.label }) { a -> update { it.copy(animation = a) } }
     Toggle("Crawford sign", s.crawfordSign) { v -> update { it.copy(crawfordSign = v) } }
     Note("In the Crawford game nobody may double, so a CRAWFORD sign stands on the bar instead of the cube. Off: the bar is left empty.")
+    Chips("Side panel (landscape)", listOf(false, true), s.railRight, { if (it) "Right of the board" else "Left of the board" }) { v -> update { it.copy(railRight = v) } }
+    Note("The column with the players, Undo and Done. Put it on the side of your home board, where Roll and Double appear, to keep your thumb close to all of them.")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Board")
     BoardSettings(s) { f -> update(f) }
@@ -1194,11 +1253,11 @@ private enum class ClearKind(val title: String, val button: String, val question
     MATCHES(
         "Delete all matches (games and statistics)", "Delete all matches", "Delete all matches?",
         "All finished matches and games will be deleted, and with them your statistics and rating. " +
-            "The match in progress and your blunder list are kept. This cannot be undone.",
+            "The match in progress and New errors are kept. This cannot be undone.",
     ),
     BLUNDERS(
-        "Clear blunder list", "Clear list", "Clear blunder list?",
-        "All saved blunders will be removed. Your matches and statistics are kept. This cannot be undone.",
+        "Clear New errors", "Clear all", "Clear New errors?",
+        "All new errors will be removed. Positions you added to My positions, your matches and statistics are kept. This cannot be undone.",
     );
 
     /** [olderThanDays]: for game records, null = all. */

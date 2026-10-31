@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -62,7 +65,6 @@ import androidx.lifecycle.viewModelScope
 import com.boldblot.backgammonplyground.PlyGroundApp
 import com.boldblot.backgammonplyground.core.StudyPosition
 import com.boldblot.backgammonplyground.ui.positions.SaveToPositionsDialog
-import androidx.compose.material.icons.filled.BookmarkAdd
 import com.boldblot.backgammonplyground.core.Board
 import com.boldblot.backgammonplyground.core.CpuLevel
 import com.boldblot.backgammonplyground.core.CubeState
@@ -114,8 +116,10 @@ data class ReviewState(
     val position: Int = 0,
     /** Candidate whose arrow is shown; null = played and best together. */
     val candidate: Int? = null,
-    /** Show the position after the played move instead of arrows. */
-    val showAfter: Boolean = false,
+    /** Arrows, the bare position, or the position after the move (chosen in the list, or played). */
+    val view: ReviewView = ReviewView.ARROWS,
+    /** The selected decision's analysis is closed (tapped again), so the whole list shows. */
+    val collapsed: Boolean = false,
     val settings: Settings = Settings(),
     /** Analyzing again: decisions done and in all; null = not running. */
     val progress: Pair<Int, Int>? = null,
@@ -193,13 +197,18 @@ class ReviewViewModel(
         viewModelScope.launch { app.settings.settings.collect { s -> _state.update { it.copy(settings = s) } } }
     }
 
-    fun selectGame(i: Int) = _state.update { it.copy(gameIndex = i, position = 0, candidate = null, showAfter = false) }
-    fun setFilter(f: ReviewFilter) = _state.update { it.copy(filter = f, position = 0, candidate = null, showAfter = false) }
+    fun selectGame(i: Int) = _state.update { it.copy(gameIndex = i, position = 0, candidate = null, collapsed = false) }
+    fun setFilter(f: ReviewFilter) = _state.update { it.copy(filter = f, position = 0, candidate = null, collapsed = false) }
     fun go(pos: Int) = _state.update {
-        it.copy(position = pos.coerceIn(0, (it.decisions.size - 1).coerceAtLeast(0)), candidate = null, showAfter = false)
+        it.copy(position = pos.coerceIn(0, (it.decisions.size - 1).coerceAtLeast(0)), candidate = null, collapsed = false)
     }
-    fun selectCandidate(i: Int?) = _state.update { it.copy(candidate = i, showAfter = false) }
-    fun toggleAfter() = _state.update { it.copy(showAfter = !it.showAfter) }
+
+    /** A tap on a decision in the list: opens it, or closes its analysis when it is open already. */
+    fun tapDecision(pos: Int) {
+        if (pos == _state.value.position) _state.update { it.copy(collapsed = !it.collapsed) } else go(pos)
+    }
+    fun selectCandidate(i: Int?) = _state.update { it.copy(candidate = i) }
+    fun setView(v: ReviewView) = _state.update { it.copy(view = v) }
 
     /**
      * The game being reviewed (or the whole match) in the .mat format read by eXtreme
@@ -262,7 +271,7 @@ class ReviewViewModel(
     /** Next decision of the human with an error or blunder, in a later game of the match after this game's last. */
     fun nextMistake() {
         val (game, pos) = _state.value.nextMistake ?: return
-        _state.update { it.copy(gameIndex = game, position = pos, candidate = null, showAfter = false) }
+        _state.update { it.copy(gameIndex = game, position = pos, candidate = null, collapsed = false) }
     }
 }
 
@@ -289,26 +298,27 @@ private fun title(m: MatchEntity?): String = when {
 
 @Composable
 private fun ReviewContent(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit) {
+    val capture = rememberBoardCapture()
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val sideWidth = minOf(390.dp, maxWidth * 0.42f)
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize().padding(6.dp)) {
                 Column(Modifier.width(sideWidth).fillMaxHeight()) {
-                    Header(st, vm, onBack)
+                    Header(st, vm, onBack, capture)
                     DecisionList(st, vm, Modifier.weight(1f))
                 }
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        ReviewBoard(st, Modifier.aspectRatio(1.38f))
+                        ReviewBoard(st, Modifier.aspectRatio(1.38f).then(capture.modifier))
                     }
                     BottomBar(st, vm)
                 }
             }
         } else {
             Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
-                Header(st, vm, onBack)
-                ReviewBoard(st, Modifier.fillMaxWidth().aspectRatio(1.38f))
+                Header(st, vm, onBack, capture)
+                ReviewBoard(st, Modifier.fillMaxWidth().aspectRatio(1.38f).then(capture.modifier))
                 BottomBar(st, vm)
                 DecisionList(st, vm, Modifier.weight(1f))
             }
@@ -317,7 +327,7 @@ private fun ReviewContent(st: ReviewState, vm: ReviewViewModel, onBack: () -> Un
 }
 
 @Composable
-private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit) {
+private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, capture: BoardCapture) {
     var ask by remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
@@ -330,7 +340,7 @@ private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit) {
             Spacer(Modifier.width(4.dp))
             Text("Analyze again", maxLines = 1)
         }
-        ExportMenu(st, vm)
+        ShareMenu(st, vm, capture)
     }
     st.progress?.let { (done, total) ->
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -395,9 +405,12 @@ private fun GamePicker(st: ReviewState, vm: ReviewViewModel) {
     }
 }
 
-/** Export of the game or match as a .mat file, shared or saved, for analysis in XG or gnubg. */
+/**
+ * Sharing: the position shown (XGID, board picture, board with the top five plays), and the game or
+ * match as a .mat file, shared or saved, for analysis in XG or gnubg.
+ */
 @Composable
-private fun ExportMenu(st: ReviewState, vm: ReviewViewModel) {
+private fun ShareMenu(st: ReviewState, vm: ReviewViewModel, capture: BoardCapture) {
     val context = LocalContext.current
     var open by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<String?>(null) }
@@ -408,8 +421,14 @@ private fun ExportMenu(st: ReviewState, vm: ReviewViewModel) {
     }
     val gameNumber = st.games.getOrNull(st.gameIndex)?.first?.number
     Box {
-        IconButton(onClick = { open = true }) { Icon(Icons.Default.Share, "Export for XG / GNU Backgammon") }
+        IconButton(onClick = { open = true }) { Icon(Icons.Default.Share, "Share") }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            val d = st.current
+            val m = st.match
+            if (d != null && m != null) {
+                SharePositionItems(d, m.length, m.jacoby, PositionShare.title(d, m.length), capture) { open = false }
+                HorizontalDivider()
+            }
             Text(
                 "Export (.mat, for eXtreme Gammon / GNU Backgammon)",
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -462,12 +481,7 @@ internal fun decisionArrows(d: DecisionRecord, selected: Int?, factor: Float): L
 @Composable
 private fun ReviewBoard(st: ReviewState, modifier: Modifier) {
     val d = st.current
-    val after = st.showAfter && d?.move != null
-    val board = when {
-        d == null -> st.game?.board ?: Board.INITIAL
-        after -> d.board.applyMove(d.player, d.move!!)
-        else -> d.board
-    }
+    val (board, after) = d?.let { reviewBoard(it, st.view, st.candidate) } ?: ((st.game?.board ?: Board.INITIAL) to false)
     val dice = d?.dice?.takeIf { !after }?.let { DiceView(d.player, it.highFirst) }
     BoardView(
         board = board, modifier = modifier,
@@ -479,10 +493,11 @@ private fun ReviewBoard(st: ReviewState, modifier: Modifier) {
         crawford = d?.crawford ?: st.game?.crawford ?: false,
         crawfordSign = st.settings.crawfordSign,
         pips = listOf(board.pipCount(Player.HUMAN), board.pipCount(Player.CPU)),
-        arrows = if (after) emptyList() else arrowsOf(st),
+        arrows = if (st.view == ReviewView.ARROWS) arrowsOf(st) else emptyList(),
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BottomBar(st: ReviewState, vm: ReviewViewModel) {
     val d = st.current
@@ -506,13 +521,18 @@ private fun BottomBar(st: ReviewState, vm: ReviewViewModel) {
         )
     }
     val n = st.decisions.size
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-        IconButton(onClick = { vm.go(st.position - 1) }, enabled = st.position > 0) { Icon(Icons.AutoMirrored.Filled.NavigateBefore, "Previous") }
-        Text(if (n == 0) "0 / 0" else "${st.position + 1} / $n", style = MaterialTheme.typography.titleSmall)
-        IconButton(onClick = { vm.go(st.position + 1) }, enabled = st.position < n - 1) { Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next") }
-        TextButton(onClick = vm::nextMistake, enabled = st.nextMistake != null) { Text("Next mistake") }
-        if (d?.move != null) TextButton(onClick = vm::toggleAfter) { Text(if (st.showAfter) "Show arrows" else "After move") }
-        if (study != null) IconButton(onClick = { saving = true }) { Icon(Icons.Default.BookmarkAdd, "Save to My positions") }
+    FlowRow(
+        Modifier.fillMaxWidth(), itemVerticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { vm.go(st.position - 1) }, enabled = st.position > 0) { Icon(Icons.AutoMirrored.Filled.NavigateBefore, "Previous") }
+            Text(if (n == 0) "0 / 0" else "${st.position + 1} / $n", style = MaterialTheme.typography.titleSmall)
+            IconButton(onClick = { vm.go(st.position + 1) }, enabled = st.position < n - 1) { Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next") }
+            TextButton(onClick = vm::nextMistake, enabled = st.nextMistake != null) { Text("Next mistake") }
+        }
+        if (d != null) ReviewViewChips(st.view, d.move != null, vm::setView)
+        if (study != null) SaveButton { saving = true }
     }
 }
 
@@ -548,7 +568,7 @@ private fun DecisionList(st: ReviewState, vm: ReviewViewModel, modifier: Modifie
                 Row(
                     Modifier.fillMaxWidth()
                         .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
-                        .clickable { vm.go(pos) }
+                        .clickable { vm.tapDecision(pos) }
                         .padding(horizontal = 10.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -571,7 +591,7 @@ private fun DecisionList(st: ReviewState, vm: ReviewViewModel, modifier: Modifie
                     }
                     if (scored != null && selected) SeverityBadge(sev, scored * st.factor)
                 }
-                if (selected) DecisionAnalysis(st, vm, d, Modifier.padding(start = 10.dp, end = 10.dp, bottom = 8.dp))
+                if (selected && !st.collapsed) DecisionAnalysis(st, vm, d, Modifier.padding(start = 10.dp, end = 10.dp, bottom = 8.dp))
             }
         }
         item { GameSummary(st, Modifier.padding(6.dp)) }

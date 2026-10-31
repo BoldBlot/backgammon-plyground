@@ -72,6 +72,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -141,7 +143,9 @@ private const val IMPORT_FORMATS =
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun MyPositionsScreen(app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?) -> Unit, onQuiz: (List<Long>) -> Unit) {
+fun MyPositionsScreen(
+    app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?) -> Unit, onQuiz: (List<Long>) -> Unit, onNewErrors: () -> Unit,
+) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var refresh by remember { mutableIntStateOf(0) }
@@ -198,7 +202,7 @@ fun MyPositionsScreen(app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?)
                 return@Column
             }
             Text(
-                "Experimental: this part of the app may still change. Save positions from your blunder list, a game " +
+                "Experimental: this part of the app may still change. Save positions from New errors, a game " +
                     "review or Analyze Position (\"Save to My positions\"), or import a file, then quiz yourself on them.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -207,10 +211,19 @@ fun MyPositionsScreen(app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?)
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 6.dp),
             )
-            Button(onClick = { onQuiz(emptyList()) }, enabled = total > 0, modifier = Modifier.padding(top = 12.dp)) {
-                Icon(Icons.Default.School, null)
-                Spacer(Modifier.width(6.dp))
-                Text("Quiz…")
+            val newErrors by produceState(0, refresh) { value = app.repository.blunderCount() }
+            Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { onQuiz(emptyList()) }, enabled = total > 0) {
+                    Icon(Icons.Default.School, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Quiz…")
+                }
+                // The errors from games, waiting to be added to a folder or deleted.
+                FilledTonalButton(onClick = onNewErrors) {
+                    Icon(Icons.Default.Inbox, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("New errors ($newErrors)")
+                }
             }
             Spacer(Modifier.height(12.dp))
             CategoryRow("All positions", total, onClick = { onCategory(null) })

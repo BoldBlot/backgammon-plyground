@@ -2,7 +2,6 @@ package com.boldblot.backgammonplyground.ui.home
 
 import android.widget.Toast
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,26 +11,22 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.boldblot.backgammonplyground.PlyGroundApp
 import com.boldblot.backgammonplyground.core.AutoLabel
 import com.boldblot.backgammonplyground.core.Labels
 import com.boldblot.backgammonplyground.core.MatImport
-import com.boldblot.backgammonplyground.data.CategoryCount
 import com.boldblot.backgammonplyground.data.SavedBlunder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -44,7 +39,7 @@ fun looksLikeMatch(text: String): Boolean =
 
 /**
  * Importing a .mat file into the Match Library: which of the two players is "you", and whose
- * mistakes go on the blunder list. [onImport] gets the column chosen (0 = the first player) and
+ * mistakes go to New errors. [onImport] gets the column chosen (0 = the first player) and
  * whether the opponent's mistakes go on the list too.
  */
 @Composable
@@ -69,7 +64,7 @@ fun MatchImportDialog(match: MatImport.ParsedMatch, onDismiss: () -> Unit, onImp
                         Text(name)
                     }
                 }
-                Text("Add to My blunders", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+                Text("Add to New errors", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     FilterChip(selected = !both, onClick = { both = false }, label = { Text("My mistakes") })
                     FilterChip(selected = both, onClick = { both = true }, label = { Text("Both players' mistakes") })
@@ -89,74 +84,58 @@ fun MatchImportDialog(match: MatImport.ParsedMatch, onDismiss: () -> Unit, onImp
 }
 
 /**
- * The blunder list's library button: [blunders] (those the filter shows) are copied to the My
- * positions folder linked to [filter] (made now if there is none), or, split, to Checker blunders
- * and Cube blunders, with their labels. Folders that collect new blunders by themselves are set
- * in Settings → My positions.
+ * New errors' library button: [errors] (those the filter shows) are copied to My positions with
+ * their labels, split into Checker blunders and Cube blunders or all into All blunders, and leave
+ * New errors. [onAdded] runs once they are gone from the list.
  */
 @Composable
-fun AddBlundersDialog(app: PlyGroundApp, blunders: List<SavedBlunder>, filter: Set<String>, onDismiss: () -> Unit) {
+fun AddErrorsDialog(app: PlyGroundApp, errors: List<SavedBlunder>, onDismiss: () -> Unit, onAdded: () -> Unit) {
     val context = LocalContext.current
-    val folder by produceState<CategoryCount?>(null, filter) {
-        value = app.positions.categories().firstOrNull { it.filter == Labels.encode(filter) }
+    val cube = errors.count { AutoLabel.CUBE.name in it.labels }
+    val checker = errors.size - cube
+    val n = errors.size
+    fun add(split: Boolean) {
+        onDismiss()
+        app.appScope.launch {
+            val jacoby: suspend (Long) -> Boolean = { m -> app.repository.match(m)?.jacoby ?: true }
+            val text = if (split) {
+                // The two folders every player has (made again if they were deleted).
+                app.positions.makeBuiltInFolders()
+                var added = 0
+                for (kind in listOf(AutoLabel.CHECKER, AutoLabel.CUBE)) {
+                    val list = errors.filter { kind.name in it.labels }
+                    val id = app.positions.linkedFolder(setOf(kind.name), create = true) ?: continue
+                    if (list.isNotEmpty()) added += app.positions.addBlunders(list, id, jacoby)
+                }
+                if (added == 0) "All of them were already there." else "Added $added to Checker blunders and Cube blunders."
+            } else {
+                val id = app.positions.linkedFolder(emptySet(), create = true) ?: return@launch
+                val added = app.positions.addBlunders(errors, id, jacoby)
+                val name = Labels.folderName(emptySet())
+                if (added == 0) "All of them were already in \u201c$name\u201d." else "Added $added to \u201c$name\u201d."
+            }
+            app.repository.removeBlunders(errors.map { it.entity.id })
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+                onAdded()
+            }
+        }
     }
-    var split by remember { mutableStateOf(false) }
-    val name = folder?.name ?: Labels.folderName(filter)
-    val cube = blunders.count { AutoLabel.CUBE.name in it.labels }
-    val checker = blunders.size - cube
-    fun plural(n: Int, what: String) = "$n $what blunder${if (n == 1) "" else "s"}"
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add to My positions") },
+        title = { Text("Add $n error${if (n == 1) "" else "s"} to My positions") },
         text = {
-            Column {
-                Text(
-                    if (split) {
-                        "${plural(checker, "checker")} go${if (checker == 1) "es" else ""} to Checker blunders and " +
-                            "${plural(cube, "cube")} to Cube blunders."
-                    } else {
-                        val n = blunders.size
-                        "$n blunder${if (n == 1) "" else "s"} go${if (n == 1) "es" else ""} to the folder \u201c$name\u201d" +
-                            (if (folder == null) ", made now for this filter" else "") + "."
-                    } + " Positions already in a folder are skipped. Each one keeps its labels; you can change them in My positions.",
-                )
-                Row(
-                    Modifier.fillMaxWidth().toggleable(split, role = Role.Switch, onValueChange = { split = it }).padding(top = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Split into Checker blunders and Cube blunders", Modifier.weight(1f))
-                    Switch(checked = split, onCheckedChange = null)
-                }
-                Text(
-                    "This copies the blunders shown now. A folder can also collect new blunders by itself: Settings → My positions.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-            }
+            Text(
+                "Split them into Checker blunders ($checker) and Cube blunders ($cube)? Otherwise they all go to " +
+                    "All blunders. Positions already in the folder are skipped; each one keeps its labels. " +
+                    "Added errors leave New errors.",
+            )
         },
         confirmButton = {
-            TextButton(onClick = {
-                onDismiss()
-                app.appScope.launch {
-                    val jacoby: suspend (Long) -> Boolean = { m -> app.repository.match(m)?.jacoby ?: true }
-                    val text = if (split) {
-                        // The two folders every player has (made again if they were deleted).
-                        app.positions.makeBuiltInFolders()
-                        var added = 0
-                        for (kind in listOf(AutoLabel.CHECKER, AutoLabel.CUBE)) {
-                            val list = blunders.filter { kind.name in it.labels }
-                            val id = app.positions.linkedFolder(setOf(kind.name), create = true) ?: continue
-                            if (list.isNotEmpty()) added += app.positions.addBlunders(list, id, jacoby)
-                        }
-                        if (added == 0) "All of them were already there." else "Added $added to Checker blunders and Cube blunders."
-                    } else {
-                        val id = app.positions.linkedFolder(filter, create = true) ?: return@launch
-                        val added = app.positions.addBlunders(blunders, id, jacoby)
-                        if (added == 0) "All of them were already in \u201c$name\u201d." else "Added $added to \u201c$name\u201d."
-                    }
-                    withContext(Dispatchers.Main) { Toast.makeText(context, text, Toast.LENGTH_SHORT).show() }
-                }
-            }) { Text("Add") }
+            Row {
+                TextButton(onClick = { add(split = false) }) { Text("All blunders") }
+                TextButton(onClick = { add(split = true) }) { Text("Split") }
+            }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

@@ -338,14 +338,14 @@ fun BoardView(
         geometry = g
         drawBoard(g, colors, measurer, showNumbers)
         drawFlags(g, flagged)
+        // The Crawford sign lies under the checkers: a checker on the bar may cover it.
+        if (crawford && !cubeOffered && crawfordSign) drawCrawford(g, measurer)
         drawCheckers(g, colors, board, dragFrom, measurer)
         if (lastCpuSteps.isNotEmpty()) {
             drawArrows(g, board, arrowsFor(Player.CPU, com.boldblot.backgammonplyground.core.Move(lastCpuSteps), colors.lastMove), postMove = true)
         }
         drawHighlights(g, colors, board, movable, selected, destinations)
-        if (crawford && !cubeOffered) {
-            if (crawfordSign) drawCrawford(g, measurer)
-        } else drawCube(g, colors, cube, cubeOffered, cubeAside, measurer)
+        if (!crawford || cubeOffered) drawCube(g, colors, cube, cubeOffered, cubeAside, measurer)
         pips?.let { drawPips(g, colors, it, measurer) }
         dice.forEach { drawDice(g, colors, it) }
         drawArrows(g, board, arrows, postMove = false)
@@ -470,8 +470,8 @@ private fun DrawScope.drawHighlights(
     g: BoardGeometry, c: BoardColors, board: Board, movable: Set<Int>, selected: Int?, destinations: Set<Int>,
 ) {
     for (idx in movable) {
-        val center = if (idx == BAR) g.barCenter(Player.HUMAN, board.bar(Player.HUMAN) - 1)
-        else g.checkerCenter(idx, (board.count(Player.HUMAN, idx) - 1).coerceAtLeast(0))
+        val center = if (idx == BAR) g.barCenter(Player.HUMAN, (board.bar(Player.HUMAN) - 1).coerceIn(0, 3))
+        else g.checkerCenter(idx, (board.count(Player.HUMAN, idx) - 1).coerceIn(0, 4)) // top of the five drawn
         val sel = idx == selected
         drawCircle(c.highlight, g.radius * 1.02f, center, style = Stroke(width = g.radius * if (sel) 0.28f else 0.13f), alpha = if (sel) 1f else 0.75f)
     }

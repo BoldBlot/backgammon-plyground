@@ -1,7 +1,9 @@
 package com.boldblot.backgammonplyground.ui.review
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -16,6 +18,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -27,7 +31,11 @@ import androidx.compose.material.icons.automirrored.filled.NavigateBefore
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,7 +64,6 @@ import androidx.lifecycle.viewModelScope
 import com.boldblot.backgammonplyground.PlyGroundApp
 import com.boldblot.backgammonplyground.core.StudyPosition
 import com.boldblot.backgammonplyground.ui.positions.SaveToPositionsDialog
-import androidx.compose.material.icons.filled.BookmarkAdd
 import com.boldblot.backgammonplyground.core.CpuLevel
 import com.boldblot.backgammonplyground.core.Opponent
 import com.boldblot.backgammonplyground.core.DecisionKind
@@ -101,12 +108,20 @@ private fun context(b: SavedBlunder): String {
     return "$what vs $level$score$cube · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(e.playedAt))}"
 }
 
-/** The human's saved blunders (Match Library tab); a tap opens one. */
+/**
+ * New errors as a list; a tap opens one. With [selection] (ids, null = not selecting) each row has a
+ * check box and a tap selects; a long press starts selecting ([onLongClick]).
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun BlunderList(blunders: List<SavedBlunder>, onOpen: (Long) -> Unit, modifier: Modifier = Modifier, filtered: Boolean = false) {
+fun BlunderList(
+    blunders: List<SavedBlunder>, onOpen: (Long) -> Unit, modifier: Modifier = Modifier, filtered: Boolean = false,
+    selection: Set<Long>? = null, onLongClick: ((Long) -> Unit)? = null,
+) {
     if (blunders.isEmpty()) {
         Text(
-            if (filtered) "No blunders pass the filter." else "No blunders saved. Every blunder you make (an error of more than 0.080) is kept here until you remove it.",
+            if (filtered) "No errors pass the filter." else "No new errors. The mistakes you make (Settings → Analysis says which) " +
+                "wait here until you add them to My positions or delete them.",
             modifier.padding(24.dp),
         )
         return
@@ -114,8 +129,13 @@ fun BlunderList(blunders: List<SavedBlunder>, onOpen: (Long) -> Unit, modifier: 
     LazyColumn(modifier.fillMaxSize().padding(horizontal = 12.dp)) {
         items(blunders, key = { it.entity.id }) { b ->
             val d = b.decision
-            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onOpen(b.entity.id) }) {
+            val id = b.entity.id
+            Card(
+                Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    .combinedClickable(onLongClick = onLongClick?.let { { it(id) } }) { onOpen(id) },
+            ) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (selection != null) Checkbox(checked = id in selection, onCheckedChange = { onOpen(id) })
                     val sev = XgRules.severity(b.entity.error)
                     Box(Modifier.size(10.dp).background(severityColor(sev), RoundedCornerShape(5.dp)))
                     Spacer(Modifier.width(10.dp))
@@ -142,8 +162,8 @@ data class BlunderState(
     val index: Int = 0,
     /** Candidate whose arrow is shown; null = played and best together. */
     val candidate: Int? = null,
-    /** Show the position after the played move instead of arrows. */
-    val showAfter: Boolean = false,
+    /** Arrows, the bare position, or the position after the move (chosen in the list, or played). */
+    val view: ReviewView = ReviewView.ARROWS,
     val settings: Settings = Settings(),
     /** Analyzing the shown blunder again. */
     val analyzing: Boolean = false,
@@ -171,11 +191,11 @@ class BlunderViewModel(val app: PlyGroundApp, private val startId: Long) : ViewM
     }
 
     fun go(i: Int) = _state.update {
-        it.copy(index = i.coerceIn(0, (it.blunders.size - 1).coerceAtLeast(0)), candidate = null, showAfter = false)
+        it.copy(index = i.coerceIn(0, (it.blunders.size - 1).coerceAtLeast(0)), candidate = null)
     }
 
-    fun selectCandidate(i: Int?) = _state.update { it.copy(candidate = i, showAfter = false) }
-    fun toggleAfter() = _state.update { it.copy(showAfter = !it.showAfter) }
+    fun selectCandidate(i: Int?) = _state.update { it.copy(candidate = i) }
+    fun setView(v: ReviewView) = _state.update { it.copy(view = v) }
 
     /** Analyzes the shown blunder again; the new analysis replaces the saved one. */
     fun reanalyze(r: ReanalyzeRequest) {
@@ -206,12 +226,12 @@ class BlunderViewModel(val app: PlyGroundApp, private val startId: Long) : ViewM
 
     fun dismissMessage() = _state.update { it.copy(message = null) }
 
-    /** Removes the shown blunder from the list; returns it for undo. */
+    /** Deletes the shown error from New errors; returns it for undo. */
     fun removeCurrent(): BlunderEntity? {
         val b = _state.value.current ?: return null
         _state.update {
             val list = it.blunders - b
-            it.copy(blunders = list, index = it.index.coerceAtMost((list.size - 1).coerceAtLeast(0)), candidate = null, showAfter = false)
+            it.copy(blunders = list, index = it.index.coerceAtMost((list.size - 1).coerceAtLeast(0)), candidate = null)
         }
         viewModelScope.launch { app.repository.removeBlunder(b.entity.id) }
         return b.entity
@@ -234,7 +254,7 @@ fun BlunderScreen(vm: BlunderViewModel, onBack: () -> Unit) {
     var removed by remember { mutableStateOf<BlunderEntity?>(null) }
     LaunchedEffect(removed) {
         val e = removed ?: return@LaunchedEffect
-        val r = snackbar.showSnackbar("Removed from your blunders", actionLabel = "Undo", withDismissAction = true)
+        val r = snackbar.showSnackbar("Deleted from New errors", actionLabel = "Undo", withDismissAction = true)
         if (r == SnackbarResult.ActionPerformed) vm.undoRemove(e)
         removed = null
     }
@@ -244,7 +264,7 @@ fun BlunderScreen(vm: BlunderViewModel, onBack: () -> Unit) {
         when {
             st.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             b == null -> Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("No blunders left in your list.")
+                Text("No new errors left.")
                 TextButton(onClick = onBack) { Text("Back") }
             }
             else -> BlunderContent(st, b, vm, onBack, onRemove)
@@ -260,27 +280,39 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
     val study = remember(b, jacoby) { StudyPosition.of(b.decision, b.entity.matchLength, jacoby) }
     if (saving && study != null) SaveToPositionsDialog(vm.app, study, "Blunder list", b.labels, com.boldblot.backgammonplyground.core.MyAnswer.played(b.decision)) { saving = false }
     val onSave = { saving = true }.takeIf { study != null }
+    val capture = rememberBoardCapture()
+    val share: @Composable () -> Unit = {
+        var open by remember { mutableStateOf(false) }
+        Box {
+            IconButton(onClick = { open = true }) { Icon(Icons.Default.Share, "Share") }
+            DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                SharePositionItems(b.decision, b.entity.matchLength, jacoby, PositionShare.title(b.decision, b.entity.matchLength), capture) { open = false }
+            }
+        }
+    }
+    // Keep: on to the next error (back to the list after the last one).
+    val onKeep = { if (st.index < st.blunders.size - 1) vm.go(st.index + 1) else onBack() }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth > maxHeight) {
             val sideWidth = minOf(390.dp, maxWidth * 0.42f)
             Row(Modifier.fillMaxSize().padding(6.dp)) {
                 Column(Modifier.width(sideWidth).fillMaxHeight()) {
-                    TopRow(onBack, onRemove, onSave)
+                    TopRow(onBack, onRemove, share)
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { Detail(st, b, vm) }
                 }
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Board(st, b.decision, Modifier.aspectRatio(1.38f))
+                        Board(st, b.decision, Modifier.aspectRatio(1.38f).then(capture.modifier))
                     }
-                    Bar(st, b.decision, vm)
+                    Bar(st, b.decision, vm, onKeep, onSave)
                 }
             }
         } else {
             Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
-                TopRow(onBack, onRemove, onSave)
-                Board(st, b.decision, Modifier.fillMaxWidth().aspectRatio(1.38f))
-                Bar(st, b.decision, vm)
+                TopRow(onBack, onRemove, share)
+                Board(st, b.decision, Modifier.fillMaxWidth().aspectRatio(1.38f).then(capture.modifier))
+                Bar(st, b.decision, vm, onKeep, onSave)
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { Detail(st, b, vm) }
             }
         }
@@ -288,23 +320,22 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
 }
 
 @Composable
-private fun TopRow(onBack: () -> Unit, onRemove: () -> Unit, onSave: (() -> Unit)?) {
+private fun TopRow(onBack: () -> Unit, onRemove: () -> Unit, share: @Composable () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-        Text("My blunders", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-        if (onSave != null) IconButton(onClick = onSave) { Icon(Icons.Default.BookmarkAdd, "Save to My positions") }
+        Text("New errors", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        share()
         OutlinedButton(onClick = onRemove) {
             Icon(Icons.Default.Delete, null, Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
-            Text("Remove from list")
+            Text("Delete")
         }
     }
 }
 
 @Composable
 private fun Board(st: BlunderState, d: DecisionRecord, modifier: Modifier) {
-    val after = st.showAfter && d.move != null
-    val board = if (after) d.board.applyMove(d.player, d.move!!) else d.board
+    val (board, after) = reviewBoard(d, st.view, st.candidate)
     val dice = d.dice?.takeIf { !after }?.let { DiceView(d.player, it.highFirst) }
     BoardView(
         board = board, modifier = modifier,
@@ -316,12 +347,13 @@ private fun Board(st: BlunderState, d: DecisionRecord, modifier: Modifier) {
         crawford = d.crawford,
         crawfordSign = st.settings.crawfordSign,
         pips = listOf(board.pipCount(Player.HUMAN), board.pipCount(Player.CPU)),
-        arrows = if (after) emptyList() else decisionArrows(d, st.candidate, st.factor),
+        arrows = if (st.view == ReviewView.ARROWS) decisionArrows(d, st.candidate, st.factor) else emptyList(),
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel) {
+private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKeep: () -> Unit, onSave: (() -> Unit)?) {
     val a = d.checker
     if (a != null && a.candidates.isNotEmpty()) {
         val played = a.candidates.getOrNull(a.playedIndex)
@@ -335,13 +367,20 @@ private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel) {
             onBest = { vm.selectCandidate(0) },
         )
     }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-        IconButton(onClick = { vm.go(st.index - 1) }, enabled = st.index > 0) { Icon(Icons.AutoMirrored.Filled.NavigateBefore, "Previous") }
-        Text("${st.index + 1} / ${st.blunders.size}", style = MaterialTheme.typography.titleSmall)
-        IconButton(onClick = { vm.go(st.index + 1) }, enabled = st.index < st.blunders.size - 1) {
-            Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next")
+    FlowRow(
+        Modifier.fillMaxWidth(), itemVerticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { vm.go(st.index - 1) }, enabled = st.index > 0) { Icon(Icons.AutoMirrored.Filled.NavigateBefore, "Previous") }
+            Text("${st.index + 1} / ${st.blunders.size}", style = MaterialTheme.typography.titleSmall)
+            IconButton(onClick = { vm.go(st.index + 1) }, enabled = st.index < st.blunders.size - 1) {
+                Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next")
+            }
+            Button(onClick = onKeep) { Text(if (st.index < st.blunders.size - 1) "Keep, next" else "Keep") }
         }
-        if (d.move != null) TextButton(onClick = vm::toggleAfter) { Text(if (st.showAfter) "Show arrows" else "After move") }
+        ReviewViewChips(st.view, d.move != null, vm::setView)
+        if (onSave != null) SaveButton(onSave)
     }
 }
 

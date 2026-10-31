@@ -33,21 +33,25 @@ class PlyGroundApp : Application() {
         // Warm up the engine (data extraction + neural net loading) in the background.
         appScope.launch { engine.start() }
         // My positions: the Checker blunders and Cube blunders folders (once), and folders linked to a
-        // blunder list filter that take new blunders at once.
+        // filter that take new errors at once.
         appScope.launch {
             if (!settings.settings.first().builtInFolders) {
                 positions.makeBuiltInFolders()
                 settings.update { it.copy(builtInFolders = true) }
             }
         }
+        // A new error that a folder collects goes straight to My positions and skips New errors.
         repository.onNewBlunder = { b ->
             val s = settings.settings.first()
+            var filed = false
             for (c in positions.categories()) {
                 val filter = c.filter?.takeIf { c.autoAdd }?.let { com.boldblot.backgammonplyground.core.Labels.decode(it) } ?: continue
                 if (com.boldblot.backgammonplyground.core.Labels.matches(b.labels, s.visible(filter))) {
                     positions.addBlunders(listOf(b), c.id) { id -> repository.match(id)?.jacoby ?: true }
+                    filed = true
                 }
             }
+            if (filed) repository.removeBlunder(b.entity.id)
         }
         // Analysis uses the engine chosen in Settings.
         appScope.launch {

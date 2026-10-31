@@ -23,12 +23,11 @@ android {
         applicationId = "com.boldblot.backgammonplyground"
         minSdk = 26
         targetSdk = 36
-        // Play's upload code: one more for every bundle uploaded to Play (internal or closed).
-        versionCode = 47
-        versionName = "0.7.2"
-        // The build number the app shows: internal test pushes 36.1, 36.2, …; the closed-track
-        // (alpha) release of the tested code then becomes the next whole number, 37.
-        buildConfigField("String", "BUILD_LABEL", "\"39\"")
+        // Play's upload code: one more for every bundle uploaded to Play (internal or closed). It is
+        // also the build number the app shows, and each upload moves the version's last digit on.
+        versionCode = 48
+        versionName = "0.7.3"
+        buildConfigField("String", "BUILD_LABEL", "\"$versionCode\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {

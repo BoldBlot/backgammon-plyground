@@ -265,6 +265,9 @@ interface MatchDao {
     @Query("SELECT * FROM blunders ORDER BY playedAt DESC, matchId DESC, gameNumber DESC, decisionIndex DESC")
     suspend fun blunders(): List<BlunderEntity>
 
+    @Query("SELECT COUNT(*) FROM blunders")
+    suspend fun blunderCount(): Int
+
     @Query("DELETE FROM blunders WHERE id = :id")
     suspend fun deleteBlunder(id: Long)
 

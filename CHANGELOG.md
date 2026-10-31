@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.3 — 2026-10-31 (build 48, internal test)
+
+New errors: the mistakes from your games wait in My positions until you file them or delete them.
+Share a position as an XGID or a picture.
+
+- New errors (once My blunders) moved from the Match Library to My positions, next to Quiz. Go
+  through them with Delete and Keep, or long-press to delete several; Add to library asks whether to
+  split them into Checker blunders and Cube blunders or put them all in All blunders, and takes them
+  off the list. Folders that collect new errors by themselves (Settings → My positions) skip it.
+- Share in the review and in New errors: the XGID, a picture of the board, or the board with the
+  five best plays (or the cube actions) and the XGID.
+- Reviews show Arrows, Board (the position alone) or After; After shows the position after the move
+  picked in the list, not only the one played. Save is a labelled button.
+- Match Library review: tap the open decision again to close its analysis and see the whole list.
+- Settings → Display → Side panel: put the column with Undo and Done right of the board in
+  landscape, next to Roll and Double.
+- The computer no longer thinks before every roll in lost races: it looks deeper into resigning only
+  when a quick look says it would resign.
+- The ring around a stack of more than five checkers sits on its top checker.
+- The CRAWFORD sign lies under the checkers, so a checker on the bar is no longer hidden.
+
 ## 0.7.2 — 2026-10-30 (build 39)
 
 Match Library: import matches from eXtreme Gammon or GNU Backgammon and study both players'

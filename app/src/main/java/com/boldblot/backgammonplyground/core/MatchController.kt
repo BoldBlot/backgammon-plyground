@@ -359,12 +359,16 @@ class MatchController(
     private fun cpuResignation(m: MatchState): WinType? {
         val g = m.game
         val highest = Resignation.highestCounted(m.rules, g.cube, m.score, Player.HUMAN)
-        // A cheap 0-ply look first; the analysis depth only confirms hopeless positions.
-        val quick = cpu(m).cubeDecision(g.board, m.ctx(Player.CPU), 0).probs
-        if (quick[0] > PRE_RESIGN_WIN) return null
-        val probs = if (Depth.of(settings.cubePlies).plies > 1) cpu(m).cubeDecision(g.board, m.ctx(Player.CPU), settings.cubePlies).probs else quick
-        val type = Resignation.offer(probs, highest) ?: return null
         val rejected = g.resignRejected[Player.CPU]
+        // A cheap 1-ply look first: a deeper look only confirms a resignation the quick one would
+        // already offer (and that was not rejected), so a lost game with the gammon still open, or
+        // a few hundredths of a chance left, costs no search before every roll.
+        val quick = cpu(m).cubeDecision(g.board, m.ctx(Player.CPU), 0).probs
+        val quickType = Resignation.offer(quick, highest) ?: return null
+        if (rejected != null && quickType <= rejected) return null
+        val plies = minOf(Depth.of(settings.cubePlies).plies, RESIGN_CONFIRM_PLIES)
+        val probs = if (plies > 1) cpu(m).cubeDecision(g.board, m.ctx(Player.CPU), Depth(plies).code).probs else quick
+        val type = Resignation.offer(probs, highest) ?: return null
         return if (rejected != null && type <= rejected) null else type
     }
 
@@ -446,7 +450,7 @@ class MatchController(
         /** Strength that plays the human's side in autofinish (2-ply, no noise). */
         val AUTOFINISH_LEVEL = CpuLevel.WORLD_CLASS
 
-        /** 0-ply winning chance above which the computer does not look into resigning. */
-        const val PRE_RESIGN_WIN = 0.01f
+        /** Deepest look (XG plies) that confirms the computer's resignation; only outcome chances count. */
+        const val RESIGN_CONFIRM_PLIES = 2
     }
 }

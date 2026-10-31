@@ -36,6 +36,7 @@ import com.boldblot.backgammonplyground.ui.home.SpeedTestScreen
 import com.boldblot.backgammonplyground.ui.home.WelcomeScreen
 import com.boldblot.backgammonplyground.ui.home.AboutScreen
 import com.boldblot.backgammonplyground.ui.home.HistoryScreen
+import com.boldblot.backgammonplyground.ui.home.NewErrorsScreen
 import com.boldblot.backgammonplyground.ui.home.HomeScreen
 import com.boldblot.backgammonplyground.ui.home.NewMatchScreen
 import com.boldblot.backgammonplyground.ui.home.SettingsGroup
@@ -193,7 +194,6 @@ class MainActivity : ComponentActivity() {
                 HistoryScreen(
                     app,
                     onReview = { id -> nav.navigate("review/$id") },
-                    onBlunder = { id -> nav.navigate("blunder/$id") },
                     onBack = { nav.popBackStack() },
                     onImported = gameVm::queueAnalysis,
                 )
@@ -211,7 +211,11 @@ class MainActivity : ComponentActivity() {
                     app, onBack = { nav.popBackStack() },
                     onCategory = { id -> nav.navigate("positions/category/${id ?: ALL_POSITIONS}") },
                     onQuiz = { ids -> nav.navigate("quizmenu?ids=${ids.joinToString(",")}") },
+                    onNewErrors = { nav.navigate("errors") },
                 )
+            }
+            composable("errors") {
+                NewErrorsScreen(app, onOpen = { id -> nav.navigate("blunder/$id") }, onBack = { nav.popBackStack() })
             }
             composable("positions/category/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
                 val id = entry.arguments?.getLong("id")?.takeIf { it != ALL_POSITIONS }

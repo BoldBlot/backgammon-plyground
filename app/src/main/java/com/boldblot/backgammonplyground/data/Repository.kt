@@ -389,6 +389,9 @@ class Repository(private val db: AppDatabase) {
 
     suspend fun removeBlunder(id: Long) = dao.deleteBlunder(id)
 
+    /** How many errors wait in New errors. */
+    suspend fun blunderCount(): Int = dao.blunderCount()
+
     /** Puts back a removed blunder (undo). */
     suspend fun restoreBlunder(e: BlunderEntity) {
         dao.insertBlunder(e)
