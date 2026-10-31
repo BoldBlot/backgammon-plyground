@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.boldblot.backgammonplyground.core.Labels
+import com.boldblot.backgammonplyground.core.QuizFilter
 
 /**
  * The Filter button of the blunder list, My positions and the quiz: a menu of [keys] (label keys
@@ -48,9 +49,12 @@ fun LabelFilterButton(
     keys: List<String>, selected: Set<String>, onChange: (Set<String>) -> Unit, modifier: Modifier = Modifier,
     /** An icon (in a top bar) instead of a chip. */
     compact: Boolean = false,
+    /** Also the quiz answers ([QuizFilter]), for saved positions. */
+    quiz: Boolean = false,
 ) {
     var open by remember { mutableStateOf(false) }
-    val on = selected.intersect(keys.toSet())
+    val quizKeys = if (quiz) QuizFilter.entries.map { it.key } else emptyList()
+    val on = selected.intersect((keys + quizKeys).toSet())
     Box(modifier) {
         if (compact) {
             IconButton(onClick = { open = true }) {
@@ -79,6 +83,19 @@ fun LabelFilterButton(
                         text = { Text(Labels.title(k)) },
                         leadingIcon = { Checkbox(checked = k in on, onCheckedChange = null) },
                         onClick = { onChange(if (k in on) on - k else on + k) },
+                    )
+                }
+            }
+            if (quiz) QuizFilter.entries.groupBy { it.group }.forEach { (group, inGroup) ->
+                Text(
+                    group.title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp),
+                )
+                inGroup.forEach { f ->
+                    DropdownMenuItem(
+                        text = { Text(f.title) },
+                        leadingIcon = { Checkbox(checked = f.key in on, onCheckedChange = null) },
+                        onClick = { onChange(if (f.key in on) on - f.key else on + f.key) },
                     )
                 }
             }

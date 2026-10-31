@@ -862,7 +862,7 @@ fun SettingsScreen(
                 SettingsGroup.ENGINE -> EngineSettings(s, ::update)
                 SettingsGroup.PLAY -> PlaySettings(s, ::update)
                 SettingsGroup.DISPLAY -> DisplaySettings(s, ::update)
-                SettingsGroup.POSITIONS -> PositionsSettings(app, s, ::update)
+                SettingsGroup.POSITIONS -> PositionsSettings(app, s, ::update) { clear = it }
                 SettingsGroup.DATA -> DataSettings(s, ::update) { clear = it }
             }
         }
@@ -934,12 +934,21 @@ private fun TrainingSettings(s: Settings, update: (f: (Settings) -> Settings) ->
 
 /** Settings → My positions: the quiz, the labels (automatic ones on or off, the player's own), New errors filing and the autofilters. */
 @Composable
-private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) -> Settings) -> Unit) {
+private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) -> Settings) -> Unit, onClear: (ClearKind) -> Unit) {
     val scope = rememberCoroutineScope()
     Header("Quiz")
     Chips("A right answer is", QuizCorrect.entries, s.quizCorrect, { it.label }) { v -> update { it.copy(quizCorrect = v) } }
     Note("Not an error: anything within 0.020 of the best play (or your own answer, when you set one).")
     Toggle("Repeat missed positions until all are right", s.quizRepeat) { v -> update { it.copy(quizRepeat = v) } }
+    Note("Each position counts its right and missed answers; their balance is right minus missed. The Filter menus can pick positions by them.")
+    Toggle("Delete learned positions", s.quizAutoDelete) { v -> update { it.copy(quizAutoDelete = v) } }
+    Chips("Delete when the balance reaches", listOf(2, 3, 4, 5, 10), s.quizDeleteAt, { "+$it" }, enabled = s.quizAutoDelete) { v ->
+        update { it.copy(quizDeleteAt = v) }
+    }
+    Note(
+        if (s.quizAutoDelete) "A position whose balance reaches +${s.quizDeleteAt} after a right answer is deleted from My positions and all its folders."
+        else "Off: positions stay in My positions however often you answer them right.",
+    )
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Automatic labels")
     Note(
@@ -1098,6 +1107,10 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
             dismissButton = { TextButton(onClick = { ending = null }) { Text("Cancel") } },
         )
     }
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Header("Delete")
+    OutlinedButton(onClick = { onClear(ClearKind.POSITIONS) }) { Text(ClearKind.POSITIONS.button) }
+    Note("Deletes every position; folders, autofilters and labels stay. Also in Data and help.")
 }
 
 /** "Blunders · Checker · Contact or Race · Hit", what an autofilter asks for; "Every new error" without conditions. */
@@ -1378,6 +1391,11 @@ private enum class ClearKind(val title: String, val button: String, val question
     BLUNDERS(
         "Clear New errors", "Clear all", "Clear New errors?",
         "All new errors will be removed. Positions you added to My positions, your matches and statistics are kept. This cannot be undone.",
+    ),
+    POSITIONS(
+        "Delete all positions (My positions)", "Delete all positions", "Delete all positions?",
+        "Every position in My positions will be deleted, with its analysis, notes, your answers and quiz counts. Folders, " +
+            "autofilters and labels stay, empty; your matches, statistics and New errors are kept. This cannot be undone.",
     );
 
     /** [olderThanDays]: for game records, null = all. */
@@ -1386,6 +1404,7 @@ private enum class ClearKind(val title: String, val button: String, val question
         STATISTICS -> app.repository.clearStatistics()
         MATCHES -> app.repository.clearMatchHistory()
         BLUNDERS -> app.repository.clearBlunders()
+        POSITIONS -> app.positions.removeAll()
     }
 }
 
@@ -1405,7 +1424,7 @@ private fun ClearDialog(kind: ClearKind, onDismiss: () -> Unit, onConfirm: (olde
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(days) }) { Text("Clear") } },
+        confirmButton = { TextButton(onClick = { onConfirm(days) }) { Text(if (kind.button.startsWith("Delete")) "Delete" else "Clear") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

@@ -47,6 +47,10 @@ data class QuizResult(
     val equity: Float? = null,
     val bestEquity: Float? = null,
     val analysis: PositionAnalysis,
+    /** The position's quiz answers with this one: "3 right, 1 missed · balance +2". */
+    val counts: String? = null,
+    /** Its balance reached the threshold in Settings and it was deleted from My positions. */
+    val deleted: Boolean = false,
 )
 
 data class QuizState(
@@ -240,11 +244,14 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
                         mine = sp.answer?.let { answerText(p, it) }, analysis = a,
                     )
                 }
-                app.positions.setResult(sp.id, result.right, MyAnswer(move = move, cube = cube))
+                val counted = app.positions.setResult(sp.id, result.right, MyAnswer(move = move, cube = cube))
+                    ?.let { sp.copy(entity = it) }
+                val deleted = counted != null && s.quizAutoDelete && counted.quizBalance >= s.quizDeleteAt
+                if (deleted) app.positions.remove(sp.id)
                 val played = sp.played?.let { answerWithError(p, a, it) }
                 _state.update {
                     it.copy(
-                        busy = false, result = result.copy(played = played), answered = it.answered + 1, right = it.right + if (result.right) 1 else 0,
+                        busy = false, result = result.copy(played = played, counts = counted?.let(::quizCountText), deleted = deleted), answered = it.answered + 1, right = it.right + if (result.right) 1 else 0,
                         totalError = it.totalError + result.error,
                         board = p.board,
                     )

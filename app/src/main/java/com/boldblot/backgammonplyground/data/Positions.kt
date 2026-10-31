@@ -21,6 +21,8 @@ data class SavedPosition(
     val lastAnswer: MyAnswer? = null,
 ) {
     val id: Long get() = entity.id
+    /** Quiz answers right minus missed. */
+    val quizBalance: Int get() = entity.quizRight - entity.quizWrong
 }
 
 /** The file My positions exports and imports: plain JSON, readable by other programs. */
@@ -298,10 +300,15 @@ class PositionsRepository(db: AppDatabase) {
         dao.update(e.copy(note = note.trim()))
     }
 
-    /** The quiz answer [answer] to position [id], [right] or not. */
-    suspend fun setResult(id: Long, right: Boolean, answer: MyAnswer? = null) {
-        val e = dao.position(id) ?: return
-        dao.update(e.copy(lastRight = right, lastAnswer = answer?.let { AppJson.encodeToString(it) } ?: e.lastAnswer))
+    /** The quiz answer [answer] to position [id], [right] or not, counted; the position as it is now. */
+    suspend fun setResult(id: Long, right: Boolean, answer: MyAnswer? = null): PositionEntity? {
+        val e = dao.position(id) ?: return null
+        val updated = e.copy(
+            lastRight = right, lastAnswer = answer?.let { AppJson.encodeToString(it) } ?: e.lastAnswer,
+            quizRight = e.quizRight + if (right) 1 else 0, quizWrong = e.quizWrong + if (right) 0 else 1,
+        )
+        dao.update(updated)
+        return updated
     }
 
     suspend fun setCategories(id: Long, categoryIds: Collection<Long>) {
@@ -315,6 +322,12 @@ class PositionsRepository(db: AppDatabase) {
     suspend fun remove(id: Long) {
         dao.unlinkPosition(id)
         dao.deletePosition(id)
+    }
+
+    /** Deletes every position; folders, autofilters and labels stay. */
+    suspend fun removeAll() {
+        dao.unlinkAll()
+        dao.deleteAllPositions()
     }
 
     // ---- files --------------------------------------------------------------------------------

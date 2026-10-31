@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.6 — 2026-10-31 (build 51, internal test)
+
+- Quiz: every position counts its right and missed answers, and their balance (right minus missed).
+  My positions and the position show them; a position answered before starts with its last answer.
+- Filter menus of My positions and the quiz: Quiz answers (Not tried yet, Answered right, Missed)
+  and Quiz balance (below 0, 0, above 0).
+- Settings → My positions → Quiz: "Delete learned positions" (off by default) deletes a position
+  once its balance reaches +2, +3, +4, +5 or +10 after a right answer.
+- Delete all positions: Settings → My positions, and Data and help. Folders, autofilters and labels
+  stay.
+- The computer resigns a backgammon again when one is certain; since 0.7.3 it could offer only a
+  gammon there.
+
 ## 0.7.5 — 2026-10-31 (build 50, internal test)
 
 - New errors settings moved to Settings → My positions, above My autofilters, and say plainly that

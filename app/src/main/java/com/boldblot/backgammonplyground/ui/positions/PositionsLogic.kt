@@ -11,12 +11,28 @@ import com.boldblot.backgammonplyground.core.Move
 import com.boldblot.backgammonplyground.core.MoveNotation
 import com.boldblot.backgammonplyground.core.MyAnswer
 import com.boldblot.backgammonplyground.core.Player
+import com.boldblot.backgammonplyground.core.Labels
 import com.boldblot.backgammonplyground.core.PositionAnalysis
+import com.boldblot.backgammonplyground.core.QuizFilter
 import com.boldblot.backgammonplyground.core.StudyPosition
 import com.boldblot.backgammonplyground.core.XgRules
+import com.boldblot.backgammonplyground.data.SavedPosition
 import com.boldblot.backgammonplyground.data.Settings
 import com.boldblot.backgammonplyground.ui.components.describeAction
 import com.boldblot.backgammonplyground.ui.components.eq
+
+/** Whether [p] passes [filter]: its labels (those in use, see [Settings.visible]) and its quiz answers ([QuizFilter]). */
+fun passesFilter(p: SavedPosition, filter: Set<String>, s: Settings): Boolean {
+    val labels = s.visible(filter)
+    return (labels.isEmpty() || Labels.matches(s.visible(p.labels), labels)) &&
+        QuizFilter.matches(p.entity.quizRight, p.entity.quizWrong, filter)
+}
+
+/** "3 right, 1 missed · balance +2". */
+fun quizCountText(p: SavedPosition): String {
+    val b = p.quizBalance
+    return "${p.entity.quizRight} right, ${p.entity.quizWrong} missed · balance ${if (b > 0) "+$b" else "$b"}"
+}
 
 /** Analyzes [p] at the analysis depths in Settings, with the analysis engine. */
 suspend fun analyzePosition(app: PlyGroundApp, p: StudyPosition, s: Settings): PositionAnalysis {

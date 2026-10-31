@@ -461,7 +461,10 @@ class MatchController(
         const val MAX_CANDIDATES = 10
 
 
-        /** Deepest look (XG plies) that confirms the computer's resignation; only outcome chances count. */
-        const val RESIGN_CONFIRM_PLIES = 2
+        /**
+         * Deepest look (XG plies) that confirms the computer's resignation; only outcome chances count.
+         * 3-ply reaches the opponent's next roll, so a game they end with it is scored exactly (a backgammon too).
+         */
+        const val RESIGN_CONFIRM_PLIES = 3
     }
 }

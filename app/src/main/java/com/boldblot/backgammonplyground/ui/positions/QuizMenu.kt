@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.boldblot.backgammonplyground.PlyGroundApp
 import com.boldblot.backgammonplyground.core.Labels
+import com.boldblot.backgammonplyground.core.QuizFilter
 import com.boldblot.backgammonplyground.data.CategoryCount
 import com.boldblot.backgammonplyground.data.PositionsRepository.Companion.UNCATEGORIZED
 import com.boldblot.backgammonplyground.data.SavedPosition
@@ -64,8 +65,7 @@ data class QuizSpec(
 
     /** The positions [all] (already those of [folders]) that the quiz asks, before [limit] and order. */
     fun pick(all: List<SavedPosition>, s: Settings): List<SavedPosition> {
-        val f = s.visible(filter)
-        return all.filter { f.isEmpty() || Labels.matches(s.visible(it.labels), f) }
+        return all.filter { passesFilter(it, filter, s) }
     }
 
     companion object {
@@ -134,11 +134,12 @@ fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Uni
             Spacer(Modifier.height(12.dp))
             Text("Labels", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Only the positions with these labels: within a group any of them, across groups all of them.",
+                "Only the positions with these labels and quiz answers: within a group any of them, across groups all of them.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            LabelFilterButton(s.labelKeys, filter, { filter = it }, Modifier.padding(top = 4.dp))
-            if (filter.isNotEmpty()) Text(Labels.folderName(s.visible(filter)), style = MaterialTheme.typography.bodySmall)
+            LabelFilterButton(s.labelKeys, filter, { filter = it }, Modifier.padding(top = 4.dp), quiz = true)
+            if (s.visible(filter).isNotEmpty()) Text(Labels.folderName(s.visible(filter)), style = MaterialTheme.typography.bodySmall)
+            QuizFilter.text(filter).takeIf { it.isNotEmpty() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             Spacer(Modifier.height(12.dp))
             Text("Questions", style = MaterialTheme.typography.titleMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -159,7 +160,7 @@ fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Uni
                     n == null -> ""
                     n == 0 -> "No positions match."
                     asked != n -> "$n positions match; the quiz asks $asked."
-                    else -> "$n position${if (n == 1) "" else "s"} match."
+                    else -> if (n == 1) "1 position matches." else "$n positions match."
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )

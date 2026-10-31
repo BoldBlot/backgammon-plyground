@@ -178,6 +178,9 @@ data class Settings(
     val quizCorrect: QuizCorrect = QuizCorrect.NOT_ERROR,
     /** The quiz brings missed positions back until each has been answered right. */
     val quizRepeat: Boolean = false,
+    /** Delete a position from My positions once its quiz balance (right minus missed) reaches [quizDeleteAt]. */
+    val quizAutoDelete: Boolean = false,
+    val quizDeleteAt: Int = 3,
     val boardTheme: BoardTheme = BoardTheme.GRAY,
     val checkerSide: CheckerSide = CheckerSide.FIRST,
     val checkerStyle: CheckerStyle = CheckerStyle.RIMMED,
@@ -290,6 +293,8 @@ class SettingsStore(private val context: Context) {
         val errorsSort = stringPreferencesKey("errors_sort")
         val quizCorrect = stringPreferencesKey("quiz_correct")
         val quizRepeat = booleanPreferencesKey("quiz_repeat")
+        val quizAutoDelete = booleanPreferencesKey("quiz_auto_delete")
+        val quizDeleteAt = intPreferencesKey("quiz_delete_at")
         val theme = stringPreferencesKey("board_theme")
         val checker = stringPreferencesKey("checker_color")
         val checkerStyle = stringPreferencesKey("checker_style")
@@ -367,6 +372,8 @@ class SettingsStore(private val context: Context) {
             errorsSort = p.enum(Keys.errorsSort, d.errorsSort),
             quizCorrect = p.enum(Keys.quizCorrect, d.quizCorrect),
             quizRepeat = p[Keys.quizRepeat] ?: d.quizRepeat,
+            quizAutoDelete = p[Keys.quizAutoDelete] ?: d.quizAutoDelete,
+            quizDeleteAt = p[Keys.quizDeleteAt] ?: d.quizDeleteAt,
             boardTheme = p.enum(Keys.theme, d.boardTheme),
             // build 31 and earlier stored the grey board's colour, YELLOW (first) or RED (second)
             checkerSide = if (p[Keys.checker] in setOf("RED", "SECOND")) CheckerSide.SECOND else CheckerSide.FIRST,
@@ -442,6 +449,8 @@ class SettingsStore(private val context: Context) {
             p[Keys.errorsSort] = s.errorsSort.name
             p[Keys.quizCorrect] = s.quizCorrect.name
             p[Keys.quizRepeat] = s.quizRepeat
+            p[Keys.quizAutoDelete] = s.quizAutoDelete
+            p[Keys.quizDeleteAt] = s.quizDeleteAt
             p[Keys.theme] = s.boardTheme.name
             p[Keys.checker] = s.checkerSide.name
             p[Keys.checkerStyle] = s.checkerStyle.name

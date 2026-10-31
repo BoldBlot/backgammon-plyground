@@ -441,8 +441,7 @@ fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> 
         }
         all = app.positions.positions(categoryId)
     }
-    val shownFilter = settings.visible(filter)
-    val list = all?.filter { shownFilter.isEmpty() || Labels.matches(settings.visible(it.labels), shownFilter) }
+    val list = all?.filter { passesFilter(it, filter, settings) }
     Scaffold(
         topBar = {
             val sel = selected
@@ -471,7 +470,7 @@ fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> 
                 title = { Title(name) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
-                    if (!all.isNullOrEmpty()) LabelFilterButton(settings.labelKeys, filter, { filter = it }, compact = true)
+                    if (!all.isNullOrEmpty()) LabelFilterButton(settings.labelKeys, filter, { filter = it }, compact = true, quiz = true)
                     if (!all.isNullOrEmpty()) TextButton(onClick = { onQuiz(listOfNotNull(categoryId)) }) { Text("Quiz") }
                 },
             )
@@ -546,6 +545,9 @@ private fun PositionRow(
                         "Last quiz: " + (p.lastAnswer?.let { a -> "${answerText(sp, a)} · " } ?: "") + if (it) "right" else "missed",
                         style = MaterialTheme.typography.labelSmall, color = if (it) ArrowColors.best else MaterialTheme.colorScheme.error,
                     )
+                }
+                if (p.entity.quizRight + p.entity.quizWrong > 0) {
+                    Text("Quiz: ${quizCountText(p)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -646,6 +648,9 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodyMedium, color = if (right) ArrowColors.best else MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(top = 2.dp),
                     )
+                }
+                if (cur.entity.quizRight + cur.entity.quizWrong > 0) {
+                    Text("Quiz answers: ${quizCountText(cur)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 // Chips on one line (they wrap to a second row only with a very large font).
                 FlowRow(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1038,6 +1043,13 @@ private fun QuizResultCard(sp: SavedPosition, r: QuizResult, vm: QuizViewModel) 
             }
             val you = decisionText(p, r.move, r.cube)
             Text("You: $you", style = MaterialTheme.typography.bodyMedium)
+            if (r.counts != null) Text("This position: ${r.counts}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (r.deleted) {
+                Text(
+                    "Learned: its balance reached the threshold, so it was deleted from My positions (Settings → My positions → Quiz).",
+                    style = MaterialTheme.typography.bodyMedium, color = ArrowColors.best,
+                )
+            }
             if (r.mine != null) Text("★ Your saved answer: ${r.mine}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
             if (r.played != null) Text("In the game: ${r.played}", style = MaterialTheme.typography.bodyMedium)
             val best = decisionText(p, r.bestMove, r.bestCube)

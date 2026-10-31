@@ -2,6 +2,8 @@ package com.boldblot.backgammonplyground.data
 
 import android.content.Context
 import androidx.room.AutoMigration
+import androidx.room.migration.AutoMigrationSpec
+import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
@@ -105,6 +107,9 @@ data class PositionEntity(
     val played: String? = null,
     /** JSON of MyAnswer: the last quiz answer (schema 4); [lastRight] says whether it was right. */
     val lastAnswer: String? = null,
+    /** Quiz answers so far, right and missed (schema 5); their balance is right minus missed. */
+    @ColumnInfo(defaultValue = "0") val quizRight: Int = 0,
+    @ColumnInfo(defaultValue = "0") val quizWrong: Int = 0,
 )
 
 /** A category of My positions, in the player's order ([sort]). */
@@ -307,6 +312,12 @@ interface PositionDao {
     @Query("DELETE FROM positions WHERE id = :id")
     suspend fun deletePosition(id: Long)
 
+    @Query("DELETE FROM positions")
+    suspend fun deleteAllPositions()
+
+    @Query("DELETE FROM position_categories")
+    suspend fun unlinkAll()
+
     @Query("SELECT c.id, c.name, c.sort, (SELECT COUNT(*) FROM position_categories pc WHERE pc.categoryId = c.id) AS count, c.filter, c.autoAdd FROM categories c ORDER BY c.sort, c.id")
     suspend fun categories(): List<CategoryCount>
 
@@ -361,9 +372,12 @@ interface PositionDao {
         MatchEntity::class, GameEntity::class, CurrentMatchEntity::class, BlunderEntity::class,
         PositionEntity::class, CategoryEntity::class, PositionCategoryEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4)],
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
+        AutoMigration(from = 4, to = 5, spec = QuizCountsMigration::class),
+    ],
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun matches(): MatchDao
@@ -372,5 +386,13 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "plyground.db").build()
+    }
+}
+
+/** Schema 5 counts quiz answers: a position answered before starts with its last answer counted. */
+class QuizCountsMigration : AutoMigrationSpec {
+    override fun onPostMigrate(db: SupportSQLiteDatabase) {
+        db.execSQL("UPDATE positions SET quizRight = 1 WHERE lastRight = 1")
+        db.execSQL("UPDATE positions SET quizWrong = 1 WHERE lastRight = 0")
     }
 }
