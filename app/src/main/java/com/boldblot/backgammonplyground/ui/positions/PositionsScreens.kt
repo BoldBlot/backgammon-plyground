@@ -635,7 +635,12 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
         val sp = cur.position
         val a = cur.analysis
         val colors = boardColorsFor(settings)
-        val arrows = a?.checker?.candidates?.getOrNull(selected ?: -1)?.let { arrowsFor(Player.HUMAN, it.move, ArrowColors.best) }.orEmpty()
+        // The selected play's arrows take the colour of its error level, as in the review.
+        val arrows = a?.checker?.let { ch ->
+            ch.candidates.getOrNull(selected ?: -1)?.let {
+                arrowsFor(Player.HUMAN, it.move, ArrowColors.forSeverity(XgRules.severity((ch.bestEquity - it.equity) * factorOf(sp))))
+            }
+        }.orEmpty()
         BoxWithConstraints(Modifier.padding(padding).fillMaxSize()) {
             val board: @Composable (Modifier) -> Unit = { m ->
                 BoardView(

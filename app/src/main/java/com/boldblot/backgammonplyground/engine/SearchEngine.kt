@@ -10,6 +10,8 @@ import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.MAX_PLIES
 import com.boldblot.backgammonplyground.core.Move
 import com.boldblot.backgammonplyground.core.MIN_SEARCHED
+import com.boldblot.backgammonplyground.core.MAX_SEARCHED
+import com.boldblot.backgammonplyground.core.DECIDED_CHANCE
 import com.boldblot.backgammonplyground.core.MoveFilter
 import com.boldblot.backgammonplyground.core.MoveGenerator
 import com.boldblot.backgammonplyground.core.RankResult
@@ -76,14 +78,17 @@ abstract class SearchEngine : AnalysisEngine {
         val depth = IntArray(posts.size)
         val playedIdx = played?.let { posts.indexOf(board.applyMove(mover, it)) } ?: -1
         val depthOf = Depth.of(plies)
-        if (depthOf.plies >= 2 && posts.size > 1) {
+        if (depthOf.plies >= 2 && posts.size > 1 && !decided(probs)) {
             val within = depthOf.filter.within
             val best = eq.max()
             // Every move whose 1-ply equity is within the window of the best is searched deeper, and
             // always the best few: a window alone can drop the right move by a hair (FlashBack Boot
-            // Camp 6-2, 16/10 5/3: 0.164 behind at 1-ply, best by 0.29 at 3-ply).
-            val deep = eq.indices.filter { eq[it] >= best - within }.toMutableSet()
-            deep += eq.indices.sortedByDescending { eq[it] }.take(MIN_SEARCHED)
+            // Camp 6-2, 16/10 5/3: 0.164 behind at 1-ply, best by 0.29 at 3-ply). A pruned search
+            // takes at most MAX_SEARCHED of them, the best first.
+            val byEq = eq.indices.sortedByDescending { eq[it] }
+            val inWindow = byEq.filter { eq[it] >= best - within }
+            val deep = (if (within.isInfinite()) inWindow else inWindow.take(MAX_SEARCHED)).toMutableSet()
+            deep += byEq.take(MIN_SEARCHED)
             if (playedIdx >= 0) deep += playedIdx
             val list = deep.toList()
             val evals = evaluate(board, ctx, list.map { posts[it] }, depthOf.plies)
@@ -97,6 +102,18 @@ abstract class SearchEngine : AnalysisEngine {
         val order = posts.indices.sortedWith(compareByDescending<Int> { depth[it] }.thenByDescending { eq[it] })
         val candidates = order.map { Candidate(moves[it], eq[it], probs[it], depth[it]) }
         return RankResult(candidates, if (playedIdx >= 0) order.indexOf(playedIdx) else -1)
+    }
+
+    /**
+     * True when no play changes anything: the mover wins (or loses) whatever they play, and the
+     * gammon and backgammon chances are the same after every play (1-ply chances, for the mover).
+     * A deeper search could only find the same value for each play, so it is skipped.
+     */
+    private fun decided(probs: List<List<Float>>): Boolean {
+        fun same(i: Int) = probs.maxOf { it[i] } - probs.minOf { it[i] } < DECIDED_CHANCE
+        val lost = probs.all { it[0] < DECIDED_CHANCE }
+        val won = probs.all { it[0] > 1 - DECIDED_CHANCE }
+        return (lost || won) && (1..4).all { same(it) }
     }
 
     override fun chooseMove(board: Board, ctx: CubeContext, d1: Int, d2: Int, level: CpuLevel): Move {

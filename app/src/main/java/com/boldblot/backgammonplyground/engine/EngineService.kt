@@ -7,6 +7,7 @@ import com.boldblot.backgammonplyground.core.Board
 import com.boldblot.backgammonplyground.core.CpuLevel
 import com.boldblot.backgammonplyground.core.CubeContext
 import com.boldblot.backgammonplyground.core.EngineKind
+import com.boldblot.backgammonplyground.core.MatchEquityTable
 import com.boldblot.backgammonplyground.core.Move
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -153,7 +154,8 @@ class EngineService(private val context: Context) {
     private fun openBackground(threads: Int): PureTdEngine {
         backgroundHandle = PureTdNative.nativeShare(ptdHandle, threads)
         check(backgroundHandle != 0L) { "PureTD background engine failed" }
-        return PureTdEngine(backgroundHandle).also { backgroundEngine = it }
+        // Its own match equity table: the table fills a cache as it goes, which two threads can't share.
+        return PureTdEngine(backgroundHandle, MatchEquityTable()).also { backgroundEngine = it }
     }
 
     companion object {

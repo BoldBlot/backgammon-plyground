@@ -92,7 +92,8 @@ error of 0.035 in 13 decisions → performance 0.0108 → PR 5.38 (Expert).
 
 Decisions are analyzed with the PureTD engine, counting plies as XG does (1-ply = the
 neural network alone). By default checker plays are searched to 3-ply with pruning (the 5 best
-moves at 1-ply and any within 0.16 of the best), and cube decisions to 4-ply; both are set in
+moves at 1-ply and any within 0.16 of the best, at most 16; a game already decided for every play
+stops at 1-ply), and cube decisions to 4-ply; both are set in
 Settings (1- to 4-ply, and for checker play pruning on or off). XG itself
 usually analyzes deeper (rollouts), so individual equities can differ slightly from XG's; the
 method of turning equities into errors and PR is the same.

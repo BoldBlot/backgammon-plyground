@@ -31,6 +31,21 @@ class LabelsTest {
     }
 
     @Test
+    fun doubleMatchPointIsDmpNotPostCrawford() {
+        val race = Board.fromSides(IntArray(25).also { it[2] = 10; it[4] = 5 }, IntArray(25).also { it[3] = 15 })
+        val onepoint = Labels.of(rec(race), matchLength = 1, opponent = null)
+        assertTrue(AutoLabel.DMP in onepoint)
+        assertFalse(AutoLabel.POST_CRAWFORD in onepoint)
+        val dmp = Labels.of(rec(race, score = listOf(4, 4)), matchLength = 5, opponent = null)
+        assertTrue(AutoLabel.DMP in dmp)
+        assertFalse(AutoLabel.POST_CRAWFORD in dmp)
+        assertFalse(AutoLabel.DMP in Labels.of(rec(race, score = listOf(4, 2)), matchLength = 5, opponent = null))
+        // Labels stored before DMP existed read as DMP; others stay as they were.
+        assertEquals(setOf("MATCH", "DMP"), Labels.withDmp(setOf("MATCH", "POST_CRAWFORD"), 1, listOf(0, 0), false))
+        assertEquals(setOf("MATCH", "POST_CRAWFORD"), Labels.withDmp(setOf("MATCH", "POST_CRAWFORD"), 5, listOf(4, 2), false))
+    }
+
+    @Test
     fun filterIsAnyWithinAGroupAndAllAcross() {
         val labels = setOf("CUBE", "RACE", "MATCH")
         assertTrue(Labels.matches(labels, setOf("CONTACT", "RACE")))

@@ -122,6 +122,7 @@ class MatchEquityTable(private val g: Double = 0.270, private val bg: Double = 0
     }
 
     companion object {
+        /** The game slot's table. Not thread-safe (its caches): an engine on another thread gets its own. */
         val DEFAULT by lazy { MatchEquityTable() }
     }
 }

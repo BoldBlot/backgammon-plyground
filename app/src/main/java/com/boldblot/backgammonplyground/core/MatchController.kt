@@ -71,7 +71,7 @@ class MatchController(
     /** The engine the computer plays [m] with. */
     private fun cpu(m: MatchState): AnalysisEngine = opponents(m.engine)
 
-    private val factorCache = HashMap<Int, Float>()
+    private val factorCache = java.util.concurrent.ConcurrentHashMap<Int, Float>()
 
     private fun factor(m: MatchState) = factorCache.getOrPut(m.rules.length) { XgRules.errorFactor(m.rules.length) }
 

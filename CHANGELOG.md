@@ -4,11 +4,25 @@
 
 Next version expected on 2026-11-04.
 
-- Automatic labels: positions from 1-point matches (and other double match point positions) are
-  labelled Post-Crawford. They will get a DMP (double match point) label instead.
-- My positions: tapping a play in a saved position's analysis always draws green arrows, whatever
-  the play's error; they should take the colour of its error level.
-- In landscape, the text in the coloured error pills is not aligned properly.
+- Very long evaluations at the end of a game: when every play is equally good (the game is lost or
+  won whatever is played), "Analyzing your move…" could run for minutes after a double. A fix is
+  being evaluated in 0.7.10.
+
+## 0.7.10 — 2026-11-01 (build 55, internal test)
+
+- Checker analysis: a game that can no longer be won (or lost), with no gammon at stake between
+  the plays, stops at 1-ply: every play is worth the same, and it isn't counted as a decision. A
+  pruned search takes at most 16 plays deeper (the best at 1-ply, and always the play made), so big
+  doubles in an endgame no longer keep "Analyzing your move…" or the auto bear-off running for
+  minutes.
+- Automatic labels: positions where both players need one point (a 1-point match too) get the new
+  DMP (double match point) label instead of Post-Crawford, positions already saved too.
+- My positions: a play tapped in a saved position's analysis draws its arrows in the colour of its
+  error level, as in the review.
+- The text in the coloured error pills is centred (it sat off-centre in landscape).
+- After passing the computer's double, the computer no longer works out a reply in the finished
+  game (the next game logged an error at each of its moves).
+- The background analysis has its own match equity table, so it can't disturb the game's.
 
 ## 0.7.9 — 2026-11-01 (build 54)
 

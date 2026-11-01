@@ -26,6 +26,7 @@ enum class AutoLabel(val title: String, val group: LabelGroup, val description: 
     MATCH("Match", LabelGroup.GAME, "A match game."),
     CRAWFORD("Crawford", LabelGroup.GAME, "The Crawford game."),
     POST_CRAWFORD("Post-Crawford", LabelGroup.GAME, "After the Crawford game: a player needs one point."),
+    DMP("DMP", LabelGroup.GAME, "Double match point: both players need one point (a 1-point match too)."),
     ERROR("Error", LabelGroup.SIZE, "A mistake of XG's error size."),
     BLUNDER("Blunder", LabelGroup.SIZE, "A mistake of XG's blunder size."),
     OPENING("Opening", LabelGroup.STAGE, "The first few moves: both pip counts are still 145 or more."),
@@ -128,8 +129,7 @@ object Labels {
         if (board.allHome(player)) out += AutoLabel.BEAR_OFF
         if (matchLength == 0) out += AutoLabel.MONEY else {
             out += AutoLabel.MATCH
-            if (crawford) out += AutoLabel.CRAWFORD
-            else if (score.any { it == matchLength - 1 }) out += AutoLabel.POST_CRAWFORD
+            matchGameLabel(matchLength, score, crawford)?.let { out += it }
         }
         if (error != null) when {
             XgRules.severity(error).atLeast(Severity.BLUNDER) -> out += AutoLabel.BLUNDER
@@ -151,6 +151,24 @@ object Labels {
         }
         return out
     }
+
+    /** Crawford, DMP (both need one point) or Post-Crawford (one of them does); null otherwise. */
+    fun matchGameLabel(matchLength: Int, score: List<Int>, crawford: Boolean): AutoLabel? = when {
+        matchLength <= 0 -> null
+        crawford -> AutoLabel.CRAWFORD
+        score.all { it == matchLength - 1 } -> AutoLabel.DMP
+        score.any { it == matchLength - 1 } -> AutoLabel.POST_CRAWFORD
+        else -> null
+    }
+
+    /**
+     * Labels stored before DMP existed called double match point Post-Crawford: read them as DMP
+     * (the player's own changes to the labels stay).
+     */
+    fun withDmp(labels: Set<String>, matchLength: Int, score: List<Int>, crawford: Boolean): Set<String> =
+        if (AutoLabel.POST_CRAWFORD.name in labels && matchGameLabel(matchLength, score, crawford) == AutoLabel.DMP) {
+            labels - AutoLabel.POST_CRAWFORD.name + AutoLabel.DMP.name
+        } else labels
 
     private fun hits(board: Board, player: Int, move: Move): Boolean {
         var b = board

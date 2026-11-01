@@ -98,16 +98,30 @@ fun ErrorPill(
     style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyMedium, mono: Boolean = false, bold: Boolean = false,
 ) {
     val dark = dark()
-    Text(
-        text,
-        modifier = modifier
+    // The text sits in the middle of the pill whatever room the layout gives it (landscape rows
+    // stretch it): centred both ways, the font's extra line spacing trimmed so it isn't low.
+    Box(
+        modifier
             .background(severityFill(severity).copy(alpha = if (dark) 0.30f else 0.55f), RoundedCornerShape(50))
             .padding(horizontal = 8.dp, vertical = 2.dp),
-        color = if (dark) severityColor(severity) else Color(0xFF141414),
-        style = style, maxLines = 1,
-        fontFamily = if (mono) FontFamily.Monospace else null,
-        fontWeight = if (bold) FontWeight.SemiBold else null,
-    )
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            color = if (dark) severityColor(severity) else Color(0xFF141414),
+            style = style.copy(
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                    androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                    androidx.compose.ui.text.style.LineHeightStyle.Trim.None,
+                ),
+                platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
+            ),
+            maxLines = 1,
+            fontFamily = if (mono) FontFamily.Monospace else null,
+            fontWeight = if (bold) FontWeight.SemiBold else null,
+        )
+    }
 }
 
 /**

@@ -474,6 +474,8 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
      * cube decision and roll, then its move); [runCpu] takes them instead of thinking again.
      */
     private fun cpuAhead(m: MatchState) {
+        // Not after the game's end (a passed double leaves the computer "on turn" in a game that is over).
+        if (m.game.turn != Player.CPU || m.game.phase !in setOf(Phase.PRE_ROLL, Phase.MOVING)) return
         if (cpuStepsFor == m) return
         cpuStepsFor = m
         cpuSteps = viewModelScope.async {
@@ -495,6 +497,8 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         if (!job.isCompleted) _state.update { it.copy(busy = true, busyText = "Computer is thinking…") }
         val steps = try { job.await() } catch (e: Exception) {
             if (e !is kotlinx.coroutines.CancellationException) AppLog.error("Computer's steps ahead failed", e)
+            // A failed job is dropped, not awaited again at every later step.
+            if (cpuSteps === job) { cpuSteps = null; cpuStepsFor = null }
             null
         } finally {
             _state.update { it.copy(busy = false, busyText = null) }

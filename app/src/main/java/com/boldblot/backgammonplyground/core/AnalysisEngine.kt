@@ -62,8 +62,23 @@ const val MAX_PLIES = 4
 const val MIN_SEARCHED = 5
 
 /**
+ * Most moves a pruned checker search takes deeper (the best at 1-ply, plus the move played). With
+ * many plays inside the window (big doubles in an endgame) every one of them at 3- or 4-ply took
+ * minutes on a phone; past the 16th best at 1-ply the right play is practically never found.
+ */
+const val MAX_SEARCHED = 16
+
+/**
+ * A game the mover can no longer win, or no longer lose, with no gammon or backgammon still at
+ * stake between the plays (1-ply chances within this of each other): every play is worth the same,
+ * so the search stops at 1-ply.
+ */
+const val DECIDED_CHANCE = 0.0005f
+
+/**
  * Root filter of the checker search: the [MIN_SEARCHED] best moves at 1-ply and every move within
- * [within] of the best are searched deeper. Settings offer pruning on ([WIDE]) or off ([ALL]);
+ * [within] of the best are searched deeper, at most [MAX_SEARCHED] of them ([ALL]: every move).
+ * Settings offer pruning on ([WIDE]) or off ([ALL]);
  * [NARROW] and [NORMAL] remain for the computer's levels and for analyses stored with them.
  */
 enum class MoveFilter(val within: Float, val label: String) {
