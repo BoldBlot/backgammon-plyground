@@ -58,6 +58,13 @@ private val FILTERS = listOf(MoveFilter.ALL, MoveFilter.WIDE)
 /** Positions timed per depth (deeper is slower, so fewer). */
 private fun samples(plies: Int) = when (plies) { 1 -> 60; 2 -> 24; else -> 10 }
 
+/** "Speed test run on 1 Nov 2026: recommends checker play 3-ply, pruned, cube decisions 3-ply.", or null if never run. */
+fun speedTestLine(s: com.boldblot.backgammonplyground.data.Settings): String? {
+    if (s.speedTestAt <= 0L) return null
+    val day = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(s.speedTestAt))
+    return "Speed test run on $day: recommends ${s.speedTestResult}."
+}
+
 private fun fmt(ms: Double) = if (ms >= 1000) "%.2f s".format(ms / 1000) else "%.0f ms".format(ms)
 
 /**
@@ -170,6 +177,9 @@ fun SpeedTestScreen(app: PlyGroundApp, onBack: () -> Unit) {
                                 checker = bestChecker ?: Depth(1)
                                 cube = bestCube
                                 lines += "Recommended: checker play ${checker!!.label()}, cube decisions $bestCube-ply"
+                                // Kept, so that the welcome screen, Settings and About can say it was run.
+                                val result = "checker play ${checker!!.label()}, cube decisions $bestCube-ply"
+                                app.settings.update { it.copy(speedTestAt = System.currentTimeMillis(), speedTestResult = result) }
                             }
                         } finally {
                             // Also when the screen is left (the coroutine is cancelled): free the test's engine.

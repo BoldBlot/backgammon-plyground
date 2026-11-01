@@ -14,6 +14,7 @@ import com.boldblot.backgammonplyground.core.CubeEval
 import com.boldblot.backgammonplyground.core.CubeState
 import com.boldblot.backgammonplyground.core.DecisionRecord
 import com.boldblot.backgammonplyground.core.DecisionKind
+import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.Dice
 import com.boldblot.backgammonplyground.core.DiceSource
 import com.boldblot.backgammonplyground.core.EngineKind
@@ -43,6 +44,7 @@ import com.boldblot.backgammonplyground.data.CpuArrows
 import com.boldblot.backgammonplyground.data.GameKey
 import com.boldblot.backgammonplyground.data.MatchReport
 import com.boldblot.backgammonplyground.data.MeterMode
+import com.boldblot.backgammonplyground.data.QuickCubeCheck
 import com.boldblot.backgammonplyground.data.Settings
 import com.boldblot.backgammonplyground.data.TrainingMode
 import com.boldblot.backgammonplyground.ui.board.ArrowColors
@@ -231,6 +233,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                     deferred = s.quietPlay && s.analysisTiming == AnalysisTiming.BACKGROUND,
                     none = s.quietPlay && s.analysisTiming == AnalysisTiming.NONE,
                     autoPlies = s.autoFinishDepth.plies,
+                    quickCubePlies = if (s.quietPlay || s.quickCubeCheck == QuickCubeCheck.OFF) 0 else Depth(s.quickCubeCheck.plies).code,
                 )
                 val meterOn = s.meter != MeterMode.OFF && _state.value.settings.meter == MeterMode.OFF
                 _state.update { it.copy(settings = s) }
@@ -447,7 +450,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         if (s.deferred || s.none || autoMode != null || g.turn != Player.HUMAN || g.resignOffer != null) return
         val work: (() -> Unit) = when {
             g.phase == Phase.MOVING && options?.let { it.canMove && !it.isForced } == true -> { { controller.hintMoves(m) } }
-            g.phase == Phase.PRE_ROLL && g.mayDouble(m.rules, m.score) -> { { controller.analyzeCube(m) } }
+            g.phase == Phase.PRE_ROLL && g.mayDouble(m.rules, m.score) -> { { controller.rollCubeEval(m) } }
             else -> return
         }
         if (aheadFor == m) return
@@ -1241,6 +1244,22 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             val dropped = repo.dropPending(matchId)
             _state.update { st -> st.copy(gameOver = st.gameOver?.takeIf { it.matchId == matchId }?.let { it.copy(notAnalyzed = it.notAnalyzed + dropped) } ?: st.gameOver) }
             updateAnalysisLeft()
+        }
+    }
+
+    /**
+     * Delete on the summary at the end of match [matchId]: its analysis stops, it leaves history, statistics
+     * and the Match Library (with [errors] its errors too, see deleteMatchEverywhere), and the game screen is cleared.
+     */
+    fun deleteMatch(matchId: Long, errors: Boolean, then: () -> Unit) {
+        viewModelScope.launch {
+            pendingGames.removeAll { it.matchId == matchId }
+            com.boldblot.backgammonplyground.ui.review.deleteMatchEverywhere(app, matchId, errors)
+            pendingNext = null
+            repo.clearCurrent()
+            _state.update { GameUiState(loading = false, settings = it.settings) }
+            updateAnalysisLeft()
+            then()
         }
     }
 

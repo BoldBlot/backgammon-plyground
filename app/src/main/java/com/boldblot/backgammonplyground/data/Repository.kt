@@ -17,6 +17,7 @@ import com.boldblot.backgammonplyground.core.MatchRules
 import com.boldblot.backgammonplyground.core.MatchState
 import com.boldblot.backgammonplyground.core.PerformanceTotals
 import com.boldblot.backgammonplyground.core.Severity
+import com.boldblot.backgammonplyground.core.StudyPosition
 import com.boldblot.backgammonplyground.core.Summaries
 import com.boldblot.backgammonplyground.core.Player
 import com.boldblot.backgammonplyground.core.WinType
@@ -388,6 +389,26 @@ class Repository(private val db: AppDatabase) {
     }
 
     suspend fun removeBlunder(id: Long) = dao.deleteBlunder(id)
+
+    /**
+     * The positions of match [matchId]'s errors: its decisions of at least [min] (either player's, for
+     * imported matches with both players' errors) and the errors of it still in New errors.
+     */
+    suspend fun errorPositions(matchId: Long, min: Severity): List<StudyPosition> {
+        val m = dao.match(matchId) ?: return emptyList()
+        val factor = XgRules.errorFactor(m.length)
+        val fromGames = games(matchId).flatMap { (_, g) ->
+            g.decisions.filter { d -> XgRules.severity((d.scoredError ?: 0f) * factor).atLeast(min) }
+                .mapNotNull { d -> StudyPosition.of(d, m.length, m.jacoby) }
+        }
+        val waiting = dao.blundersOfMatch(matchId).mapNotNull { e ->
+            runCatching { AppJson.decodeFromString<DecisionRecord>(e.record) }.getOrNull()?.let { StudyPosition.of(it, e.matchLength, m.jacoby) }
+        }
+        return (fromGames + waiting).distinctBy { it.xgid to it.doubled }
+    }
+
+    /** Deletes match [matchId]'s errors from New errors; returns how many. */
+    suspend fun removeBlundersOf(matchId: Long): Int = dao.deleteBlundersOfMatch(matchId)
 
     /** How many errors wait in New errors. */
     suspend fun blunderCount(): Int = dao.blunderCount()

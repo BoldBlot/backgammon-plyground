@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.boldblot.backgammonplyground.core.CpuLevel
@@ -59,6 +60,12 @@ enum class CpuArrows(val label: String) { UNTIL_MOVE("Until my move"), ONE_SECON
 enum class MeterMode(val label: String) { OFF("Off"), BAR("Bar"), BAR_AND_NUMBERS("Bar and numbers") }
 
 /** What counts as a right answer in the My positions quiz. */
+/**
+ * Training during play with deep cube analysis: a quick check at this depth stands in for the deep one
+ * when it finds doubling a blunder (the player rolls), so obvious turns such as endgames don't wait.
+ */
+enum class QuickCubeCheck(val label: String, val plies: Int) { OFF("Off", 0), ONE("1-ply", 1), TWO("2-ply", 2) }
+
 /** How errors (equity lost) are shown everywhere: equity (-0.026) or thousandths of it (-26.0 mEq). */
 enum class ErrorUnit(val label: String) { EQ("Eq (0.026)"), MEQ("mEq (26.0)") }
 
@@ -204,6 +211,13 @@ data class Settings(
     val crawfordSign: Boolean = true,
     /** Errors in equity or in thousandths of it (mEq), everywhere. */
     val errorUnit: ErrorUnit = ErrorUnit.EQ,
+    /** The quick cube check before the deep one during play ([QuickCubeCheck]). */
+    val quickCubeCheck: QuickCubeCheck = QuickCubeCheck.OFF,
+    /** The quiz shows the position's labels under the board. */
+    val quizLabels: Boolean = true,
+    /** The last finished speed test: when (0 = never) and what it recommended ("checker play 3-ply, pruned, cube decisions 3-ply"). */
+    val speedTestAt: Long = 0L,
+    val speedTestResult: String = "",
     /** Landscape: the side column (players, Undo / Done, menus) right of the board instead of left. */
     val railRight: Boolean = false,
     /** Automatic labels turned off in Settings → My positions ([com.boldblot.backgammonplyground.core.AutoLabel] names): hidden everywhere. */
@@ -312,6 +326,10 @@ class SettingsStore(private val context: Context) {
         val backgroundPriority = stringPreferencesKey("background_priority")
         val crawfordSign = booleanPreferencesKey("crawford_sign")
         val errorUnit = stringPreferencesKey("error_unit")
+        val quickCubeCheck = stringPreferencesKey("quick_cube_check")
+        val quizLabels = booleanPreferencesKey("quiz_labels")
+        val speedTestAt = longPreferencesKey("speed_test_at")
+        val speedTestResult = stringPreferencesKey("speed_test_result")
         val railRight = booleanPreferencesKey("rail_right")
         val labelsOff = stringPreferencesKey("labels_off")
         val myLabels = stringPreferencesKey("my_labels")
@@ -395,6 +413,10 @@ class SettingsStore(private val context: Context) {
             backgroundPriority = p.enum(Keys.backgroundPriority, d.backgroundPriority),
             crawfordSign = p[Keys.crawfordSign] ?: d.crawfordSign,
             errorUnit = p.enum(Keys.errorUnit, d.errorUnit),
+            quickCubeCheck = p.enum(Keys.quickCubeCheck, d.quickCubeCheck),
+            quizLabels = p[Keys.quizLabels] ?: d.quizLabels,
+            speedTestAt = p[Keys.speedTestAt] ?: d.speedTestAt,
+            speedTestResult = p[Keys.speedTestResult] ?: d.speedTestResult,
             railRight = p[Keys.railRight] ?: d.railRight,
             labelsOff = lines(p[Keys.labelsOff]).toSet(),
             myLabels = lines(p[Keys.myLabels]),
@@ -470,6 +492,10 @@ class SettingsStore(private val context: Context) {
             p[Keys.backgroundPriority] = s.backgroundPriority.name
             p[Keys.crawfordSign] = s.crawfordSign
             p[Keys.errorUnit] = s.errorUnit.name
+            p[Keys.quickCubeCheck] = s.quickCubeCheck.name
+            p[Keys.quizLabels] = s.quizLabels
+            p[Keys.speedTestAt] = s.speedTestAt
+            p[Keys.speedTestResult] = s.speedTestResult
             p[Keys.railRight] = s.railRight
             p[Keys.labelsOff] = s.labelsOff.joinToString("\n")
             p[Keys.myLabels] = s.myLabels.joinToString("\n")

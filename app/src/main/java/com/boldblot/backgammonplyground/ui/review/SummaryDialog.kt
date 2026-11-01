@@ -1,5 +1,12 @@
 package com.boldblot.backgammonplyground.ui.review
 
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Checkbox
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.semantics.Role
+import com.boldblot.backgammonplyground.data.MatchStatus
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -52,7 +59,11 @@ fun SavedSummaryDialog(
     app: PlyGroundApp, matchId: Long, gameNumber: Int?, startWithMatch: Boolean, onDismiss: () -> Unit,
     /** A money session just ended in "after the match" training: its mistake count and a review of them (from game n). */
     onReviewMistakes: ((Int) -> Unit)? = null,
+    /** Offers Delete for a finished match; called once it is deleted. */
+    onDeleted: (() -> Unit)? = null,
 ) {
+    var deleting by remember { mutableStateOf(false) }
+    if (deleting) DeleteMatchDialog(app, matchId, onDismiss = { deleting = false }) { deleting = false; onDeleted?.invoke() }
     var match by remember { mutableStateOf<MatchEntity?>(null) }
     var games by remember { mutableStateOf<List<Pair<GameEntity, GameSummary>>>(emptyList()) }
     var report by remember { mutableStateOf<MatchReport?>(null) }
@@ -130,7 +141,14 @@ fun SavedSummaryDialog(
                 )
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(if (onReviewMistakes != null) "Done" else "Close") } },
+        confirmButton = {
+            Row {
+                if (onDeleted != null && m != null && m.status != MatchStatus.IN_PROGRESS) {
+                    TextButton(onClick = { deleting = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                }
+                TextButton(onClick = onDismiss) { Text(if (onReviewMistakes != null) "Done" else "Close") }
+            }
+        },
         dismissButton = onReviewMistakes?.let { review ->
             games.firstOrNull { it.second.performance[0].mistakes > 0 }?.let { (e, _) ->
                 { TextButton(onClick = { review(e.number) }) { Text("Review my mistakes") } }
@@ -172,4 +190,55 @@ private fun resultText(res: GameResult): String {
     }
     return "${if (res.winner == Player.HUMAN) "you win" else "computer wins"} $kind, " +
         "+${res.points} point${if (res.points > 1) "s" else ""}" + if (res.resigned) " (resigned)" else ""
+}
+
+/**
+ * Deletes match [matchId]: it leaves history, statistics and the Match Library; with [errors] its errors also
+ * leave New errors, and the positions filed from them leave My positions.
+ */
+suspend fun deleteMatchEverywhere(app: PlyGroundApp, matchId: Long, errors: Boolean) {
+    if (errors) {
+        val min = app.settings.settings.first().blunderList.minSeverity
+        app.positions.removeFiled(app.repository.errorPositions(matchId, min))
+        app.repository.removeBlundersOf(matchId)
+    }
+    app.repository.deleteMatch(matchId)
+}
+
+/** "Delete this match?" with "Also delete its errors" (ticked); [onDeleted] after [deleteMatchEverywhere], or [onConfirm] instead to do it elsewhere. */
+@Composable
+fun DeleteMatchDialog(
+    app: PlyGroundApp, matchId: Long, onDismiss: () -> Unit,
+    onConfirm: ((errors: Boolean) -> Unit)? = null, onDeleted: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var errors by remember { mutableStateOf(true) }
+    var working by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = { if (!working) onDismiss() },
+        title = { Text("Delete this match?") },
+        text = {
+            Column {
+                Text("Its games leave the Match Library, your history and your statistics. This cannot be undone.")
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 8.dp).toggleable(errors, role = Role.Checkbox) { errors = it },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = errors, onCheckedChange = null)
+                    Text("Also delete its errors: from New errors, and the positions they made in My positions", Modifier.padding(start = 8.dp))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !working, onClick = {
+                if (onConfirm != null) { onConfirm(errors); return@TextButton }
+                working = true
+                scope.launch {
+                    deleteMatchEverywhere(app, matchId, errors)
+                    onDeleted()
+                }
+            }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !working) { Text("Cancel") } },
+    )
 }

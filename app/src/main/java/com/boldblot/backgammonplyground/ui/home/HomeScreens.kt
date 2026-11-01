@@ -114,6 +114,7 @@ import com.boldblot.backgammonplyground.data.MatchEntity
 import com.boldblot.backgammonplyground.data.MatchStatus
 import com.boldblot.backgammonplyground.data.MeterMode
 import com.boldblot.backgammonplyground.data.ErrorUnit
+import com.boldblot.backgammonplyground.data.QuickCubeCheck
 import com.boldblot.backgammonplyground.data.QuizCorrect
 import com.boldblot.backgammonplyground.data.SavedBlunder
 import com.boldblot.backgammonplyground.data.Settings
@@ -594,24 +595,16 @@ fun HistoryScreen(
         }
     }
     summaryOf?.let { m ->
-        com.boldblot.backgammonplyground.ui.review.SavedSummaryDialog(app, m.id, gameNumber = null, startWithMatch = true, onDismiss = { summaryOf = null })
+        com.boldblot.backgammonplyground.ui.review.SavedSummaryDialog(
+            app, m.id, gameNumber = null, startWithMatch = true, onDismiss = { summaryOf = null },
+            onDeleted = { summaryOf = null; scope.launch { matches = app.repository.history() } },
+        )
     }
     toDelete?.let { m ->
-        AlertDialog(
-            onDismissRequest = { toDelete = null },
-            title = { Text("Delete this match?") },
-            text = { Text("Its games will be removed from history and statistics. Its errors stay in New errors.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    toDelete = null
-                    scope.launch {
-                        app.repository.deleteMatch(m.id)
-                        matches = app.repository.history()
-                    }
-                }) { Text("Delete") }
-            },
-            dismissButton = { TextButton(onClick = { toDelete = null }) { Text("Cancel") } },
-        )
+        com.boldblot.backgammonplyground.ui.review.DeleteMatchDialog(app, m.id, onDismiss = { toDelete = null }) {
+            toDelete = null
+            scope.launch { matches = app.repository.history() }
+        }
     }
 }
 
@@ -910,6 +903,14 @@ private fun TrainingSettings(s: Settings, update: (f: (Settings) -> Settings) ->
                 "Analyze again there goes deeper). The engine starts on each decision while you think about it.",
         )
     }
+    if (during && !s.quietPlay && s.playCubeDepth.plies >= 3) {
+        Chips("Quick cube check", QuickCubeCheck.entries, s.quickCubeCheck, { it.label }) { v -> update { it.copy(quickCubeCheck = v) } }
+        Note(
+            "Cube checks in the endgame are known to slow the game down. A quick check at a lower depth can stand in: " +
+                "when it finds doubling a blunder, your roll is judged by it and the deeper check is skipped. To check such " +
+                "a position more deeply, use Analyze again in the review.",
+        )
+    }
     if (during) {
         Toggle("Show the best move's arrows with my move", s.bestMoveArrows) { v -> update { it.copy(bestMoveArrows = v) } }
         Note("Otherwise the board shows only your move; pick the best move in the list to see it.")
@@ -941,6 +942,7 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
     Header("Quiz")
     Chips("A right answer is", QuizCorrect.entries, s.quizCorrect, { it.label }) { v -> update { it.copy(quizCorrect = v) } }
     Note("Not an error: anything within 0.020 of the best play (or your own answer, when you set one).")
+    Toggle("Show the position's labels after answering", s.quizLabels) { v -> update { it.copy(quizLabels = v) } }
     Toggle("Repeat missed positions until all are right", s.quizRepeat) { v -> update { it.copy(quizRepeat = v) } }
     Note("Each position counts its right and missed answers; their balance is right minus missed. The Filter menus can pick positions by them.")
     Toggle("Delete learned positions", s.quizAutoDelete) { v -> update { it.copy(quizAutoDelete = v) } }
@@ -1200,6 +1202,7 @@ private fun AnalysisSettings(s: Settings, update: (f: (Settings) -> Settings) ->
             "stronger but slower; the speed test times each depth on this phone and recommends one.",
     )
     OutlinedButton(onClick = onSpeedTest, modifier = Modifier.padding(top = 4.dp)) { Text("Speed test and recommendation") }
+    speedTestLine(s)?.let { Note(it) }
     Toggle("Analyze the computer's decisions too", s.cpuAnalysis) { v -> update { it.copy(cpuAnalysis = v) } }
     Note(
         "Used for the computer's PR and its moves in review. Off (the default) makes the computer move " +
@@ -1447,7 +1450,11 @@ private fun Radio(label: String, selected: Boolean, enabled: Boolean = true, onC
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AboutScreen(onBack: () -> Unit, onSpeedTest: () -> Unit = {}, onWelcome: () -> Unit = {}) {
+fun AboutScreen(
+    onBack: () -> Unit, onSpeedTest: () -> Unit = {}, onWelcome: () -> Unit = {},
+    /** The last speed test ([speedTestLine]), if one was run. */
+    speedTest: String? = null,
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -1539,6 +1546,7 @@ fun AboutScreen(onBack: () -> Unit, onSpeedTest: () -> Unit = {}, onWelcome: () 
             )
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onSpeedTest) { Text("Engine speed test") }
+            speedTest?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp)) }
             Spacer(Modifier.height(16.dp))
             Text(
                 "Backgammon PlyGround is made by Bold Blot (boldblot.com, support@boldblot.com), free software under " +

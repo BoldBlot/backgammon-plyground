@@ -398,6 +398,12 @@ private fun DrawScope.drawFlags(g: BoardGeometry, flagged: Set<Int>) {
     }
 }
 
+/** Drawing helpers shared with small icons elsewhere. */
+object BoardDrawing {
+    /** A checker as the board's Rimmed style draws it (the icons beside winning chances). */
+    fun DrawScope.checkerIcon(center: Offset, r: Float, fill: Color, rim: Color) = checker(center, r, fill, rim, CheckerStyle.RIMMED)
+}
+
 internal fun DrawScope.checker(center: Offset, r: Float, fill: Color, rim: Color, style: CheckerStyle) {
     when (style) {
         CheckerStyle.RIMMED -> {

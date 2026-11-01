@@ -137,18 +137,15 @@ class MainActivity : ComponentActivity() {
             if (pendingMatch != null && nav.currentDestination?.route != "history") nav.navigate("history")
         }
 
-        // The welcome screen: on a new install, after an update from a build without it, and again
-        // when the version name changes.
+        // The welcome screen: only when it has never been shown (a new install, or the app's data
+        // cleared); updates go straight to the home screen.
         val newInstall = remember {
             val info = packageManager.getPackageInfo(packageName, 0)
             info.firstInstallTime == info.lastUpdateTime
         }
         LaunchedEffect(Unit) {
             val seen = app.settings.settings.first().welcomeSeen
-            when {
-                seen == BuildConfig.VERSION_NAME -> {}
-                else -> nav.navigate("welcome")
-            }
+            if (seen.isEmpty()) nav.navigate("welcome")
         }
 
         NavHost(nav, startDestination = "home") {
@@ -263,7 +260,9 @@ class MainActivity : ComponentActivity() {
                 SettingsScreen(app, onBack = { nav.popBackStack() }, onSpeedTest = { nav.navigate("speedtest") }, group = group)
             }
             composable("about") {
+                val settingsNow by app.settings.settings.collectAsState(initial = null)
                 AboutScreen(
+                    speedTest = settingsNow?.let { com.boldblot.backgammonplyground.ui.home.speedTestLine(it) },
                     onBack = { nav.popBackStack() },
                     onSpeedTest = { nav.navigate("speedtest") },
                     onWelcome = { nav.navigate("welcome-again") },

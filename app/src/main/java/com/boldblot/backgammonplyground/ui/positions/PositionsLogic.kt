@@ -5,6 +5,8 @@ import com.boldblot.backgammonplyground.core.AnalysisSettings
 import com.boldblot.backgammonplyground.core.CheckerAnalysis
 import com.boldblot.backgammonplyground.core.DecisionKind
 import com.boldblot.backgammonplyground.core.DecisionMath
+import com.boldblot.backgammonplyground.core.Depth
+import com.boldblot.backgammonplyground.core.EngineKind
 import com.boldblot.backgammonplyground.core.DiceSource
 import com.boldblot.backgammonplyground.core.MatchController
 import com.boldblot.backgammonplyground.core.Move
@@ -36,19 +38,20 @@ fun quizCountText(p: SavedPosition): String {
 }
 
 /** Analyzes [p] at the analysis depths in Settings, with the analysis engine. */
-suspend fun analyzePosition(app: PlyGroundApp, p: StudyPosition, s: Settings): PositionAnalysis {
-    val plies = s.checkerDepth.code
-    val cube = s.cubeDepth.code
-    return app.engine.run {
+suspend fun analyzePosition(app: PlyGroundApp, p: StudyPosition, s: Settings): PositionAnalysis =
+    analyzePosition(app, p, s.analysisEngine, s.checkerDepth, s.cubeDepth)
+
+/** Analyzes [p] with [engine]: a checker play at [checker], a cube decision at [cube]. */
+suspend fun analyzePosition(app: PlyGroundApp, p: StudyPosition, engine: EngineKind, checker: Depth, cube: Depth): PositionAnalysis =
+    app.engine.run(engine) {
         val dice = p.dice
         if (dice != null) {
-            val c = MatchController(this, DiceSource.secure(), AnalysisSettings(plies = plies, cubePlies = cube))
-            PositionAnalysis(checker = c.analyzeChecker(p.board, p.ctx(), dice, null, plies), label = "${s.analysisEngine.label} ${s.checkerDepth.label()}")
+            val c = MatchController(this, DiceSource.secure(), AnalysisSettings(plies = checker.code, cubePlies = cube.code))
+            PositionAnalysis(checker = c.analyzeChecker(p.board, p.ctx(), dice, null, checker.code), label = "${engine.label} ${checker.label()}")
         } else {
-            PositionAnalysis(cube = cubeDecision(p.board, p.ctx(), cube), label = "${s.analysisEngine.label} ${s.cubeDepth.label(cube = true)}")
+            PositionAnalysis(cube = cubeDecision(p.board, p.ctx(), cube.code), label = "${engine.label} ${cube.label(cube = true)}")
         }
     }
-}
 
 /** [move]'s equity in [a] (null if it is not among the stored candidates). */
 fun equityOf(p: StudyPosition, a: CheckerAnalysis, move: Move): Float? {

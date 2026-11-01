@@ -282,6 +282,12 @@ interface MatchDao {
     @Query("DELETE FROM blunders WHERE id IN (:ids)")
     suspend fun deleteBlunders(ids: List<Long>)
 
+    @Query("SELECT * FROM blunders WHERE matchId = :matchId")
+    suspend fun blundersOfMatch(matchId: Long): List<BlunderEntity>
+
+    @Query("DELETE FROM blunders WHERE matchId = :matchId")
+    suspend fun deleteBlundersOfMatch(matchId: Long): Int
+
     @Query("SELECT * FROM blunders WHERE id = :id")
     suspend fun blunder(id: Long): BlunderEntity?
 }

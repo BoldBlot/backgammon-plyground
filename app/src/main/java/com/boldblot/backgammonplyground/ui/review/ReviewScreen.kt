@@ -391,6 +391,7 @@ private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, cap
         if (summary) SavedSummaryDialog(
             vm.app, m.id, gameNumber = st.games.getOrNull(st.gameIndex)?.first?.number, startWithMatch = false,
             onDismiss = { summary = false },
+            onDeleted = { summary = false; onBack() },
         )
     }
 }
@@ -614,7 +615,7 @@ private fun DecisionList(st: ReviewState, vm: ReviewViewModel, modifier: Modifie
                         .padding(horizontal = 10.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CheckerIcon(if (d.player == Player.HUMAN) colors.human else colors.cpu)
+                    CheckerIcon(if (d.player == Player.HUMAN) colors.human else colors.cpu, rim = if (d.player == Player.HUMAN) colors.humanRim else colors.cpuRim)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         d.dice?.toString() ?: "",
@@ -664,6 +665,8 @@ private fun DecisionAnalysis(st: ReviewState, vm: ReviewViewModel, d: DecisionRe
                 highlightIndex = d.reviewIndex, maxRows = 8, selectedIndex = st.candidate, detailed = true,
                 triedIndices = d.triedIndices, finalIndex = d.checker.playedIndex.takeIf { d.firstTry != null },
                 moverColor = if (d.player == Player.HUMAN) colors.human else colors.cpu,
+                moverRim = if (d.player == Player.HUMAN) colors.humanRim else colors.cpuRim,
+                opponentRim = if (d.player == Player.HUMAN) colors.cpuRim else colors.humanRim,
                 opponentColor = if (d.player == Player.HUMAN) colors.cpu else colors.human,
                 onSelect = { i, _ -> vm.selectCandidate(if (st.candidate == i) null else i) },
             )

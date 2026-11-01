@@ -20,6 +20,9 @@ import com.boldblot.backgammonplyground.core.XgRules
 import com.boldblot.backgammonplyground.data.DeletedPosition
 import com.boldblot.backgammonplyground.data.QuizCorrect
 import com.boldblot.backgammonplyground.ui.review.ReviewView
+import com.boldblot.backgammonplyground.ui.review.ReanalyzeRequest
+import com.boldblot.backgammonplyground.core.Depth
+import com.boldblot.backgammonplyground.core.EngineKind
 import com.boldblot.backgammonplyground.data.SavedPosition
 import com.boldblot.backgammonplyground.data.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -77,6 +80,8 @@ data class QuizState(
     val moveComplete: Boolean = false,
     /** Analyzing the position or the answer. */
     val busy: Boolean = false,
+    /** "Analyze again" on the result is running. */
+    val reanalyzing: Boolean = false,
     val result: QuizResult? = null,
     /** After an answer: the board with arrows, bare, or after a move; [candidate] is the play picked in the list. */
     val view: ReviewView = ReviewView.ARROWS,
@@ -239,41 +244,7 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
                 // A position saved without analysis (or imported) is analyzed now, and keeps it.
                 val a = sp.analysis ?: analyzePosition(app, p, s).also { app.positions.setAnalysis(sp.id, it) }
                 val factor = factorOf(p)
-                val result = if (move != null) {
-                    val c = a.checker!!
-                    val best = c.candidates.firstOrNull()
-                    // A play outside the stored candidates is analyzed with them.
-                    val eq = equityOf(p, c, move) ?: if (c.candidates.isEmpty()) null else app.engine.run {
-                        MatchController(this, DiceSource.secure(), AnalysisSettings(plies = c.plies, cubePlies = s.cubeDepth.code))
-                            .analyzeChecker(p.board, p.ctx(), p.dice!!, move, c.plies).playedEquity
-                    }
-                    val err = if (eq == null) 0f else ((c.bestEquity - eq) * factor).coerceAtLeast(0f)
-                    val mine = sp.answer?.move
-                    val right = when {
-                        mine != null -> p.board.applyMove(Player.HUMAN, mine) == p.board.applyMove(Player.HUMAN, move)
-                        s.quizCorrect == QuizCorrect.BEST_ONLY -> err < 0.0005f
-                        else -> !XgRules.severity(err).atLeast(Severity.ERROR)
-                    }
-                    QuizResult(
-                        right, err, XgRules.severity(err), move = move, bestMove = best?.move,
-                        mine = sp.answer?.let { answerText(p, it) }, equity = eq, bestEquity = best?.equity, analysis = a, factor = factor,
-                    )
-                } else {
-                    val raw = if (cubeAnswer != null) cubeAnswerError(p, a, cubeAnswer) else cubeError(p, a, cube!!)
-                    val err = (raw ?: 0f) * factor
-                    val mine = sp.answer?.cube
-                    val right = when {
-                        mine != null -> mine == cube
-                        s.quizCorrect == QuizCorrect.BEST_ONLY -> err < 0.0005f
-                        else -> !XgRules.severity(err).atLeast(Severity.ERROR)
-                    }
-                    val bestAnswer = if (cubeAnswer != null) bestCubeAnswer(p, a) else null
-                    QuizResult(
-                        right, err, XgRules.severity(err), cube = cube, cubeAnswer = cubeAnswer,
-                        bestCube = bestAnswer?.kind ?: bestCube(p, a), bestCubeAnswer = bestAnswer,
-                        mine = sp.answer?.let { answerText(p, it) }, analysis = a, factor = factor,
-                    )
-                }
+                val result = judge(sp, a, move, cube, cubeAnswer, s, null)
                 val counted = app.positions.setResult(sp.id, result.right, MyAnswer(move = move, cube = cube))
                     ?.let { sp.copy(entity = it) }
                 val deleted = counted != null && s.quizAutoDelete && counted.quizBalance >= s.quizDeleteAt
@@ -294,6 +265,93 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 AppLog.error("Quiz analysis failed", e)
                 _state.update { it.copy(busy = false, message = "Analysis failed: ${e.message}") }
+            }
+        }
+    }
+
+    /**
+     * The verdict on the answer ([move], or [cube] / [cubeAnswer]) to [sp] by analysis [a]; a play outside its
+     * candidates is analyzed with [engine] (the analysis engine when null).
+     */
+    private suspend fun judge(
+        sp: SavedPosition, a: PositionAnalysis, move: Move?, cube: DecisionKind?, cubeAnswer: CubeAnswer?, s: Settings, engine: EngineKind?,
+    ): QuizResult {
+        val p = sp.position
+        val factor = factorOf(p)
+        return if (move != null) {
+            val c = a.checker!!
+            val best = c.candidates.firstOrNull()
+            val eq = equityOf(p, c, move) ?: if (c.candidates.isEmpty()) null else app.engine.run(engine) {
+                MatchController(this, DiceSource.secure(), AnalysisSettings(plies = c.plies, cubePlies = s.cubeDepth.code))
+                    .analyzeChecker(p.board, p.ctx(), p.dice!!, move, c.plies).playedEquity
+            }
+            val err = if (eq == null) 0f else ((c.bestEquity - eq) * factor).coerceAtLeast(0f)
+            val mine = sp.answer?.move
+            val right = when {
+                mine != null -> p.board.applyMove(Player.HUMAN, mine) == p.board.applyMove(Player.HUMAN, move)
+                s.quizCorrect == QuizCorrect.BEST_ONLY -> err < 0.0005f
+                else -> !XgRules.severity(err).atLeast(Severity.ERROR)
+            }
+            QuizResult(
+                right, err, XgRules.severity(err), move = move, bestMove = best?.move,
+                mine = sp.answer?.let { answerText(p, it) }, equity = eq, bestEquity = best?.equity, analysis = a, factor = factor,
+            )
+        } else {
+            val raw = if (cubeAnswer != null) cubeAnswerError(p, a, cubeAnswer) else cubeError(p, a, cube!!)
+            val err = (raw ?: 0f) * factor
+            val mine = sp.answer?.cube
+            val right = when {
+                mine != null -> mine == cube
+                s.quizCorrect == QuizCorrect.BEST_ONLY -> err < 0.0005f
+                else -> !XgRules.severity(err).atLeast(Severity.ERROR)
+            }
+            val bestAnswer = if (cubeAnswer != null) bestCubeAnswer(p, a) else null
+            QuizResult(
+                right, err, XgRules.severity(err), cube = cube, cubeAnswer = cubeAnswer,
+                bestCube = bestAnswer?.kind ?: bestCube(p, a), bestCubeAnswer = bestAnswer,
+                mine = sp.answer?.let { answerText(p, it) }, analysis = a, factor = factor,
+            )
+        }
+    }
+
+    /**
+     * "Analyze again" on the result: analyzes the position with [r]'s engine and depths, keeps the new analysis
+     * on the position and judges the answer again by it. If right / missed changes, the position's quiz counts
+     * and this round's score change with it.
+     */
+    fun reanalyze(r: ReanalyzeRequest) {
+        val st = _state.value
+        val old = st.result ?: return
+        val sp = st.current ?: return
+        if (st.reanalyzing) return
+        val s = st.settings
+        _state.update { it.copy(reanalyzing = true, message = null) }
+        viewModelScope.launch {
+            try {
+                val p = sp.position
+                val a = analyzePosition(app, p, r.engine, r.checker, Depth(r.cubePlies))
+                val kept = !old.deleted && old.removed == null
+                if (kept) app.positions.setAnalysis(sp.id, a)
+                val fresh = judge(sp.copy(analysis = a), a, old.move, old.cube, old.cubeAnswer, s, r.engine)
+                val flipped = fresh.right != old.right
+                val counted = if (kept && flipped) app.positions.fixResult(sp.id, fresh.right)?.let { sp.copy(entity = it) } else null
+                val result = fresh.copy(
+                    played = sp.played?.let { answerWithError(p, a, it, s.errorUnit) },
+                    counts = counted?.let(::quizCountText) ?: old.counts, deleted = old.deleted, removed = old.removed,
+                )
+                _state.update {
+                    it.copy(
+                        reanalyzing = false, result = result, candidate = null,
+                        queue = it.queue.mapIndexed { i, q -> if (i == 0) q.copy(analysis = a, entity = counted?.entity ?: q.entity) else q },
+                        right = it.right + if (!flipped) 0 else if (fresh.right) 1 else -1,
+                        totalError = it.totalError - old.error / old.factor + fresh.error / fresh.factor,
+                        message = "Analyzed again: ${a.label}." + if (flipped) " The verdict changed." else "",
+                    )
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                AppLog.error("Quiz analysis failed", e)
+                _state.update { it.copy(reanalyzing = false, message = "Analysis failed: ${e.message}") }
             }
         }
     }

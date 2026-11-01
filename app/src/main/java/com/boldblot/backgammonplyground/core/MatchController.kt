@@ -38,6 +38,11 @@ data class AnalysisSettings(
     val none: Boolean = false,
     /** XG plies with which autofinish plays the human's side (no noise). */
     val autoPlies: Int = 1,
+    /**
+     * The quick cube check (a [Depth] code; 0 = off): when the human rolls and this shallower analysis
+     * finds doubling a blunder, it stands in for the analysis at [cubePlies].
+     */
+    val quickCubePlies: Int = 0,
 ) {
     val analyzeCpu: Boolean get() = cpuPlies != null && !none
 }
@@ -204,6 +209,24 @@ class MatchController(
     /** Cube analysis from the point of view of the player on roll (the potential doubler), at [plies]. */
     fun analyzeCube(m: MatchState, plies: Int = settings.cubePlies): CubeEval = engine.cubeDecision(m.game.board, m.ctx(), plies)
 
+    /**
+     * The analysis of the human's cube decision when they roll: the quick check's ([AnalysisSettings.quickCubePlies])
+     * when it is shallower than the cube depth and finds doubling a blunder (or the game hopeless either way, so
+     * that the cube does not matter), otherwise the full analysis.
+     */
+    fun rollCubeEval(m: MatchState): CubeEval {
+        val q = settings.quickCubePlies
+        if (q > 0 && Depth.of(q).plies < Depth.of(settings.cubePlies).plies) {
+            val quick = engine.cubeDecision(m.game.board, m.ctx(), q)
+            val after = DecisionMath.afterDouble(quick, m.rules.beaversAllowed)
+            val doubling = DecisionMath.doubleError(quick, doubled = true, beavers = m.rules.beaversAllowed) * factor(m)
+            // Hopeless either way (XG's "very negative" rule), with rolling no worse: the cube does not matter.
+            val hopeless = quick.noDouble <= XgRules.VERY_NEGATIVE && after <= XgRules.VERY_NEGATIVE && after <= quick.noDouble + XgRules.OPTIONAL_EPSILON
+            if (quick.cubeAvailable && (doubling > XgRules.BLUNDER_THRESHOLD || hopeless)) return quick
+        }
+        return analyzeCube(m)
+    }
+
     /** Whether a decision of the human (not autofinish's) is analyzed now: null = not at all. */
     private fun humanAnalysis(auto: Boolean): Analysis = when {
         auto || settings.none -> Analysis.NONE
@@ -249,7 +272,7 @@ class MatchController(
         var feedback: Feedback? = null
         val how = humanAnalysis(auto)
         if (how != Analysis.NONE && m.game.mayDouble(m.rules, m.score)) {
-            val eval = cubeAnalysis(m, how)
+            val eval = if (how == Analysis.NOW) rollCubeEval(m) else cubeAnalysis(m, how)
             if (eval == null || eval.cubeAvailable) {
                 val rec = recordDoubleDecision(m, doubled = false, eval = eval, hinted = hinted).later(how)
                 state = state.copy(game = state.game.record(rec))

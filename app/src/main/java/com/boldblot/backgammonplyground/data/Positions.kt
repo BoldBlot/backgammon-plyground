@@ -314,6 +314,18 @@ class PositionsRepository(db: AppDatabase) {
         return updated
     }
 
+    /** The last quiz answer to position [id] turned out [right] after all (analyzed again): one count moves over. */
+    suspend fun fixResult(id: Long, right: Boolean): PositionEntity? {
+        val e = dao.position(id) ?: return null
+        val updated = e.copy(
+            lastRight = right,
+            quizRight = (e.quizRight + if (right) 1 else -1).coerceAtLeast(0),
+            quizWrong = (e.quizWrong + if (right) -1 else 1).coerceAtLeast(0),
+        )
+        dao.update(updated)
+        return updated
+    }
+
     suspend fun setCategories(id: Long, categoryIds: Collection<Long>) {
         dao.unlinkPosition(id)
         categoryIds.filter { it != UNCATEGORIZED }.forEach { dao.link(PositionCategoryEntity(id, it)) }
@@ -341,6 +353,18 @@ class PositionsRepository(db: AppDatabase) {
         dao.insert(d.entity)
         val existing = dao.categories().map { it.id }.toSet()
         d.folders.filter { it in existing }.forEach { dao.link(PositionCategoryEntity(d.entity.id, it)) }
+    }
+
+    /** Deletes the positions [ps] that came from New errors (source "Blunder list"); returns how many. */
+    suspend fun removeFiled(ps: Collection<StudyPosition>): Int {
+        var n = 0
+        for (p in ps) {
+            val e = dao.find(p.xgid, p.doubled) ?: continue
+            if (e.source != "Blunder list") continue
+            remove(e.id)
+            n++
+        }
+        return n
     }
 
     /** Deletes every position; folders, autofilters and labels stay. */

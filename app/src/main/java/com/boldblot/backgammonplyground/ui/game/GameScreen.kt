@@ -128,6 +128,7 @@ import com.boldblot.backgammonplyground.ui.components.PlayedBestBar
 import com.boldblot.backgammonplyground.ui.components.SeverityBadge
 import com.boldblot.backgammonplyground.ui.components.describeAction
 import com.boldblot.backgammonplyground.ui.components.eq
+import com.boldblot.backgammonplyground.ui.review.DeleteMatchDialog
 import com.boldblot.backgammonplyground.ui.components.errText
 import com.boldblot.backgammonplyground.ui.components.fmt
 import com.boldblot.backgammonplyground.ui.components.pct
@@ -223,6 +224,7 @@ fun GameScreen(
         SavedSummaryDialog(
             vm.app, id, gameNumber = null, startWithMatch = true, onDismiss = { endedSession = null; onBack() },
             onReviewMistakes = { game -> endedSession = null; onReviewMistakes(id, game) },
+            onDeleted = { endedSession = null; onBack() },
         )
     }
 }
@@ -1003,6 +1005,7 @@ private fun Panels(st: GameUiState, m: MatchState, vm: GameViewModel) {
                     board = g.board, player = Player.HUMAN, analysis = h, factor = XgRules.errorFactor(m.rules.length),
                     highlightIndex = null, selectedIndex = st.previewCandidate, detailed = true,
                     moverColor = boardColorsFor(st.settings).human, opponentColor = boardColorsFor(st.settings).cpu,
+                    moverRim = boardColorsFor(st.settings).humanRim, opponentRim = boardColorsFor(st.settings).cpuRim,
                     onSelect = { i, c -> vm.preview(g.board, arrowsFor(Player.HUMAN, c.move, ArrowColors.best), i) },
                 )
                 if (st.preview != null) TextButton(onClick = { vm.preview(null) }) { Text("Clear arrows") }
@@ -1170,10 +1173,11 @@ private fun FeedbackCard(st: GameUiState, m: MatchState, vm: GameViewModel) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
     ) {
         Column(Modifier.padding(12.dp)) {
+            // A long badge ("Blunder -0.068 (×1.5 in PR)") wraps; Continue keeps its width.
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SeverityBadge(fb.severity, fb.weightedError, factor = factor)
-                Spacer(Modifier.weight(1f))
-                Button(onClick = vm::dismissFeedback) { Text("Continue") }
+                Box(Modifier.weight(1f)) { SeverityBadge(fb.severity, fb.weightedError, factor = factor) }
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = vm::dismissFeedback) { Text("Continue", maxLines = 1, softWrap = false) }
             }
             Text(
                 "You played: ${describeAction(d.kind, d.board, Player.HUMAN, d.move)}",
@@ -1206,7 +1210,7 @@ private fun FeedbackCard(st: GameUiState, m: MatchState, vm: GameViewModel) {
                     CandidateList(
                         board = d.board, player = Player.HUMAN, analysis = a, factor = factor,
                         highlightIndex = a.playedIndex, maxRows = 5, selectedIndex = st.previewCandidate,
-                        detailed = true, moverColor = colors.human, opponentColor = colors.cpu,
+                        detailed = true, moverColor = colors.human, opponentColor = colors.cpu, moverRim = colors.humanRim, opponentRim = colors.cpuRim,
                         onSelect = { i, c ->
                             val sev = XgRules.severity((a.bestEquity - c.equity) * factor)
                             vm.preview(d.board, arrowsFor(Player.HUMAN, c.move, ArrowColors.forSeverity(sev)), i)
@@ -1224,6 +1228,7 @@ private fun FeedbackCard(st: GameUiState, m: MatchState, vm: GameViewModel) {
 }
 
 /** "Try again" training: names the mistake (not its size or the answer) and offers another try. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TryAgainCard(fb: Feedback, vm: GameViewModel) {
     val d = fb.decision
@@ -1251,7 +1256,7 @@ private fun TryAgainCard(fb: Feedback, vm: GameViewModel) {
                 "${describeAction(d.kind, d.board, Player.HUMAN, d.move)} was $what. Try the decision again: your first try is what counts.",
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), itemVerticalAlignment = Alignment.CenterVertically) {
                 Button(onClick = vm::tryAgain) { Text("Try again") }
                 OutlinedButton(onClick = vm::showAnswer) { Text("Show answer") }
                 TextButton(onClick = vm::dismissFeedback) { Text("Continue") }
@@ -1433,7 +1438,14 @@ private fun GameOverDialog(
                         }
                     }
                 }
+                var deleting by remember { mutableStateOf(false) }
+                if (deleting) DeleteMatchDialog(
+                    vm.app, info.matchId, onDismiss = { deleting = false },
+                    onConfirm = { errors -> deleting = false; vm.deleteMatch(info.matchId, errors) { onBack() } },
+                ) {}
                 Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.End) {
+                    // The match's summary can delete it (history, statistics, Match Library; its errors too).
+                    if (info.matchOver) TextButton(onClick = { deleting = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
                     if (info.afterMatch && (info.mistakes > 0 || analysisLeft > 0)) {
                         TextButton(onClick = { onReviewMistakes(info.matchId, info.reviewGame) }, enabled = analysisLeft == 0) { Text("Review my mistakes") }
                     } else {

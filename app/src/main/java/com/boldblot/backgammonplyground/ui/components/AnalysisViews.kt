@@ -110,15 +110,17 @@ fun ErrorPill(
     )
 }
 
-/** A small checker in a player's colour, with a rim (in place of plain dots, which read as severities). */
+/**
+ * A small checker in a player's colours (in place of plain dots, which read as severities), always drawn
+ * as the board's Rimmed style whatever style the board uses. [rim]: the board's rim colour for it.
+ */
 @Composable
-fun CheckerIcon(color: Color, modifier: Modifier = Modifier) {
-    androidx.compose.foundation.Canvas(modifier.size(11.dp)) {
-        val r = size.minDimension / 2
-        val rim = Color(color.red * 0.62f, color.green * 0.62f, color.blue * 0.62f, color.alpha)
-        drawCircle(color, r)
-        drawCircle(rim, r - 0.6.dp.toPx(), style = androidx.compose.ui.graphics.drawscope.Stroke(1.2.dp.toPx()))
-        drawCircle(rim, r * 0.55f, style = androidx.compose.ui.graphics.drawscope.Stroke(0.8.dp.toPx()))
+fun CheckerIcon(color: Color, modifier: Modifier = Modifier, rim: Color = Color.Unspecified) {
+    val edge = if (rim != Color.Unspecified) rim else Color(color.red * 0.62f, color.green * 0.62f, color.blue * 0.62f, color.alpha)
+    androidx.compose.foundation.Canvas(modifier.size(12.dp)) {
+        with(com.boldblot.backgammonplyground.ui.board.BoardDrawing) {
+            checkerIcon(center, size.minDimension / 2, color, edge)
+        }
     }
 }
 
@@ -154,6 +156,9 @@ fun CandidateList(
     detailed: Boolean = false,
     moverColor: Color = Color.Unspecified,
     opponentColor: Color = Color.Unspecified,
+    /** The board's rim colours of the mover's and the opponent's checkers, for the icons. */
+    moverRim: Color = Color.Unspecified,
+    opponentRim: Color = Color.Unspecified,
     onSelect: ((Int, Candidate) -> Unit)? = null,
     /** The player's own answer (My positions): a ✓ before the move. */
     checkIndex: Int? = null,
@@ -203,8 +208,8 @@ fun CandidateList(
                 if (detailed) {
                     val (me, them) = odds(c.probs)
                     FlowRow(Modifier.padding(start = 22.dp, top = 2.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OddsChip(moverColor, me)
-                        OddsChip(opponentColor, them)
+                        OddsChip(moverColor, moverRim, me)
+                        OddsChip(opponentColor, opponentRim, them)
                     }
                 }
             }
@@ -218,9 +223,9 @@ fun CandidateList(
 }
 
 @Composable
-private fun OddsChip(color: Color, text: String) {
+private fun OddsChip(color: Color, rim: Color, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        CheckerIcon(color)
+        CheckerIcon(color, rim = rim)
         Text(" $text", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 }

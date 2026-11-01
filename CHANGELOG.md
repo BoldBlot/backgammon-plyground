@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.9 — 2026-11-01 (build 54, internal test)
+
+- Quick cube check (Settings → Training, with analysis during play and 3- or 4-ply cube decisions; off
+  by default): a 1-ply or 2-ply check stands in for the deep one when it finds doubling a blunder, or
+  the game hopeless either way, so endgames no longer wait on every roll. Doubling always gets the
+  full analysis; Analyze again in the review checks any position deeper.
+- Quiz result: the analysis behind the verdict is named ("Analysis: PureTD 3-ply, pruned"), and
+  Analyze again redoes it with another engine or depth. The new analysis is kept on the position and
+  the result follows it; if right and missed swap, the position's counts and the score do too.
+- Quiz: the position's labels show under the board after you answer (Settings → My positions → Quiz
+  can turn them off). The Crawford sign stands on the bar in Crawford games.
+- Undo after Delete (quiz and New errors) disappears after 5 seconds.
+- The match summary can delete the match (at the end of a match and in the Match Library): it leaves
+  history, statistics and the Match Library, and with "Also delete its errors" (ticked) its errors
+  leave New errors and the positions they made leave My positions.
+- Intuition training in landscape: a long error badge wraps instead of squeezing Continue; the Try
+  again buttons wrap too.
+- The checkers beside the winning chances are always drawn as the board's Rimmed checkers.
+- The welcome screen shows only on a new install (or after clearing the app's data), no longer after
+  every update. A finished speed test is remembered: the welcome screen, Settings → Analysis and
+  About say when it ran and what it recommended.
+
 ## 0.7.8 — 2026-11-01 (build 53, internal test)
 
 - Errors in the lists are marked by tinted pills around the numbers, no more coloured dots: the

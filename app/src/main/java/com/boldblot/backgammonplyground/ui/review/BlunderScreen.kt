@@ -254,7 +254,10 @@ fun BlunderScreen(vm: BlunderViewModel, onBack: () -> Unit) {
     var removed by remember { mutableStateOf<BlunderEntity?>(null) }
     LaunchedEffect(removed) {
         val e = removed ?: return@LaunchedEffect
-        val r = snackbar.showSnackbar("Deleted from New errors", actionLabel = "Undo", withDismissAction = true)
+        // Undo stays up for 5 seconds (a snackbar with an action would otherwise wait for a tap).
+        val r = kotlinx.coroutines.withTimeoutOrNull(5_000) {
+            snackbar.showSnackbar("Deleted from New errors", actionLabel = "Undo", withDismissAction = true, duration = androidx.compose.material3.SnackbarDuration.Indefinite)
+        }
         if (r == SnackbarResult.ActionPerformed) vm.undoRemove(e)
         removed = null
     }
@@ -417,7 +420,7 @@ private fun Detail(st: BlunderState, b: SavedBlunder, vm: BlunderViewModel) {
             d.checker != null && d.checker.candidates.isNotEmpty() -> CandidateList(
                 board = d.board, player = d.player, analysis = d.checker, factor = st.factor,
                 highlightIndex = d.checker.playedIndex, maxRows = 8, selectedIndex = st.candidate, detailed = true,
-                moverColor = colors.human, opponentColor = colors.cpu,
+                moverColor = colors.human, opponentColor = colors.cpu, moverRim = colors.humanRim, opponentRim = colors.cpuRim,
                 onSelect = { i, _ -> vm.selectCandidate(if (st.candidate == i) null else i) },
             )
             d.cubeEval != null -> CubeTable(d.cubeEval, d.kind, st.factor, d.beavers)

@@ -21,6 +21,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,8 +47,8 @@ private val WAIT_CHOICES = listOf(
 )
 
 /**
- * Shown once: on a new install or the first start after an update, and again when the version name
- * changes (not for builds within a version); About opens it any time. What a ply is, and a starting
+ * Shown once: when it has never been shown (a new install, or the app's data cleared); updates go
+ * straight to the home screen. About opens it any time. What a ply is, and a starting
  * depth picked by how long the player will wait. The card matching the current depths is selected
  * (on a new install the defaults: Put me on hold), and Continue applies the card selected.
  */
@@ -120,10 +121,13 @@ fun WelcomeScreen(app: PlyGroundApp, newInstall: Boolean, onSpeedTest: () -> Uni
                     "About. You can change the depths any time in Settings → Analysis.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            val settings by app.settings.settings.collectAsState(initial = null)
+            val done = settings?.let(::speedTestLine)
+            if (done != null) Text(done, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { finish(onDone) }) { Text("Continue") }
-                OutlinedButton(onClick = { finish(onSpeedTest) }) { Text("Run the speed test") }
+                OutlinedButton(onClick = { finish(onSpeedTest) }) { Text(if (done != null) "Run the speed test again" else "Run the speed test") }
             }
         }
     }

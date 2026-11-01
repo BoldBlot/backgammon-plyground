@@ -1,5 +1,7 @@
 package com.boldblot.backgammonplyground.ui.positions
 
+import androidx.compose.material.icons.filled.Refresh
+import com.boldblot.backgammonplyground.ui.review.ReanalyzeDialog
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -706,7 +708,7 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                         CandidateList(
                             board = sp.board, player = Player.HUMAN, analysis = a.checker, factor = factorOf(sp),
                             highlightIndex = played?.takeIf { it >= 0 }, maxRows = 10, selectedIndex = selected, detailed = true,
-                            moverColor = colors.human, opponentColor = colors.cpu, onSelect = { i, _ -> selected = i },
+                            moverColor = colors.human, opponentColor = colors.cpu, moverRim = colors.humanRim, opponentRim = colors.cpuRim, onSelect = { i, _ -> selected = i },
                             checkIndex = mine?.takeIf { it >= 0 }, playedLabel = "played",
                         )
                     }
@@ -943,7 +945,10 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(st.lastRemoved) {
         val d = st.lastRemoved ?: return@LaunchedEffect
-        val r = snackbar.showSnackbar("Deleted from My positions", actionLabel = "Undo", withDismissAction = true)
+        // Undo stays up for 5 seconds (a snackbar with an action would otherwise wait for a tap).
+        val r = kotlinx.coroutines.withTimeoutOrNull(5_000) {
+            snackbar.showSnackbar("Deleted from My positions", actionLabel = "Undo", withDismissAction = true, duration = androidx.compose.material3.SnackbarDuration.Indefinite)
+        }
         if (r == SnackbarResult.ActionPerformed) vm.undoDelete(d)
     }
     val title = if (st.finished || st.total == 0) "Quiz" else "Quiz · ${st.answered + if (st.result == null) 1 else 0}"
@@ -1035,6 +1040,7 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
             board = shown, modifier = m.then(capture.modifier), colors = colors, mirrored = st.settings.mirrorBoard,
             dice = listOfNotNull(p.dice?.takeIf { afterMove == null }?.let { DiceView(Player.HUMAN, st.diceOrder, if (r != null) st.diceOrder.map { 0f } else st.diceDim, error = st.diceError) }),
             cube = p.setup.cube, cubeOffered = p.doubled,
+            crawford = p.setup.crawford, crawfordSign = st.settings.crawfordSign,
             movable = if (interactive) st.movable else emptySet(),
             pips = listOf(shown.pipCount(Player.HUMAN), shown.pipCount(Player.CPU)),
             arrows = arrows,
@@ -1044,6 +1050,8 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
     }
     val panel: @Composable () -> Unit = {
         Text(contextText(p), style = MaterialTheme.typography.titleSmall)
+        // The position's labels, after the answer (some, like Blunder, would give it away).
+        if (r != null && st.settings.quizLabels) LabelTags(st.settings.visible(sp.labels), Modifier.padding(vertical = 4.dp))
         if (sp.entity.note.isNotBlank() && r != null) Text(sp.entity.note, style = MaterialTheme.typography.bodySmall)
         when {
             st.busy -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
@@ -1066,7 +1074,12 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
                 CubeAnswer.entries.forEach { c -> FilledTonalButton(onClick = { vm.answerCube(c) }) { Text(c.label) } }
             }
         }
-        st.message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.clickable(onClick = vm::dismissMessage)) }
+        st.message?.let {
+            Text(
+                it, color = if (it.startsWith("Analysis failed")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.clickable(onClick = vm::dismissMessage),
+            )
+        }
         Text(
             "${st.queue.size - if (r != null) 1 else 0} left · right ${st.right} of ${st.answered}",
             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp),
@@ -1133,6 +1146,21 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
             if (r.equity != null && r.bestEquity != null) {
                 Text("Equity: yours ${eq(r.equity)}, best ${eq(r.bestEquity)}", style = MaterialTheme.typography.labelMedium)
             }
+            // The analysis behind the verdict, and another one at other depths or with another engine.
+            var asking by remember { mutableStateOf(false) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Analysis: ${r.analysis.label.ifBlank { "depth not recorded" }}",
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
+                )
+                if (st.reanalyzing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else TextButton(onClick = { asking = true }) {
+                    Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Analyze again")
+                }
+            }
+            if (asking) ReanalyzeDialog(st.settings, gameNumber = null, onDismiss = { asking = false }, onStart = { asking = false; vm.reanalyze(it) })
             r.analysis.cube?.let { CubeTable(it, if (p.doubled) DecisionKind.TAKE else null, factorOf(p), p.beavers) }
             r.analysis.checker?.let { c ->
                 ReviewViewChips(st.view, true, vm::setView, null, Modifier.fillMaxWidth())

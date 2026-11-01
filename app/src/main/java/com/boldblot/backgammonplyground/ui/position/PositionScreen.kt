@@ -356,6 +356,8 @@ private fun Results(st: PositionState, vm: PositionViewModel, colors: BoardColor
             maxRows = 10, selectedIndex = st.selected, detailed = true,
             moverColor = if (st.onRoll == Player.HUMAN) colors.human else colors.cpu,
             opponentColor = if (st.onRoll == Player.HUMAN) colors.cpu else colors.human,
+            moverRim = if (st.onRoll == Player.HUMAN) colors.humanRim else colors.cpuRim,
+            opponentRim = if (st.onRoll == Player.HUMAN) colors.cpuRim else colors.humanRim,
             onSelect = { i, _ -> vm.select(i) },
         )
     }
