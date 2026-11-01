@@ -25,6 +25,9 @@ data class SavedPosition(
     val quizBalance: Int get() = entity.quizRight - entity.quizWrong
 }
 
+/** A position deleted with Undo in reach: the row and the folders it was in. */
+data class DeletedPosition(val entity: PositionEntity, val folders: List<Long>)
+
 /** The file My positions exports and imports: plain JSON, readable by other programs. */
 @Serializable
 data class PositionsFile(
@@ -322,6 +325,22 @@ class PositionsRepository(db: AppDatabase) {
     suspend fun remove(id: Long) {
         dao.unlinkPosition(id)
         dao.deletePosition(id)
+    }
+
+    /** Deletes position [id] (from My positions and all its folders) and returns what [restore] needs to undo it. */
+    suspend fun removeForUndo(id: Long): DeletedPosition? {
+        val e = dao.position(id) ?: return null
+        val folders = dao.categoriesOf(id)
+        remove(id)
+        return DeletedPosition(e, folders)
+    }
+
+    /** Puts back a position deleted by [removeForUndo], with its folders that still exist. */
+    suspend fun restore(d: DeletedPosition) {
+        if (dao.position(d.entity.id) != null) return
+        dao.insert(d.entity)
+        val existing = dao.categories().map { it.id }.toSet()
+        d.folders.filter { it in existing }.forEach { dao.link(PositionCategoryEntity(d.entity.id, it)) }
     }
 
     /** Deletes every position; folders, autofilters and labels stay. */

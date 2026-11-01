@@ -87,6 +87,7 @@ import com.boldblot.backgammonplyground.ui.components.SeverityBadge
 import com.boldblot.backgammonplyground.ui.components.decisionCube
 import com.boldblot.backgammonplyground.ui.components.describeAction
 import com.boldblot.backgammonplyground.ui.components.eq
+import com.boldblot.backgammonplyground.ui.components.errText
 import com.boldblot.backgammonplyground.ui.components.severityColor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -120,7 +121,7 @@ fun BlunderList(
 ) {
     if (blunders.isEmpty()) {
         Text(
-            if (filtered) "No errors pass the filter." else "No new errors. The mistakes you make (Settings → Analysis says which) " +
+            if (filtered) "No errors pass the filter." else "No new errors. The mistakes you make (Settings → My positions → New errors says which) " +
                 "wait here until you add them to My positions or delete them.",
             modifier.padding(24.dp),
         )
@@ -149,7 +150,7 @@ fun BlunderList(
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
                         )
                     }
-                    Text(eq(-b.entity.error), fontFamily = FontFamily.Monospace, color = severityColor(sev))
+                    Text(errText(-b.entity.error / XgRules.errorFactor(b.entity.matchLength)), fontFamily = FontFamily.Monospace, color = severityColor(sev))
                 }
             }
         }
@@ -361,7 +362,7 @@ private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKee
         val best = a.candidates.first()
         PlayedBestBar(
             playedText = played?.let { MoveNotation.format(d.board, d.player, it.move) } ?: "?",
-            playedError = d.error?.times(st.factor), playedSeverity = st.severity,
+            playedError = d.error, playedSeverity = st.severity,
             bestText = MoveNotation.format(d.board, d.player, best.move), bestEquity = best.equity,
             modifier = Modifier.padding(top = 4.dp),
             onPlayed = { vm.selectCandidate(a.playedIndex) },
@@ -396,7 +397,7 @@ private fun Detail(st: BlunderState, b: SavedBlunder, vm: BlunderViewModel) {
                 "You: ${describeAction(d.kind, d.board, d.player, d.move)}" + (d.dice?.let { "  ($it)" } ?: ""),
                 style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f),
             )
-            SeverityBadge(st.severity, b.entity.error)
+            SeverityBadge(st.severity, b.entity.error, factor = st.factor)
         }
         Text(context(b), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         var ask by remember { mutableStateOf(false) }

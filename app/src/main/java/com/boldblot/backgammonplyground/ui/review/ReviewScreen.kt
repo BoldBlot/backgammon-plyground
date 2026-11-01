@@ -548,7 +548,7 @@ private fun BottomBar(st: ReviewState, vm: ReviewViewModel, landscape: Boolean) 
         val best = a.candidates.first()
         PlayedBestBar(
             playedText = played?.let { MoveNotation.format(d.board, d.player, it.move) } ?: "?",
-            playedError = d.error?.times(st.factor), playedSeverity = st.severityOf(d),
+            playedError = d.error, playedSeverity = st.severityOf(d),
             bestText = MoveNotation.format(d.board, d.player, best.move), bestEquity = best.equity,
             modifier = Modifier.padding(top = 4.dp),
             onPlayed = { vm.selectCandidate(a.playedIndex) },
@@ -625,7 +625,7 @@ private fun DecisionList(st: ReviewState, vm: ReviewViewModel, modifier: Modifie
                     if (scored != null && sev != Severity.NONE && !selected) {
                         Box(Modifier.size(9.dp).background(severityColor(sev), RoundedCornerShape(5.dp)))
                     }
-                    if (scored != null && selected) SeverityBadge(sev, scored * st.factor)
+                    if (scored != null && selected) SeverityBadge(sev, scored * st.factor, factor = st.factor)
                 }
                 if (selected && !st.collapsed) DecisionAnalysis(st, vm, d, Modifier.padding(start = 10.dp, end = 10.dp, bottom = 8.dp))
             }

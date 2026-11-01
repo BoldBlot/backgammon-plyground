@@ -128,6 +128,7 @@ import com.boldblot.backgammonplyground.ui.components.PlayedBestBar
 import com.boldblot.backgammonplyground.ui.components.SeverityBadge
 import com.boldblot.backgammonplyground.ui.components.describeAction
 import com.boldblot.backgammonplyground.ui.components.eq
+import com.boldblot.backgammonplyground.ui.components.errText
 import com.boldblot.backgammonplyground.ui.components.fmt
 import com.boldblot.backgammonplyground.ui.components.pct
 import com.boldblot.backgammonplyground.ui.components.scrollIndicator
@@ -930,7 +931,7 @@ private fun CubeMistakeSign(st: GameUiState, m: MatchState) {
         modifier = Modifier.defaultMinSize(minHeight = 1.dp),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp),
     ) {
-        SignText("Cube ${fb.severity.label.lowercase()}", if (hidden) null else eq(-fb.weightedError))
+        SignText("Cube ${fb.severity.label.lowercase()}", if (hidden) null else errText(-fb.weightedError / XgRules.errorFactor(m.rules.length)))
     }
     if (open) {
         AlertDialog(
@@ -938,7 +939,7 @@ private fun CubeMistakeSign(st: GameUiState, m: MatchState) {
             title = { Text("You: ${describeAction(d.kind, d.board, Player.HUMAN, d.move)}") },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    SeverityBadge(fb.severity, fb.weightedError)
+                    SeverityBadge(fb.severity, fb.weightedError, factor = XgRules.errorFactor(m.rules.length))
                     Spacer(Modifier.height(8.dp))
                     CubeTable(eval, d.kind, XgRules.errorFactor(m.rules.length), d.beavers)
                 }
@@ -1170,7 +1171,7 @@ private fun FeedbackCard(st: GameUiState, m: MatchState, vm: GameViewModel) {
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                SeverityBadge(fb.severity, fb.weightedError)
+                SeverityBadge(fb.severity, fb.weightedError, factor = factor)
                 Spacer(Modifier.weight(1f))
                 Button(onClick = vm::dismissFeedback) { Text("Continue") }
             }
@@ -1194,7 +1195,7 @@ private fun FeedbackCard(st: GameUiState, m: MatchState, vm: GameViewModel) {
                     if (played != null && best != null) {
                         PlayedBestBar(
                             playedText = MoveNotation.format(d.board, Player.HUMAN, played.move),
-                            playedError = fb.weightedError, playedSeverity = fb.severity,
+                            playedError = fb.weightedError / factor, playedSeverity = fb.severity,
                             bestText = MoveNotation.format(d.board, Player.HUMAN, best.move), bestEquity = best.equity,
                             onPlayed = { vm.preview(d.board, arrowsFor(Player.HUMAN, played.move, ArrowColors.forSeverity(fb.severity)), a.playedIndex) },
                             onBest = { vm.preview(d.board, arrowsFor(Player.HUMAN, best.move, ArrowColors.best), 0) },

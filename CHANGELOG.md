@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.7 — 2026-11-01 (build 52, internal test)
+
+- Quiz result: tap a play in the analysis to see it on the board, with the Arrows / Board / After
+  chips of the review, and share the position (XGID, board picture, board with the top 5).
+- Quiz result: Delete takes the position out of My positions and all its folders, with Undo. The
+  summary says how many were deleted during the quiz, and how many of them as learned.
+- Cube decisions in the quiz are answered as on FlashBack cards: No double, Too good to double,
+  Double, take or Double, pass. A wrong guess of the opponent's answer costs what that answer loses.
+- Settings → Display → Errors in: Eq (default) or mEq, for every error in the app. The quiz summary
+  gives the average error that way ("0.0124 Eq" or "12.4 mEq").
+- Errors in 1-point matches show the plain equity lost everywhere, as the list of plays does, and
+  the badge notes the weighting: "Error -0.026 (×1.5 in PR)". Severities and PR are unchanged.
+- Filters in My positions and the quiz menu show how many positions each option would leave, e.g.
+  "Race (12)", and the button how many pass: "Filter: 12 of 40".
+- Quiz from a folder with a filter on: the quiz menu opens with that filter too.
+- Quiz in landscape: the board takes the full height, centred, with the title beside it.
+- New errors: the empty list points to Settings → My positions → New errors.
+
 ## 0.7.6 — 2026-10-31 (build 51)
 
 - Quiz: every position counts its right and missed answers, and their balance (right minus missed).

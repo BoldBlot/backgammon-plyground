@@ -17,7 +17,9 @@ import com.boldblot.backgammonplyground.core.PositionAnalysis
 import com.boldblot.backgammonplyground.core.Severity
 import com.boldblot.backgammonplyground.core.Step
 import com.boldblot.backgammonplyground.core.XgRules
+import com.boldblot.backgammonplyground.data.DeletedPosition
 import com.boldblot.backgammonplyground.data.QuizCorrect
+import com.boldblot.backgammonplyground.ui.review.ReviewView
 import com.boldblot.backgammonplyground.data.SavedPosition
 import com.boldblot.backgammonplyground.data.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,12 +35,16 @@ data class QuizResult(
     /** The engine's verdict on the answer: its cost after the 1-point factor, and its severity. */
     val error: Float,
     val severity: Severity,
-    /** The answer: a play, or a cube action. */
+    /** The answer: a play, or a cube action ([cubeAnswer] for a doubling decision, with the expected answer). */
     val move: Move? = null,
     val cube: DecisionKind? = null,
+    val cubeAnswer: CubeAnswer? = null,
     /** The engine's best play or cube action. */
     val bestMove: Move? = null,
     val bestCube: DecisionKind? = null,
+    val bestCubeAnswer: CubeAnswer? = null,
+    /** The position's 1-point-match factor: [error] / [factor] is the plain equity lost. */
+    val factor: Float = 1f,
     /** The player's own saved answer, when the position has one: it decides [right]. */
     val mine: String? = null,
     /** What was played in the game the position comes from, with its cost. */
@@ -51,6 +57,8 @@ data class QuizResult(
     val counts: String? = null,
     /** Its balance reached the threshold in Settings and it was deleted from My positions. */
     val deleted: Boolean = false,
+    /** Deleted with the Delete button (Undo puts it back). */
+    val removed: DeletedPosition? = null,
 )
 
 data class QuizState(
@@ -70,10 +78,18 @@ data class QuizState(
     /** Analyzing the position or the answer. */
     val busy: Boolean = false,
     val result: QuizResult? = null,
-    /** Answers given, right ones, and their total error (weighted). */
+    /** After an answer: the board with arrows, bare, or after a move; [candidate] is the play picked in the list. */
+    val view: ReviewView = ReviewView.ARROWS,
+    val candidate: Int? = null,
+    /** Answers given, right ones, and their total error (plain equity, without the 1-point factor). */
     val answered: Int = 0,
     val right: Int = 0,
     val totalError: Float = 0f,
+    /** Positions deleted during this round: with Delete or as learned ([learned] of them). */
+    val deleted: Int = 0,
+    val learned: Int = 0,
+    /** The position deleted last with Delete, for the Undo snackbar. */
+    val lastRemoved: DeletedPosition? = null,
     val finished: Boolean = false,
     val message: String? = null,
 ) {
@@ -87,6 +103,8 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
     val state: StateFlow<QuizState> = _state.asStateFlow()
     private var options: MoveOptions? = null
     private var all: List<SavedPosition> = emptyList()
+    /** Positions deleted during the quiz: "Again" leaves them out. */
+    private val gone = mutableSetOf<Long>()
 
     init {
         viewModelScope.launch {
@@ -99,7 +117,8 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
 
     /** A new round: the positions in random order (or newest first), at most [QuizSpec.limit] of them. */
     fun start() {
-        val ordered = if (spec.newestFirst) all.sortedByDescending { it.entity.savedAt } else all.shuffled()
+        val left = all.filter { it.id !in gone }
+        val ordered = if (spec.newestFirst) left.sortedByDescending { it.entity.savedAt } else left.shuffled()
         val list = if (spec.limit > 0) ordered.take(spec.limit) else ordered
         _state.update { QuizState(loading = false, settings = it.settings, queue = list, total = list.size, finished = list.isEmpty()) }
         show()
@@ -116,6 +135,7 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
                 board = p.board, steps = emptyList(), movable = opts?.movableFrom(emptyList()) ?: emptySet(),
                 diceOrder = d?.highFirst ?: emptyList(), diceDim = d?.highFirst?.map { 0f } ?: emptyList(),
                 moveComplete = opts != null && !opts.canMove, result = null, message = null,
+                view = ReviewView.ARROWS, candidate = null,
             )
         }
     }
@@ -195,14 +215,21 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
         answer(move = if (opts.canMove) Move(st.steps) else Move.NONE, cube = null)
     }
 
-    /** A cube action is the answer. */
+    /** A response to a double (take, pass, beaver) is the answer. */
     fun answerCube(k: DecisionKind) {
         val st = _state.value
         if (st.busy || st.result != null || st.current?.position?.dice != null) return
         answer(move = null, cube = k)
     }
 
-    private fun answer(move: Move?, cube: DecisionKind?) {
+    /** A doubling decision's answer, with the opponent's expected answer ("Double, pass"). */
+    fun answerCube(c: CubeAnswer) {
+        val st = _state.value
+        if (st.busy || st.result != null || st.current?.position?.dice != null) return
+        answer(move = null, cube = c.kind, cubeAnswer = c)
+    }
+
+    private fun answer(move: Move?, cube: DecisionKind?, cubeAnswer: CubeAnswer? = null) {
         val sp = _state.value.current ?: return
         val p = sp.position
         val s = _state.value.settings
@@ -229,30 +256,37 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
                     }
                     QuizResult(
                         right, err, XgRules.severity(err), move = move, bestMove = best?.move,
-                        mine = sp.answer?.let { answerText(p, it) }, equity = eq, bestEquity = best?.equity, analysis = a,
+                        mine = sp.answer?.let { answerText(p, it) }, equity = eq, bestEquity = best?.equity, analysis = a, factor = factor,
                     )
                 } else {
-                    val err = (cubeError(p, a, cube!!) ?: 0f) * factor
+                    val raw = if (cubeAnswer != null) cubeAnswerError(p, a, cubeAnswer) else cubeError(p, a, cube!!)
+                    val err = (raw ?: 0f) * factor
                     val mine = sp.answer?.cube
                     val right = when {
                         mine != null -> mine == cube
                         s.quizCorrect == QuizCorrect.BEST_ONLY -> err < 0.0005f
                         else -> !XgRules.severity(err).atLeast(Severity.ERROR)
                     }
+                    val bestAnswer = if (cubeAnswer != null) bestCubeAnswer(p, a) else null
                     QuizResult(
-                        right, err, XgRules.severity(err), cube = cube, bestCube = bestCube(p, a),
-                        mine = sp.answer?.let { answerText(p, it) }, analysis = a,
+                        right, err, XgRules.severity(err), cube = cube, cubeAnswer = cubeAnswer,
+                        bestCube = bestAnswer?.kind ?: bestCube(p, a), bestCubeAnswer = bestAnswer,
+                        mine = sp.answer?.let { answerText(p, it) }, analysis = a, factor = factor,
                     )
                 }
                 val counted = app.positions.setResult(sp.id, result.right, MyAnswer(move = move, cube = cube))
                     ?.let { sp.copy(entity = it) }
                 val deleted = counted != null && s.quizAutoDelete && counted.quizBalance >= s.quizDeleteAt
-                if (deleted) app.positions.remove(sp.id)
-                val played = sp.played?.let { answerWithError(p, a, it) }
+                if (deleted) {
+                    app.positions.remove(sp.id)
+                    gone += sp.id
+                }
+                val played = sp.played?.let { answerWithError(p, a, it, s.errorUnit) }
                 _state.update {
                     it.copy(
                         busy = false, result = result.copy(played = played, counts = counted?.let(::quizCountText), deleted = deleted), answered = it.answered + 1, right = it.right + if (result.right) 1 else 0,
-                        totalError = it.totalError + result.error,
+                        totalError = it.totalError + result.error / factor,
+                        deleted = it.deleted + if (deleted) 1 else 0, learned = it.learned + if (deleted) 1 else 0,
                         board = p.board,
                     )
                 }
@@ -269,10 +303,48 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
         val st = _state.value
         val r = st.result ?: return
         val cur = st.current ?: return
-        val rest = st.queue.drop(1) + if (!r.right && st.settings.quizRepeat) listOf(cur) else emptyList()
+        val again = !r.right && st.settings.quizRepeat && !r.deleted && r.removed == null
+        val rest = st.queue.drop(1) + if (again) listOf(cur) else emptyList()
         _state.update { it.copy(queue = rest, result = null, finished = rest.isEmpty()) }
         if (rest.isNotEmpty()) show()
     }
 
     fun dismissMessage() = _state.update { it.copy(message = null) }
+
+    fun setView(v: ReviewView) = _state.update { it.copy(view = v) }
+
+    /** Shows play [i] of the analysis on the board (null: the best play and the answer). */
+    fun selectCandidate(i: Int?) = _state.update { it.copy(candidate = i) }
+
+    /** Deletes the answered position from My positions and all its folders (Undo: [undoDelete]). */
+    fun deleteCurrent() {
+        val st = _state.value
+        val r = st.result ?: return
+        val sp = st.current ?: return
+        if (r.deleted || r.removed != null) return
+        viewModelScope.launch {
+            val d = app.positions.removeForUndo(sp.id) ?: return@launch
+            gone += sp.id
+            _state.update {
+                it.copy(
+                    result = if (it.current?.id == sp.id) it.result?.copy(removed = d) else it.result,
+                    deleted = it.deleted + 1, lastRemoved = d,
+                )
+            }
+        }
+    }
+
+    /** Puts back the position deleted last with Delete. */
+    fun undoDelete(d: DeletedPosition) {
+        viewModelScope.launch {
+            app.positions.restore(d)
+            gone -= d.entity.id
+            _state.update {
+                it.copy(
+                    result = if (it.result?.removed == d) it.result.copy(removed = null) else it.result,
+                    deleted = (it.deleted - 1).coerceAtLeast(0), lastRemoved = null,
+                )
+            }
+        }
+    }
 }

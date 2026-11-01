@@ -7,6 +7,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import kotlinx.coroutines.flow.map
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
@@ -108,9 +109,13 @@ class MainActivity : ComponentActivity() {
                 if (landscape) controller.hide(WindowInsetsCompat.Type.systemBars())
                 else controller.show(WindowInsetsCompat.Type.systemBars())
             }
+            // Errors in Eq or mEq everywhere (Settings → Display).
+            val errorUnit by androidx.compose.runtime.remember { app.settings.settings.map { it.errorUnit } }.collectAsState(initial = com.boldblot.backgammonplyground.data.ErrorUnit.EQ)
             GammonTheme {
-                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    Box(Modifier.fillMaxSize().safeDrawingPadding()) { AppNav() }
+                androidx.compose.runtime.CompositionLocalProvider(com.boldblot.backgammonplyground.ui.components.LocalErrorUnit provides errorUnit) {
+                    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        Box(Modifier.fillMaxSize().safeDrawingPadding()) { AppNav() }
+                    }
                 }
             }
         }
@@ -224,16 +229,23 @@ class MainActivity : ComponentActivity() {
                 CategoryPositionsScreen(
                     app, id, onBack = { nav.popBackStack() },
                     onOpen = { p -> nav.navigate("positions/item/$p") },
-                    onQuiz = { ids -> nav.navigate("quizmenu?ids=${ids.joinToString(",")}") },
+                    onQuiz = { ids, filter -> nav.navigate("quizmenu?ids=${ids.joinToString(",")}&filter=${android.net.Uri.encode(filter.joinToString("\n"))}") },
                 )
             }
             composable("positions/item/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
                 PositionDetailScreen(app, entry.arguments?.getLong("id") ?: 0L, onBack = { nav.popBackStack() })
             }
-            // The quiz menu (folders, labels, how many, order), opened with [ids] ticked.
-            composable("quizmenu?ids={ids}", arguments = listOf(navArgument("ids") { type = NavType.StringType; defaultValue = "" })) { entry ->
+            // The quiz menu (folders, labels, how many, order), opened with [ids] ticked and the folder's [filter].
+            composable(
+                "quizmenu?ids={ids}&filter={filter}",
+                arguments = listOf(
+                    navArgument("ids") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("filter") { type = NavType.StringType; defaultValue = "" },
+                ),
+            ) { entry ->
                 val ids = entry.arguments?.getString("ids").orEmpty().split(',').mapNotNull { it.toLongOrNull() }
-                QuizMenuScreen(app, ids, onBack = { nav.popBackStack() }) { spec -> nav.navigate("positions/quiz/${spec.encode()}") }
+                val filter = entry.arguments?.getString("filter").orEmpty().split('\n').filter { it.isNotBlank() }.toSet()
+                QuizMenuScreen(app, ids, onBack = { nav.popBackStack() }, preFilter = filter) { spec -> nav.navigate("positions/quiz/${spec.encode()}") }
             }
             composable("positions/quiz/{spec}") { entry ->
                 val key = entry.arguments?.getString("spec").orEmpty()

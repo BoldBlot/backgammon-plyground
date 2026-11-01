@@ -59,6 +59,9 @@ enum class CpuArrows(val label: String) { UNTIL_MOVE("Until my move"), ONE_SECON
 enum class MeterMode(val label: String) { OFF("Off"), BAR("Bar"), BAR_AND_NUMBERS("Bar and numbers") }
 
 /** What counts as a right answer in the My positions quiz. */
+/** How errors (equity lost) are shown everywhere: equity (-0.026) or thousandths of it (-26.0 mEq). */
+enum class ErrorUnit(val label: String) { EQ("Eq (0.026)"), MEQ("mEq (26.0)") }
+
 enum class QuizCorrect(val label: String) { NOT_ERROR("Not an error"), BEST_ONLY("Best play only") }
 
 /** How new errors reach My positions: through New errors, or filed at once ([ErrorsSort]). */
@@ -199,6 +202,8 @@ data class Settings(
     val backgroundPriority: BackgroundPriority = BackgroundPriority.LOW,
     /** In the Crawford game a "CRAWFORD" sign stands on the bar instead of the cube (off: the bar is empty). */
     val crawfordSign: Boolean = true,
+    /** Errors in equity or in thousandths of it (mEq), everywhere. */
+    val errorUnit: ErrorUnit = ErrorUnit.EQ,
     /** Landscape: the side column (players, Undo / Done, menus) right of the board instead of left. */
     val railRight: Boolean = false,
     /** Automatic labels turned off in Settings → My positions ([com.boldblot.backgammonplyground.core.AutoLabel] names): hidden everywhere. */
@@ -306,6 +311,7 @@ class SettingsStore(private val context: Context) {
         val analyzeDuringPlay = booleanPreferencesKey("analyze_during_play")
         val backgroundPriority = stringPreferencesKey("background_priority")
         val crawfordSign = booleanPreferencesKey("crawford_sign")
+        val errorUnit = stringPreferencesKey("error_unit")
         val railRight = booleanPreferencesKey("rail_right")
         val labelsOff = stringPreferencesKey("labels_off")
         val myLabels = stringPreferencesKey("my_labels")
@@ -388,6 +394,7 @@ class SettingsStore(private val context: Context) {
             analyzeDuringPlay = p[Keys.analyzeDuringPlay] ?: d.analyzeDuringPlay,
             backgroundPriority = p.enum(Keys.backgroundPriority, d.backgroundPriority),
             crawfordSign = p[Keys.crawfordSign] ?: d.crawfordSign,
+            errorUnit = p.enum(Keys.errorUnit, d.errorUnit),
             railRight = p[Keys.railRight] ?: d.railRight,
             labelsOff = lines(p[Keys.labelsOff]).toSet(),
             myLabels = lines(p[Keys.myLabels]),
@@ -462,6 +469,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.analyzeDuringPlay] = s.analyzeDuringPlay
             p[Keys.backgroundPriority] = s.backgroundPriority.name
             p[Keys.crawfordSign] = s.crawfordSign
+            p[Keys.errorUnit] = s.errorUnit.name
             p[Keys.railRight] = s.railRight
             p[Keys.labelsOff] = s.labelsOff.joinToString("\n")
             p[Keys.myLabels] = s.myLabels.joinToString("\n")

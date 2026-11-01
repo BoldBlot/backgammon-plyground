@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -34,6 +35,7 @@ import com.boldblot.backgammonplyground.core.DecisionKind
 import com.boldblot.backgammonplyground.core.MoveNotation
 import com.boldblot.backgammonplyground.core.Severity
 import com.boldblot.backgammonplyground.core.XgRules
+import com.boldblot.backgammonplyground.data.ErrorUnit
 import com.boldblot.backgammonplyground.ui.theme.Quality
 import java.util.Locale
 
@@ -42,14 +44,40 @@ fun eq(v: Double): String = String.format(Locale.US, "%+.3f", v)
 fun pct(v: Float): String = String.format(Locale.US, "%.1f%%", v * 100)
 fun fmt(v: Double, digits: Int = 1): String = String.format(Locale.US, "%.${digits}f", v)
 
+/** The unit errors are shown in (Settings → Display), provided at the top of the app. */
+val LocalErrorUnit = staticCompositionLocalOf { ErrorUnit.EQ }
+
+/** An error or equity difference [v] (signed) in [unit]: "-0.026" or "-26.0". */
+fun err(v: Float, unit: ErrorUnit): String = when (unit) {
+    ErrorUnit.EQ -> eq(v)
+    ErrorUnit.MEQ -> String.format(Locale.US, "%+.1f", v * 1000f)
+}
+
+/** [err] in the unit of Settings → Display. */
+@Composable
+fun errText(v: Float): String = err(v, LocalErrorUnit.current)
+
+/** An average error [v] (unsigned) with its unit: "0.0124 Eq" or "12.4 mEq". */
+fun errWithUnit(v: Double, unit: ErrorUnit): String = when (unit) {
+    ErrorUnit.EQ -> String.format(Locale.US, "%.4f Eq", v)
+    ErrorUnit.MEQ -> String.format(Locale.US, "%.1f mEq", v * 1000)
+}
+
+/** " (×1.5 in PR)" when errors count [factor] times in PR (1-point matches), otherwise "". */
+fun factorNote(factor: Float): String = if (factor == 1f) "" else " (×${fmt(factor.toDouble())} in PR)"
+
 @Composable
 fun severityColor(s: Severity): Color = Quality.color(s, isSystemInDarkTheme())
 
-/** Small coloured label like "Blunder -0.124". */
+/**
+ * Small coloured label like "Blunder -0.124". [error] is the weighted error (as for PR and the
+ * severity); the label shows the plain equity lost, that is [error] / [factor], and in a 1-point
+ * match notes the weighting: "Error -0.026 (×1.5 in PR)".
+ */
 @Composable
-fun SeverityBadge(severity: Severity, error: Float?, modifier: Modifier = Modifier) {
+fun SeverityBadge(severity: Severity, error: Float?, modifier: Modifier = Modifier, factor: Float = 1f) {
     val color = severityColor(severity)
-    val text = if (severity == Severity.NONE) "Best" else "${severity.label} ${error?.let { eq(-it) } ?: ""}"
+    val text = if (severity == Severity.NONE) "Best" else "${severity.label} ${error?.let { errText(-it / factor) + factorNote(factor) } ?: ""}"
     Text(
         text,
         modifier = modifier
@@ -128,7 +156,7 @@ fun CandidateList(
                     )
                     if (isPlayed) Text("$playedLabel  ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
-                        if (i == 0) eq(c.equity) else "(${eq(diff)})",
+                        if (i == 0) eq(c.equity) else "(${errText(diff)})",
                         fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,
                         color = if (i == 0) Color.Unspecified else severityColor(sev),
                     )
@@ -158,7 +186,7 @@ private fun OddsChip(color: Color, text: String) {
     }
 }
 
-/** Galaxy-style summary under the board: the played move and the best move. */
+/** Galaxy-style summary under the board: the played move and the best move. [playedError] is the plain equity lost (no 1-point factor). */
 @Composable
 fun PlayedBestBar(
     playedText: String,
@@ -172,7 +200,7 @@ fun PlayedBestBar(
     onPlayed: (() -> Unit)? = null,
     onBest: (() -> Unit)? = null,
 ) {
-    val playedValue = playedError?.let { if (it > 0.0005f) "(${eq(-it)})" else "" } ?: ""
+    val playedValue = playedError?.let { if (it > 0.0005f) "(${errText(-it)})" else "" } ?: ""
     val bestValue = bestEquity?.let { eq(it) } ?: ""
     if (stacked) {
         Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -291,7 +319,7 @@ private fun CubeRow(label: String, equity: Float, diff: Float, factor: Float, mi
         if (played) Text("played  ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(eq(equity), Modifier.width(70.dp), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
         Text(
-            if (diff >= -0.0005f) "" else eq(diff), Modifier.width(64.dp), fontFamily = FontFamily.Monospace,
+            if (diff >= -0.0005f) "" else errText(diff), Modifier.width(64.dp), fontFamily = FontFamily.Monospace,
             color = severityColor(sev), style = MaterialTheme.typography.bodySmall,
         )
     }

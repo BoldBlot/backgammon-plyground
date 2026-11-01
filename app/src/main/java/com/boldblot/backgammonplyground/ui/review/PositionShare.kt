@@ -38,6 +38,13 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.boldblot.backgammonplyground.core.Board
+import com.boldblot.backgammonplyground.core.CheckerAnalysis
+import com.boldblot.backgammonplyground.core.CubeEval
+import com.boldblot.backgammonplyground.core.Player
+import com.boldblot.backgammonplyground.core.PositionAnalysis
+import com.boldblot.backgammonplyground.data.ErrorUnit
+import com.boldblot.backgammonplyground.ui.components.LocalErrorUnit
+import com.boldblot.backgammonplyground.ui.components.err
 import com.boldblot.backgammonplyground.core.DecisionKind
 import com.boldblot.backgammonplyground.core.DecisionMath
 import com.boldblot.backgammonplyground.core.DecisionRecord
@@ -129,15 +136,45 @@ fun rememberBoardCapture(): BoardCapture = BoardCapture(rememberGraphicsLayer())
 fun SharePositionItems(
     d: DecisionRecord, matchLength: Int, jacoby: Boolean, title: String, capture: BoardCapture, onDone: () -> Unit,
 ) {
+    val study = StudyPosition.of(d, matchLength, jacoby)
+    SharePositionItems(
+        study?.let { PositionIds.toXgid(it.setup.copy(doubled = it.doubled)) }, title,
+        PositionShare.analysisLines(d, XgRules.errorFactor(matchLength)), capture, onDone = onDone,
+    )
+}
+
+/**
+ * The share menu's entries for a saved position [p] (the quiz): its XGID, the board as shown, and the
+ * board with the top five plays or the cube actions of [analysis]; [answerIndex] / [answerCube] mark the
+ * player's answer, tagged "you".
+ */
+@Composable
+fun SharePositionItems(
+    p: StudyPosition, analysis: PositionAnalysis?, answerIndex: Int?, answerCube: DecisionKind?, capture: BoardCapture, onDone: () -> Unit,
+) {
+    val lines = analysis?.let {
+        PositionShare.analysisLines(
+            p.board, Player.HUMAN, it.checker, it.cube, response = p.doubled, beavers = p.beavers,
+            playedIndex = answerIndex, playedKind = answerCube, factor = XgRules.errorFactor(p.setup.matchLength),
+        )
+    }.orEmpty()
+    SharePositionItems(PositionIds.toXgid(p.setup.copy(doubled = p.doubled)), PositionShare.title(p), lines, capture, playedTag = "you", onDone = onDone)
+}
+
+/** The share menu's entries: [xgid] as text (if any), the board picture, and the board with [lines] (if any). */
+@Composable
+fun SharePositionItems(
+    xgid: String?, title: String, lines: List<PositionShare.Line>, capture: BoardCapture, playedTag: String = "played", onDone: () -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val study = StudyPosition.of(d, matchLength, jacoby)
-    if (study != null) {
+    val unit = LocalErrorUnit.current
+    if (xgid != null) {
         DropdownMenuItem(
             text = { Text("Share XGID…") },
             onClick = {
                 onDone()
-                PositionShare.text(context, PositionIds.toXgid(study.setup.copy(doubled = study.doubled)))
+                PositionShare.text(context, xgid)
             },
         )
     }
@@ -145,18 +182,16 @@ fun SharePositionItems(
         text = { Text("Share board picture…") },
         onClick = {
             onDone()
-            scope.launch { PositionShare.image(context, PositionShare.withAnalysis(capture.image().asAndroidBitmap(), title, emptyList(), null), "board") }
+            scope.launch { PositionShare.image(context, PositionShare.withAnalysis(capture.image().asAndroidBitmap(), title, emptyList(), null, unit), "board") }
         },
     )
-    val lines = PositionShare.analysisLines(d, XgRules.errorFactor(matchLength))
     if (lines.isNotEmpty()) {
         DropdownMenuItem(
             text = { Text("Share board with top 5…") },
             onClick = {
                 onDone()
                 scope.launch {
-                    val xgid = study?.let { PositionIds.toXgid(it.setup.copy(doubled = it.doubled)) }
-                    PositionShare.image(context, PositionShare.withAnalysis(capture.image().asAndroidBitmap(), title, lines, xgid), "analysis")
+                    PositionShare.image(context, PositionShare.withAnalysis(capture.image().asAndroidBitmap(), title, lines, xgid, unit, playedTag), "analysis")
                 }
             },
         )
@@ -191,43 +226,55 @@ object PositionShare {
         context.startActivity(Intent.createChooser(send, "Share position"))
     }
 
-    /**
-     * The analysis of [d] for a shared picture: the five best plays (and the one played, if it is
-     * not among them), or the cube actions. Empty without an analysis.
-     */
+    /** The analysis of decision [d] for a shared picture (see the other [analysisLines]). */
     fun analysisLines(d: DecisionRecord, factor: Float): List<Line> {
+        if (d.kind.isRaccoonDecision) return emptyList()
+        return analysisLines(
+            d.board, d.player, d.checker, d.cubeEval, response = d.kind.isResponse, beavers = d.beavers || d.kind == DecisionKind.BEAVER,
+            playedIndex = d.checker?.playedIndex, playedKind = d.kind, factor = factor,
+        )
+    }
+
+    /**
+     * The analysis for a shared picture: the five best plays of [checker] (and the one played, [playedIndex],
+     * if it is not among them), or else the cube actions of [cube] ([response]: take / pass, otherwise the
+     * doubler's). [playedKind] marks the cube action taken. Empty without an analysis.
+     */
+    fun analysisLines(
+        board: Board, player: Int, checker: CheckerAnalysis?, cube: CubeEval?, response: Boolean, beavers: Boolean,
+        playedIndex: Int?, playedKind: DecisionKind?, factor: Float,
+    ): List<Line> {
         fun line(text: String, equity: Float, best: Float, played: Boolean) =
             Line(text, equity, equity - best, XgRules.severity((best - equity) * factor), played)
-        val a = d.checker
+        val a = checker
         if (a != null && a.candidates.isNotEmpty()) {
-            val shown = (a.candidates.indices.take(5) + listOf(a.playedIndex).filter { it >= 5 && it < a.candidates.size }).distinct()
+            val shown = (a.candidates.indices.take(5) + listOfNotNull(playedIndex).filter { it >= 5 && it < a.candidates.size }).distinct()
             return shown.map { i ->
                 val c = a.candidates[i]
-                line("${i + 1}. ${MoveNotation.format(d.board, d.player, c.move)}", c.equity, a.bestEquity, i == a.playedIndex)
+                line("${i + 1}. ${MoveNotation.format(board, player, c.move)}", c.equity, a.bestEquity, i == playedIndex)
             }
         }
-        val e = d.cubeEval ?: return emptyList()
-        if (d.kind.isRaccoonDecision) return emptyList()
-        if (d.kind.isResponse) {
-            val (take, pass, beaver) = DecisionMath.responseEquities(e, d.beavers || d.kind == DecisionKind.BEAVER)
+        val e = cube ?: return emptyList()
+        if (response) {
+            val (take, pass, beaver) = DecisionMath.responseEquities(e, beavers)
             val best = maxOf(take, pass, beaver ?: take)
             return listOfNotNull(
-                line("Take", take, best, d.kind == DecisionKind.TAKE),
-                line("Pass", pass, best, d.kind == DecisionKind.PASS),
-                beaver?.let { line("Beaver", it, best, d.kind == DecisionKind.BEAVER) },
+                line("Take", take, best, playedKind == DecisionKind.TAKE),
+                line("Pass", pass, best, playedKind == DecisionKind.PASS),
+                beaver?.let { line("Beaver", it, best, playedKind == DecisionKind.BEAVER) },
             )
         }
-        val best = maxOf(e.noDouble, DecisionMath.afterDouble(e, d.beavers))
-        val doubled = d.kind == DecisionKind.DOUBLE
+        val best = maxOf(e.noDouble, DecisionMath.afterDouble(e, beavers))
+        val doubled = playedKind == DecisionKind.DOUBLE
         return listOf(
-            line("No double", e.noDouble, best, d.kind == DecisionKind.NO_DOUBLE),
+            line("No double", e.noDouble, best, playedKind == DecisionKind.NO_DOUBLE),
             line("Double, take", e.doubleTake, best, doubled && e.doubleTake <= e.doublePass),
             line("Double, pass", e.doublePass, best, doubled && e.doubleTake > e.doublePass),
         )
     }
 
     /** [board] under [title], with the analysis [lines] and the [xgid] below it (if any), on a white card. */
-    fun withAnalysis(board: Bitmap, title: String, lines: List<Line>, xgid: String?): Bitmap {
+    fun withAnalysis(board: Bitmap, title: String, lines: List<Line>, xgid: String?, unit: ErrorUnit = ErrorUnit.EQ, playedTag: String = "played"): Bitmap {
         val w = board.width
         val pad = w / 30f
         val text = w / 30f
@@ -251,10 +298,10 @@ object PositionShare {
             if (l.played) {
                 c.drawRect(pad / 2, y - text * 1.05f, w - pad / 2, y + text * 0.4f, Paint().apply { color = android.graphics.Color.rgb(0xEC, 0xEF, 0xF6) })
             }
-            c.drawText(l.text + if (l.played) "   (played)" else "", pad, y, if (l.played) bold else sans)
+            c.drawText(l.text + if (l.played) "   ($playedTag)" else "", pad, y, if (l.played) bold else sans)
             c.drawText(eq(l.equity), w - pad - text * 5.5f, y, mono)
             if (l.diff < -0.0005f) {
-                c.drawText(eq(l.diff), w - pad, y, Paint(mono).apply { color = Quality.color(l.severity, false).toArgb() })
+                c.drawText(err(l.diff, unit), w - pad, y, Paint(mono).apply { color = Quality.color(l.severity, false).toArgb() })
             }
             y += row
         }
@@ -263,6 +310,16 @@ object PositionShare {
             c.drawText(xgid, pad, y, Paint(sans).apply { textSize = small; color = grey; typeface = Typeface.MONOSPACE })
         }
         return out
+    }
+
+    /** The heading of a shared picture of saved position [p], as for a decision. */
+    fun title(p: StudyPosition): String = buildString {
+        val s = p.setup
+        append(if (s.matchLength == 0) "Money game" else "${s.matchLength}-point match · ${s.score[0]}-${s.score[1]}")
+        if (s.crawford) append(" Crawford")
+        if (s.cube.value > 1) append(" · Cube ${s.cube.value}")
+        p.dice?.let { append(" · Roll $it") }
+        if (p.doubled) append(" · Doubled")
     }
 
     /** "5-point match · 2-1 · Cube 2 · Roll 64" (or "Money game"), the heading of a shared picture. */

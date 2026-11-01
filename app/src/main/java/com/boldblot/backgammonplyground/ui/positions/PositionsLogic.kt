@@ -19,7 +19,8 @@ import com.boldblot.backgammonplyground.core.XgRules
 import com.boldblot.backgammonplyground.data.SavedPosition
 import com.boldblot.backgammonplyground.data.Settings
 import com.boldblot.backgammonplyground.ui.components.describeAction
-import com.boldblot.backgammonplyground.ui.components.eq
+import com.boldblot.backgammonplyground.ui.components.err
+import com.boldblot.backgammonplyground.data.ErrorUnit
 
 /** Whether [p] passes [filter]: its labels (those in use, see [Settings.visible]) and its quiz answers ([QuizFilter]). */
 fun passesFilter(p: SavedPosition, filter: Set<String>, s: Settings): Boolean {
@@ -66,9 +67,9 @@ fun answerError(p: StudyPosition, a: PositionAnalysis?, ans: MyAnswer): Float? {
     return raw * factorOf(p)
 }
 
-/** "24/20 8/5 (−0.323)": an answer with its cost when the analysis knows it. */
-fun answerWithError(p: StudyPosition, a: PositionAnalysis?, ans: MyAnswer): String =
-    answerText(p, ans) + (answerError(p, a, ans)?.takeIf { it >= 0.0005f }?.let { " (${eq(-it)})" } ?: "")
+/** "24/20 8/5 (−0.323)": an answer with the equity it loses (plain, without the 1-point factor) in [unit], when the analysis knows it. */
+fun answerWithError(p: StudyPosition, a: PositionAnalysis?, ans: MyAnswer, unit: ErrorUnit): String =
+    answerText(p, ans) + (answerError(p, a, ans)?.div(factorOf(p))?.takeIf { it >= 0.0005f }?.let { " (${err(-it, unit)})" } ?: "")
 
 /** The cube actions a position offers: Double / No double, or Take / Pass (and Beaver). */
 fun cubeActions(p: StudyPosition): List<DecisionKind> = when {
@@ -91,6 +92,36 @@ fun cubeError(p: StudyPosition, a: PositionAnalysis, k: DecisionKind): Float? {
     val e = a.cube ?: return null
     return if (p.doubled) DecisionMath.takeError(e, k, p.beavers) else DecisionMath.doubleError(e, k == DecisionKind.DOUBLE, p.beavers)
 }
+
+/**
+ * The quiz's answers to a doubling decision, as on FlashBack cards: the cube action with the answer it
+ * expects from the opponent. [double]: double; [take]: the opponent should take (or beaver).
+ */
+enum class CubeAnswer(val label: String, val double: Boolean, val take: Boolean) {
+    NO_DOUBLE("No double", false, true),
+    TOO_GOOD("Too good to double", false, false),
+    DOUBLE_TAKE("Double, take", true, true),
+    DOUBLE_PASS("Double, pass", true, false);
+
+    /** The cube action alone. */
+    val kind: DecisionKind get() = if (double) DecisionKind.DOUBLE else DecisionKind.NO_DOUBLE
+}
+
+/**
+ * What [c] costs in [p] by analysis [a] (raw equity, before the 1-point factor): the cube action's error
+ * plus the error of the opponent's answer it expects (take or pass, taker's view). Null without a cube analysis.
+ */
+fun cubeAnswerError(p: StudyPosition, a: PositionAnalysis, c: CubeAnswer): Float? {
+    val e = a.cube ?: return null
+    val (take, pass, beaver) = DecisionMath.responseEquities(e, p.beavers)
+    val takeBest = maxOf(take, beaver ?: take)
+    val response = (maxOf(takeBest, pass) - if (c.take) takeBest else pass).coerceAtLeast(0f)
+    return DecisionMath.doubleError(e, c.double, p.beavers) + response
+}
+
+/** The engine's answer among [CubeAnswer] in doubling decision [p]. */
+fun bestCubeAnswer(p: StudyPosition, a: PositionAnalysis): CubeAnswer? =
+    if (a.cube == null) null else CubeAnswer.entries.minByOrNull { cubeAnswerError(p, a, it) ?: Float.MAX_VALUE }
 
 /** The engine's right cube action in [p]. */
 fun bestCube(p: StudyPosition, a: PositionAnalysis): DecisionKind? =

@@ -88,24 +88,27 @@ suspend fun quizPositions(app: PlyGroundApp, folders: List<Long>): List<SavedPos
 /** The quiz menu: folders, a label filter, how many questions and in what order. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Unit, onStart: (QuizSpec) -> Unit) {
+fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Unit, preFilter: Set<String> = emptySet(), onStart: (QuizSpec) -> Unit) {
     val settings by app.settings.settings.collectAsState(initial = null)
     var categories by remember { mutableStateOf<List<CategoryCount>?>(null) }
     var uncategorized by remember { mutableIntStateOf(0) }
     var total by remember { mutableIntStateOf(0) }
     var folders by rememberSaveable { mutableStateOf(preselected.toSet()) }
-    var filter by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    var filter by rememberSaveable { mutableStateOf(preFilter) }
     var limit by rememberSaveable { mutableIntStateOf(0) }
     var newestFirst by rememberSaveable { mutableStateOf(false) }
     var matching by remember { mutableStateOf<Int?>(null) }
+    // The positions of the ticked folders, before the filter.
+    var pool by remember { mutableStateOf<List<SavedPosition>>(emptyList()) }
     LaunchedEffect(Unit) {
         categories = app.positions.categories()
         uncategorized = app.positions.uncategorizedCount()
         total = app.positions.positions(null).size
     }
     val s = settings
-    LaunchedEffect(folders, filter, s) {
-        if (s != null) matching = QuizSpec(folders.toList(), filter).pick(quizPositions(app, folders.toList()), s).size
+    LaunchedEffect(folders) { pool = quizPositions(app, folders.toList()) }
+    LaunchedEffect(pool, filter, s) {
+        if (s != null) matching = QuizSpec(folders.toList(), filter).pick(pool, s).size
     }
     Scaffold(
         topBar = {
@@ -137,7 +140,10 @@ fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Uni
                 "Only the positions with these labels and quiz answers: within a group any of them, across groups all of them.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            LabelFilterButton(s.labelKeys, filter, { filter = it }, Modifier.padding(top = 4.dp), quiz = true)
+            LabelFilterButton(
+                s.labelKeys, filter, { filter = it }, Modifier.padding(top = 4.dp), quiz = true,
+                count = { f -> pool.count { passesFilter(it, f, s) } }, total = pool.size,
+            )
             if (s.visible(filter).isNotEmpty()) Text(Labels.folderName(s.visible(filter)), style = MaterialTheme.typography.bodySmall)
             QuizFilter.text(filter).takeIf { it.isNotEmpty() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             Spacer(Modifier.height(12.dp))

@@ -113,6 +113,7 @@ import com.boldblot.backgammonplyground.data.FeedbackLevel
 import com.boldblot.backgammonplyground.data.MatchEntity
 import com.boldblot.backgammonplyground.data.MatchStatus
 import com.boldblot.backgammonplyground.data.MeterMode
+import com.boldblot.backgammonplyground.data.ErrorUnit
 import com.boldblot.backgammonplyground.data.QuizCorrect
 import com.boldblot.backgammonplyground.data.SavedBlunder
 import com.boldblot.backgammonplyground.data.Settings
@@ -823,6 +824,7 @@ private fun SettingsGroup.summary(s: Settings): String = when (this) {
     ).joinToString(" · ").replaceFirstChar { it.uppercase() }.ifEmpty { "Nothing automatic" }
     SettingsGroup.DISPLAY -> listOfNotNull(
         s.boardTheme.label, "pip counts".takeIf { s.showPips }, "meter: ${s.meter.label.lowercase()}".takeIf { s.meter != MeterMode.OFF },
+        "errors in mEq".takeIf { s.errorUnit == ErrorUnit.MEQ },
     ).joinToString(" · ")
     SettingsGroup.POSITIONS -> "Quiz, labels (${s.labelKeys.size} in use), new errors, autofilters"
     SettingsGroup.DATA -> "Your name in exported files, clearing data, error report"
@@ -1333,6 +1335,8 @@ private fun DisplaySettings(s: Settings, update: (f: (Settings) -> Settings) -> 
     Chips("Computer move animation", AnimationSpeed.entries, s.animation, { it.label }) { a -> update { it.copy(animation = a) } }
     Toggle("Crawford sign", s.crawfordSign) { v -> update { it.copy(crawfordSign = v) } }
     Note("In the Crawford game nobody may double, so a CRAWFORD sign stands on the bar instead of the cube. Off: the bar is left empty.")
+    Chips("Errors in", ErrorUnit.entries, s.errorUnit, { it.label }) { v -> update { it.copy(errorUnit = v) } }
+    Note("How much equity a play or cube action loses, everywhere in the app: in equity (Eq) or in thousandths of it (mEq, as some programs show).")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Board")
     BoardSettings(s) { f -> update(f) }

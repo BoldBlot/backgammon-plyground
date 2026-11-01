@@ -51,12 +51,26 @@ fun LabelFilterButton(
     compact: Boolean = false,
     /** Also the quiz answers ([QuizFilter]), for saved positions. */
     quiz: Boolean = false,
+    /**
+     * How many of the [total] items in the list pass a filter: each option then shows how many would pass
+     * with it ticked (with the ticks already made), and the button how many pass now ("Filter: 12 of 40").
+     */
+    count: ((Set<String>) -> Int)? = null,
+    total: Int = 0,
 ) {
     var open by remember { mutableStateOf(false) }
     val quizKeys = if (quiz) QuizFilter.entries.map { it.key } else emptyList()
     val on = selected.intersect((keys + quizKeys).toSet())
+    val passing = if (count != null && on.isNotEmpty()) count(on) else null
+    /** "Race (12)": the option's title and how many pass with it ticked. */
+    fun title(text: String, key: String): String = if (count == null) text else "$text (${count(on + key)})"
     Box(modifier) {
-        if (compact) {
+        if (compact && passing != null) {
+            TextButton(onClick = { open = true }) {
+                Icon(Icons.Default.FilterList, "Filter")
+                Text(" $passing of $total")
+            }
+        } else if (compact) {
             IconButton(onClick = { open = true }) {
                 Icon(
                     Icons.Default.FilterList, if (on.isEmpty()) "Filter" else "Filter (${on.size} on)",
@@ -65,7 +79,15 @@ fun LabelFilterButton(
             }
         } else FilterChip(
             selected = on.isNotEmpty(), onClick = { open = true },
-            label = { Text(if (on.isEmpty()) "Filter" else "Filter (${on.size})") },
+            label = {
+                Text(
+                    when {
+                        on.isEmpty() -> "Filter"
+                        passing != null -> "Filter: $passing of $total"
+                        else -> "Filter (${on.size})"
+                    },
+                )
+            },
             leadingIcon = { Icon(Icons.Default.FilterList, null) },
         )
         DropdownMenu(open, onDismissRequest = { open = false }) {
@@ -80,7 +102,7 @@ fun LabelFilterButton(
                 )
                 inGroup.forEach { k ->
                     DropdownMenuItem(
-                        text = { Text(Labels.title(k)) },
+                        text = { Text(title(Labels.title(k), k)) },
                         leadingIcon = { Checkbox(checked = k in on, onCheckedChange = null) },
                         onClick = { onChange(if (k in on) on - k else on + k) },
                     )
@@ -93,7 +115,7 @@ fun LabelFilterButton(
                 )
                 inGroup.forEach { f ->
                     DropdownMenuItem(
-                        text = { Text(f.title) },
+                        text = { Text(title(f.title, f.key)) },
                         leadingIcon = { Checkbox(checked = f.key in on, onCheckedChange = null) },
                         onClick = { onChange(if (f.key in on) on - f.key else on + f.key) },
                     )

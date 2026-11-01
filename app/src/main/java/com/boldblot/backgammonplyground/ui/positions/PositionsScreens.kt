@@ -1,5 +1,17 @@
 package com.boldblot.backgammonplyground.ui.positions
 
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import com.boldblot.backgammonplyground.core.XgRules
+import com.boldblot.backgammonplyground.ui.components.LocalErrorUnit
+import com.boldblot.backgammonplyground.ui.components.errWithUnit
+import com.boldblot.backgammonplyground.ui.review.BoardCapture
+import com.boldblot.backgammonplyground.ui.review.ReviewView
+import com.boldblot.backgammonplyground.ui.review.ReviewViewChips
+import com.boldblot.backgammonplyground.ui.review.SharePositionItems
+import com.boldblot.backgammonplyground.ui.review.rememberBoardCapture
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
@@ -86,6 +98,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -419,7 +432,7 @@ fun sharePositions(context: Context, name: String, json: String) {
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> Unit, onOpen: (Long) -> Unit, onQuiz: (List<Long>) -> Unit) {
+fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> Unit, onOpen: (Long) -> Unit, onQuiz: (List<Long>, Set<String>) -> Unit) {
     var all by remember { mutableStateOf<List<SavedPosition>?>(null) }
     var filter by rememberSaveable { mutableStateOf(emptySet<String>()) }
     var name by remember { mutableStateOf("") }
@@ -470,8 +483,12 @@ fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> 
                 title = { Title(name) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
-                    if (!all.isNullOrEmpty()) LabelFilterButton(settings.labelKeys, filter, { filter = it }, compact = true, quiz = true)
-                    if (!all.isNullOrEmpty()) TextButton(onClick = { onQuiz(listOfNotNull(categoryId)) }) { Text("Quiz") }
+                    val shown = all
+                    if (!shown.isNullOrEmpty()) LabelFilterButton(
+                        settings.labelKeys, filter, { filter = it }, compact = true, quiz = true,
+                        count = { f -> shown.count { passesFilter(it, f, settings) } }, total = shown.size,
+                    )
+                    if (!shown.isNullOrEmpty()) TextButton(onClick = { onQuiz(listOfNotNull(categoryId), filter) }) { Text("Quiz") }
                 },
             )
         },
@@ -537,7 +554,7 @@ private fun PositionRow(
                 if (p.entity.note.isNotBlank()) {
                     Text(p.entity.note, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                p.played?.let { Text("Played: ${answerWithError(sp, p.analysis, it)}", style = MaterialTheme.typography.labelSmall) }
+                p.played?.let { Text("Played: ${answerWithError(sp, p.analysis, it, LocalErrorUnit.current)}", style = MaterialTheme.typography.labelSmall) }
                 p.answer?.let { Text("My answer: ${answerText(sp, it)}", style = MaterialTheme.typography.labelSmall) }
                 LabelTags(settings.visible(p.labels), Modifier.padding(top = 2.dp))
                 p.entity.lastRight?.let {
@@ -636,7 +653,7 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                 // What was played in the game (set by hand when the position came without it).
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Played in the game: " + (cur.played?.let { answerWithError(sp, a, it) } ?: "not known"),
+                        "Played in the game: " + (cur.played?.let { answerWithError(sp, a, it, LocalErrorUnit.current) } ?: "not known"),
                         style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
                     )
                     TextButton(onClick = { settingPlayed = true }) { Text(if (cur.played == null) "Set" else "Change") }
@@ -644,7 +661,7 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                 cur.answer?.let { Text("★ My answer: ${answerText(sp, it)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp)) }
                 cur.entity.lastRight?.let { right ->
                     Text(
-                        "Last quiz answer: " + (cur.lastAnswer?.let { answerWithError(sp, a, it) + " · " } ?: "") + if (right) "right" else "missed",
+                        "Last quiz answer: " + (cur.lastAnswer?.let { answerWithError(sp, a, it, LocalErrorUnit.current) + " · " } ?: "") + if (right) "right" else "missed",
                         style = MaterialTheme.typography.bodyMedium, color = if (right) ArrowColors.best else MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(top = 2.dp),
                     )
@@ -923,20 +940,40 @@ fun SaveToPositionsDialog(
 @Composable
 fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit) {
     val st by vm.state.collectAsState()
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(st.lastRemoved) {
+        val d = st.lastRemoved ?: return@LaunchedEffect
+        val r = snackbar.showSnackbar("Deleted from My positions", actionLabel = "Undo", withDismissAction = true)
+        if (r == SnackbarResult.ActionPerformed) vm.undoDelete(d)
+    }
+    val title = if (st.finished || st.total == 0) "Quiz" else "Quiz · ${st.answered + if (st.result == null) 1 else 0}"
+    // In landscape the title goes into the side panel, so the board has the whole height and sits in the middle.
+    val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val header: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+            Title(title)
+        }
+    }
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = { Title(if (st.finished || st.total == 0) "Quiz" else "Quiz · ${st.answered + if (st.result == null) 1 else 0}") },
+            if (!landscape) TopAppBar(
+                title = { Title(title) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             )
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
-            when {
-                st.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                st.total == 0 -> Text("No positions to ask.", Modifier.padding(24.dp))
-                st.finished -> QuizSummary(st, vm, onBack)
-                else -> QuizContent(st, vm)
+            val playing = !st.loading && st.total > 0 && !st.finished
+            if (landscape && !playing) Box(Modifier.align(Alignment.TopStart)) { header() }
+            Box(Modifier.fillMaxSize().padding(top = if (landscape && !playing) 48.dp else 0.dp)) {
+                when {
+                    st.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    st.total == 0 -> Text("No positions to ask.", Modifier.padding(24.dp))
+                    st.finished -> QuizSummary(st, vm, onBack)
+                    else -> QuizContent(st, vm, header.takeIf { landscape })
+                }
             }
         }
     }
@@ -948,7 +985,14 @@ private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit) {
         Text("Done", style = MaterialTheme.typography.titleLarge)
         Text("${st.total} position${if (st.total == 1) "" else "s"}, ${st.answered} answer${if (st.answered == 1) "" else "s"}.")
         Text("Right: ${st.right} of ${st.answered}")
-        if (st.answered > 0) Text("Average error: ${fmt(1000.0 * st.totalError / st.answered)} thousandths of a point")
+        if (st.answered > 0) Text("Average error: ${errWithUnit(st.totalError.toDouble() / st.answered, LocalErrorUnit.current)}")
+        if (st.deleted > 0) Text(
+            "Deleted: ${st.deleted}" + when {
+                st.learned == 0 -> ""
+                st.learned == st.deleted -> if (st.deleted == 1) ", learned" else ", all of them learned"
+                else -> ", ${st.learned} of them learned"
+            },
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = vm::start) { Text("Again") }
             OutlinedButton(onClick = onBack) { Text("Done") }
@@ -957,12 +1001,19 @@ private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-private fun QuizContent(st: QuizState, vm: QuizViewModel) {
+private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable () -> Unit)? = null) {
     val sp = st.current ?: return
     val p = sp.position
     val r = st.result
     val colors = boardColorsFor(st.settings)
-    val arrows = if (r == null) emptyList() else buildList {
+    val capture = rememberBoardCapture()
+    val checker = r?.analysis?.checker
+    val picked = st.candidate?.let { checker?.candidates?.getOrNull(it) }
+    // After an answer: the position after the play picked in the list (or the answer), or the position itself.
+    val afterMove = if (r != null && st.view == ReviewView.AFTER) (picked?.move ?: r.move) else null
+    val arrows = if (r == null || st.view != ReviewView.ARROWS) emptyList() else if (picked != null && checker != null) {
+        arrowsFor(Player.HUMAN, picked.move, ArrowColors.forSeverity(XgRules.severity((checker.bestEquity - picked.equity) * r.factor)))
+    } else buildList {
         val right = when {
             r.mine != null -> sp.answer?.move
             else -> r.bestMove
@@ -975,12 +1026,17 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel) {
     }
     val interactive = r == null && !st.busy && p.dice != null
     val board: @Composable (Modifier) -> Unit = { m ->
+        val shown = when {
+            afterMove != null -> p.board.applyMove(Player.HUMAN, afterMove)
+            r != null -> p.board
+            else -> st.board
+        }
         BoardView(
-            board = if (r != null) p.board else st.board, modifier = m, colors = colors, mirrored = st.settings.mirrorBoard,
-            dice = listOfNotNull(p.dice?.let { DiceView(Player.HUMAN, st.diceOrder, if (r != null) st.diceOrder.map { 0f } else st.diceDim, error = st.diceError) }),
+            board = shown, modifier = m.then(capture.modifier), colors = colors, mirrored = st.settings.mirrorBoard,
+            dice = listOfNotNull(p.dice?.takeIf { afterMove == null }?.let { DiceView(Player.HUMAN, st.diceOrder, if (r != null) st.diceOrder.map { 0f } else st.diceDim, error = st.diceError) }),
             cube = p.setup.cube, cubeOffered = p.doubled,
             movable = if (interactive) st.movable else emptySet(),
-            pips = listOf(p.board.pipCount(Player.HUMAN), p.board.pipCount(Player.CPU)),
+            pips = listOf(shown.pipCount(Player.HUMAN), shown.pipCount(Player.CPU)),
             arrows = arrows,
             onTap = if (interactive) vm::tap else null, onDrag = if (interactive) vm::drag else null,
             onDiceTap = if (interactive) vm::tapDice else null,
@@ -994,7 +1050,7 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 Text("  Analyzing…")
             }
-            r != null -> QuizResultCard(sp, r, vm)
+            r != null -> QuizResultCard(st, sp, r, vm, capture)
             p.dice != null -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
                 OutlinedButton(onClick = vm::undo, enabled = st.steps.isNotEmpty()) {
                     Icon(Icons.AutoMirrored.Filled.Undo, null)
@@ -1003,8 +1059,11 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel) {
                 }
                 Button(onClick = vm::done, enabled = st.moveComplete) { Text("Done") }
             }
-            else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+            p.doubled -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
                 cubeActions(p).forEach { k -> FilledTonalButton(onClick = { vm.answerCube(k) }) { Text(cubeLabel(k)) } }
+            }
+            else -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+                CubeAnswer.entries.forEach { c -> FilledTonalButton(onClick = { vm.answerCube(c) }) { Text(c.label) } }
             }
         }
         st.message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.clickable(onClick = vm::dismissMessage)) }
@@ -1016,7 +1075,10 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize().padding(6.dp)) {
-                Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())) { panel() }
+                Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())) {
+                    header?.invoke()
+                    panel()
+                }
                 Spacer(Modifier.width(8.dp))
                 Box(Modifier.weight(1.4f).fillMaxHeight(), contentAlignment = Alignment.Center) { board(Modifier.aspectRatio(1.38f)) }
             }
@@ -1029,9 +1091,11 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun QuizResultCard(sp: SavedPosition, r: QuizResult, vm: QuizViewModel) {
+private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: QuizViewModel, capture: BoardCapture) {
     val p = sp.position
+    val answerIndex = r.move?.let { m -> r.analysis.checker?.candidates?.indexOfFirst { p.board.applyMove(Player.HUMAN, it.move) == p.board.applyMove(Player.HUMAN, m) }?.takeIf { it >= 0 } }
     Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1039,9 +1103,17 @@ private fun QuizResultCard(sp: SavedPosition, r: QuizResult, vm: QuizViewModel) 
                     if (r.right) "Right" else "Not this time", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
                     color = if (r.right) ArrowColors.best else MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f),
                 )
+                var sharing by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { sharing = true }) { Icon(Icons.Default.Share, "Share") }
+                    DropdownMenu(expanded = sharing, onDismissRequest = { sharing = false }) {
+                        SharePositionItems(p, r.analysis, answerIndex, r.cube, capture) { sharing = false }
+                    }
+                }
+                if (!r.deleted && r.removed == null) IconButton(onClick = vm::deleteCurrent) { Icon(Icons.Default.Delete, "Delete from My positions") }
                 Button(onClick = vm::next) { Text("Next") }
             }
-            val you = decisionText(p, r.move, r.cube)
+            val you = r.cubeAnswer?.label ?: decisionText(p, r.move, r.cube)
             Text("You: $you", style = MaterialTheme.typography.bodyMedium)
             if (r.counts != null) Text("This position: ${r.counts}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (r.deleted) {
@@ -1050,22 +1122,24 @@ private fun QuizResultCard(sp: SavedPosition, r: QuizResult, vm: QuizViewModel) 
                     style = MaterialTheme.typography.bodyMedium, color = ArrowColors.best,
                 )
             }
+            if (r.removed != null) Text("Deleted from My positions.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (r.mine != null) Text("★ Your saved answer: ${r.mine}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
             if (r.played != null) Text("In the game: ${r.played}", style = MaterialTheme.typography.bodyMedium)
-            val best = decisionText(p, r.bestMove, r.bestCube)
+            val best = r.bestCubeAnswer?.label ?: decisionText(p, r.bestMove, r.bestCube)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Engine: $best", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                SeverityBadge(r.severity, r.error)
+                SeverityBadge(r.severity, r.error, factor = r.factor)
             }
             if (r.equity != null && r.bestEquity != null) {
                 Text("Equity: yours ${eq(r.equity)}, best ${eq(r.bestEquity)}", style = MaterialTheme.typography.labelMedium)
             }
             r.analysis.cube?.let { CubeTable(it, if (p.doubled) DecisionKind.TAKE else null, factorOf(p), p.beavers) }
             r.analysis.checker?.let { c ->
+                ReviewViewChips(st.view, true, vm::setView, null, Modifier.fillMaxWidth())
                 CandidateList(
                     board = p.board, player = Player.HUMAN, analysis = c, factor = factorOf(p),
-                    highlightIndex = r.move?.let { m -> c.candidates.indexOfFirst { p.board.applyMove(Player.HUMAN, it.move) == p.board.applyMove(Player.HUMAN, m) }.takeIf { it >= 0 } },
-                    maxRows = 5,
+                    highlightIndex = answerIndex, maxRows = 5, selectedIndex = st.candidate,
+                    onSelect = { i, _ -> vm.selectCandidate(if (st.candidate == i) null else i) },
                 )
             }
         }
