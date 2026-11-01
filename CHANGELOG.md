@@ -4,11 +4,9 @@
 
 Next version expected on 2026-11-04.
 
-- Very long evaluations at the end of a game: when every play is equally good (the game is lost or
-  won whatever is played), "Analyzing your move…" could run for minutes after a double. A fix is
-  being evaluated in 0.7.10.
+- None reported.
 
-## 0.7.10 — 2026-11-01 (build 55, internal test)
+## 0.7.10 — 2026-11-01 (build 55)
 
 - Checker analysis: a game that can no longer be won (or lost), with no gammon at stake between
   the plays, stops at 1-ply: every play is worth the same, and it isn't counted as a decision. A
