@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.9 — 2026-11-01 (build 54, internal test)
+## 0.7.9 — 2026-11-01 (build 54)
 
 - Quick cube check (Settings → Training, with analysis during play and 3- or 4-ply cube decisions; off
   by default): a 1-ply or 2-ply check stands in for the deep one when it finds doubling a blunder, or
@@ -22,7 +22,7 @@
   every update. A finished speed test is remembered: the welcome screen, Settings → Analysis and
   About say when it ran and what it recommended.
 
-## 0.7.8 — 2026-11-01 (build 53, internal test)
+## 0.7.8 — 2026-11-01 (build 53)
 
 - Errors in the lists are marked by tinted pills around the numbers, no more coloured dots: the
   plays and cube actions of an analysis, the review's move list (the selected decision's pill names
@@ -35,7 +35,7 @@
   play made at last "final".
 - "My answer" in My positions is a tag beside the play instead of a ✓.
 
-## 0.7.7 — 2026-11-01 (build 52, internal test)
+## 0.7.7 — 2026-11-01 (build 52)
 
 - Quiz result: tap a play in the analysis to see it on the board, with the Arrows / Board / After
   chips of the review, and share the position (XGID, board picture, board with the top 5).
