@@ -2,8 +2,6 @@
 
 ## Known issues
 
-Next version expected on 2026-11-04.
-
 - Long evaluations in endgames: I'm hunting down the bug behind them. I think 0.7.10 fixes it
   (games lost or won whatever is played now stop at 1-ply), but it is still being tested.
 
