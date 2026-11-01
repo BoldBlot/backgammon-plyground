@@ -4,7 +4,8 @@
 
 Next version expected on 2026-11-04.
 
-- None reported.
+- Long evaluations in endgames: I'm hunting down the bug behind them. I think 0.7.10 fixes it
+  (games lost or won whatever is played now stop at 1-ply), but it is still being tested.
 
 ## 0.7.10 — 2026-11-01 (build 55)
 
