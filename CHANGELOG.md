@@ -1,5 +1,15 @@
 # Changelog
 
+## Known issues
+
+Next version expected on 2026-11-04.
+
+- Automatic labels: positions from 1-point matches (and other double match point positions) are
+  labelled Post-Crawford. They will get a DMP (double match point) label instead.
+- My positions: tapping a play in a saved position's analysis always draws green arrows, whatever
+  the play's error; they should take the colour of its error level.
+- In landscape, the text in the coloured error pills is not aligned properly.
+
 ## 0.7.9 — 2026-11-01 (build 54)
 
 - Quick cube check (Settings → Training, with analysis during play and 3- or 4-ply cube decisions; off
