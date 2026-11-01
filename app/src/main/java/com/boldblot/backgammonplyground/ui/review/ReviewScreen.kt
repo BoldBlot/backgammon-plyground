@@ -98,6 +98,9 @@ import com.boldblot.backgammonplyground.ui.components.CubeTable
 import com.boldblot.backgammonplyground.ui.components.Labelled
 import com.boldblot.backgammonplyground.ui.components.PlayedBestBar
 import com.boldblot.backgammonplyground.ui.components.SeverityBadge
+import com.boldblot.backgammonplyground.ui.components.CheckerIcon
+import com.boldblot.backgammonplyground.ui.components.ErrorPill
+import com.boldblot.backgammonplyground.ui.components.errText
 import com.boldblot.backgammonplyground.ui.components.decisionCube
 import com.boldblot.backgammonplyground.ui.components.describeAction
 import com.boldblot.backgammonplyground.ui.components.fmt
@@ -495,11 +498,13 @@ internal fun decisionArrows(d: DecisionRecord, selected: Int?, factor: Float): L
         val sev = XgRules.severity((a.bestEquity - c.equity) * factor)
         return arrowsFor(d.player, c.move, ArrowColors.forSeverity(sev))
     }
+    // Tried again: the first try is the play shown (what PR counts).
     val best = a.candidates.first()
-    val played = a.candidates.getOrNull(a.playedIndex)
+    val index = d.reviewIndex
+    val played = d.reviewMove ?: index?.let { a.candidates.getOrNull(it)?.move }
     val bestArrows = arrowsFor(d.player, best.move, ArrowColors.best)
-    if (played == null || a.playedIndex == 0) return bestArrows
-    return bestArrows + arrowsFor(d.player, played.move, ArrowColors.forSeverity(XgRules.severity((d.error ?: 0f) * factor)))
+    if (played == null || index == 0) return bestArrows
+    return bestArrows + arrowsFor(d.player, played, ArrowColors.forSeverity(XgRules.severity((d.scoredError ?: 0f) * factor)))
 }
 
 @Composable
@@ -544,14 +549,15 @@ private fun BottomBar(st: ReviewState, vm: ReviewViewModel, landscape: Boolean) 
     val d = st.current
     val a = d?.checker
     if (d != null && a != null && a.candidates.isNotEmpty()) {
-        val played = a.candidates.getOrNull(a.playedIndex)
+        // Tried again: the first try (what PR counts) is the play shown.
+        val played = d.reviewMove
         val best = a.candidates.first()
         PlayedBestBar(
-            playedText = played?.let { MoveNotation.format(d.board, d.player, it.move) } ?: "?",
-            playedError = d.error, playedSeverity = st.severityOf(d),
+            playedText = played?.let { MoveNotation.format(d.board, d.player, it) } ?: "?",
+            playedError = d.scoredError, playedSeverity = st.severityOf(d),
             bestText = MoveNotation.format(d.board, d.player, best.move), bestEquity = best.equity,
             modifier = Modifier.padding(top = 4.dp),
-            onPlayed = { vm.selectCandidate(a.playedIndex) },
+            onPlayed = { d.reviewIndex?.let { vm.selectCandidate(it) } },
             onBest = { vm.selectCandidate(0) },
         )
     } else if (landscape) {
@@ -608,7 +614,7 @@ private fun DecisionList(st: ReviewState, vm: ReviewViewModel, modifier: Modifie
                         .padding(horizontal = 10.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.size(10.dp).background(if (d.player == Player.HUMAN) colors.human else colors.cpu, RoundedCornerShape(5.dp)))
+                    CheckerIcon(if (d.player == Player.HUMAN) colors.human else colors.cpu)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         d.dice?.toString() ?: "",
@@ -616,15 +622,13 @@ private fun DecisionList(st: ReviewState, vm: ReviewViewModel, modifier: Modifie
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        describeAction(d.kind, d.board, d.player, d.move),
+                        describeAction(d.reviewKind, d.board, d.player, d.reviewMove),
                         Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                     )
                     val scored = d.scoredError
-                    if (scored != null && sev != Severity.NONE && !selected) {
-                        Box(Modifier.size(9.dp).background(severityColor(sev), RoundedCornerShape(5.dp)))
-                    }
+                    if (scored != null && sev != Severity.NONE && !selected) ErrorPill(errText(-scored), sev, style = MaterialTheme.typography.bodySmall, mono = true)
                     if (scored != null && selected) SeverityBadge(sev, scored * st.factor, factor = st.factor)
                 }
                 if (selected && !st.collapsed) DecisionAnalysis(st, vm, d, Modifier.padding(start = 10.dp, end = 10.dp, bottom = 8.dp))
@@ -645,10 +649,9 @@ private fun DecisionAnalysis(st: ReviewState, vm: ReviewViewModel, d: DecisionRe
             if (d.error != null && !d.counted && !d.hinted) add("obvious decision, not counted in PR")
             if (d.kind == DecisionKind.CHECKER && d.checker?.legalMoves == 1) add("forced move")
             d.firstTry?.let { t ->
-                val first = describeAction(t.kind, d.board, d.player, t.move)
-                val sev = st.severityOf(d).label.lowercase()
+                val last = describeAction(d.kind, d.board, d.player, d.move)
                 val tries = if (t.retries == 1) "tried again" else "tried ${t.retries} more times"
-                add("first try: $first ($sev, counted in PR), $tries; the analysis below is for the last try")
+                add("first try shown and counted in PR; $tries, played at last: $last (final)")
             }
         }
         if (notes.isNotEmpty()) {
@@ -658,7 +661,8 @@ private fun DecisionAnalysis(st: ReviewState, vm: ReviewViewModel, d: DecisionRe
         when {
             d.checker != null && d.checker.candidates.isNotEmpty() -> CandidateList(
                 board = d.board, player = d.player, analysis = d.checker, factor = st.factor,
-                highlightIndex = d.checker.playedIndex, maxRows = 8, selectedIndex = st.candidate, detailed = true,
+                highlightIndex = d.reviewIndex, maxRows = 8, selectedIndex = st.candidate, detailed = true,
+                triedIndices = d.triedIndices, finalIndex = d.checker.playedIndex.takeIf { d.firstTry != null },
                 moverColor = if (d.player == Player.HUMAN) colors.human else colors.cpu,
                 opponentColor = if (d.player == Player.HUMAN) colors.cpu else colors.human,
                 onSelect = { i, _ -> vm.selectCandidate(if (st.candidate == i) null else i) },

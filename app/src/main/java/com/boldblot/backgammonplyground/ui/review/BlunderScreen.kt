@@ -88,6 +88,7 @@ import com.boldblot.backgammonplyground.ui.components.decisionCube
 import com.boldblot.backgammonplyground.ui.components.describeAction
 import com.boldblot.backgammonplyground.ui.components.eq
 import com.boldblot.backgammonplyground.ui.components.errText
+import com.boldblot.backgammonplyground.ui.components.ErrorPill
 import com.boldblot.backgammonplyground.ui.components.severityColor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -138,8 +139,6 @@ fun BlunderList(
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (selection != null) Checkbox(checked = id in selection, onCheckedChange = { onOpen(id) })
                     val sev = XgRules.severity(b.entity.error)
-                    Box(Modifier.size(10.dp).background(severityColor(sev), RoundedCornerShape(5.dp)))
-                    Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
                             (d.dice?.let { "$it  " } ?: "") + describeAction(d.kind, d.board, d.player, d.move),
@@ -150,7 +149,7 @@ fun BlunderList(
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
                         )
                     }
-                    Text(errText(-b.entity.error / XgRules.errorFactor(b.entity.matchLength)), fontFamily = FontFamily.Monospace, color = severityColor(sev))
+                    ErrorPill(errText(-b.entity.error / XgRules.errorFactor(b.entity.matchLength)), sev, mono = true)
                 }
             }
         }

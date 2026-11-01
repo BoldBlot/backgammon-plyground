@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.8 — 2026-11-01 (build 53, internal test)
+
+- Errors in the lists are marked by tinted pills around the numbers, no more coloured dots: the
+  plays and cube actions of an analysis, the review's move list (the selected decision's pill names
+  it, e.g. "Error -0.023") and New errors. The played row is tinted in its error's colour and
+  outlined. The error badge has the same look.
+- Small checkers in the players' colours replace the dots before the winning chances and in the
+  review's move list, so the red player no longer looks like a blunder.
+- "Try again" in the review: a decision tried again shows the first try, the one PR counts, as the
+  played move (row, PLAYED, arrows, After). The plays tried and taken back are marked "tried", the
+  play made at last "final".
+- "My answer" in My positions is a tag beside the play instead of a ✓.
+
 ## 0.7.7 — 2026-11-01 (build 52, internal test)
 
 - Quiz result: tap a play in the analysis to see it on the board, with the Arrows / Board / After

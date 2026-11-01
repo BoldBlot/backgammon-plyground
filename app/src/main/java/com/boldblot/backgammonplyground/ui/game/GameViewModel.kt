@@ -753,7 +753,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     }
 
     /** A decision being tried again: the position before it, its first try and the tries since. */
-    private data class Retry(val base: MatchState, val first: FirstTry, val retries: Int = 0)
+    private data class Retry(val base: MatchState, val first: FirstTry, val retries: Int = 0, val tried: List<Move> = emptyList())
 
     private var retry: Retry? = null
 
@@ -764,15 +764,17 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
      */
     private fun applyHuman(result: Pair<MatchState, Feedback?>, message: String? = null, before: MatchState) {
         var (next, fb) = result
-        val r = retry?.takeIf { it.base === before }
+        var r = retry?.takeIf { it.base === before }
         if (r != null) {
             // The record of this decision follows the decisions made before it.
             val i = before.game.decisions.size
             val d = next.game.decisions.getOrNull(i)
             if (d != null && d.player == Player.HUMAN) {
                 next = next.copy(game = next.game.copy(decisions = next.game.decisions.toMutableList().also {
-                    it[i] = d.copy(firstTry = r.first.copy(retries = r.retries))
+                    it[i] = d.copy(firstTry = r.first.copy(retries = r.retries, tried = r.tried))
                 }))
+                // If this try is taken back too, it joins the tries in between.
+                d.move?.let { m -> r = r!!.copy(tried = r!!.tried + m) }
             }
         } else {
             saveBlunder(next, fb)

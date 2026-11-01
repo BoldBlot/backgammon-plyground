@@ -109,7 +109,7 @@ fun EmptyPlayedBestBar() = PlayedBestBar("", null, Severity.NONE, "", null, Modi
  */
 fun reviewBoard(d: DecisionRecord, view: ReviewView, candidate: Int?): Pair<Board, Boolean> {
     if (view != ReviewView.AFTER) return d.board to false
-    val move = candidate?.let { d.checker?.candidates?.getOrNull(it)?.move } ?: d.move ?: return d.board to false
+    val move = candidate?.let { d.checker?.candidates?.getOrNull(it)?.move } ?: d.reviewMove ?: return d.board to false
     return d.board.applyMove(d.player, move) to true
 }
 
@@ -231,7 +231,7 @@ object PositionShare {
         if (d.kind.isRaccoonDecision) return emptyList()
         return analysisLines(
             d.board, d.player, d.checker, d.cubeEval, response = d.kind.isResponse, beavers = d.beavers || d.kind == DecisionKind.BEAVER,
-            playedIndex = d.checker?.playedIndex, playedKind = d.kind, factor = factor,
+            playedIndex = d.reviewIndex, playedKind = d.reviewKind, factor = factor,
         )
     }
 

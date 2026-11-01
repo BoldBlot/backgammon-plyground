@@ -1,6 +1,7 @@
 package com.boldblot.backgammonplyground.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -76,17 +77,55 @@ fun severityColor(s: Severity): Color = Quality.color(s, isSystemInDarkTheme())
  */
 @Composable
 fun SeverityBadge(severity: Severity, error: Float?, modifier: Modifier = Modifier, factor: Float = 1f) {
-    val color = severityColor(severity)
     val text = if (severity == Severity.NONE) "Best" else "${severity.label} ${error?.let { errText(-it / factor) + factorNote(factor) } ?: ""}"
+    ErrorPill(text, severity, modifier, style = MaterialTheme.typography.labelLarge, bold = true)
+}
+
+/** Whether the app is drawn dark (it follows the system). */
+@Composable
+private fun dark(): Boolean = isSystemInDarkTheme()
+
+/** The pale fill of a severity (the dark theme's colours), for pills and tinted rows. */
+fun severityFill(s: Severity): Color = Quality.color(s, dark = true)
+
+/**
+ * A number or label in a pill tinted with [severity]'s colour (the analysis lists, the move list,
+ * the badge): dark text in the light theme, the severity's colour in the dark one.
+ */
+@Composable
+fun ErrorPill(
+    text: String, severity: Severity, modifier: Modifier = Modifier,
+    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyMedium, mono: Boolean = false, bold: Boolean = false,
+) {
+    val dark = dark()
     Text(
         text,
         modifier = modifier
-            .background(color.copy(alpha = 0.18f), RoundedCornerShape(6.dp))
-            .padding(horizontal = 8.dp, vertical = 3.dp),
-        color = color,
-        style = MaterialTheme.typography.labelLarge,
-        fontWeight = FontWeight.SemiBold,
+            .background(severityFill(severity).copy(alpha = if (dark) 0.30f else 0.55f), RoundedCornerShape(50))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        color = if (dark) severityColor(severity) else Color(0xFF141414),
+        style = style, maxLines = 1,
+        fontFamily = if (mono) FontFamily.Monospace else null,
+        fontWeight = if (bold) FontWeight.SemiBold else null,
     )
+}
+
+/** A small checker in a player's colour, with a rim (in place of plain dots, which read as severities). */
+@Composable
+fun CheckerIcon(color: Color, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier.size(11.dp)) {
+        val r = size.minDimension / 2
+        val rim = Color(color.red * 0.62f, color.green * 0.62f, color.blue * 0.62f, color.alpha)
+        drawCircle(color, r)
+        drawCircle(rim, r - 0.6.dp.toPx(), style = androidx.compose.ui.graphics.drawscope.Stroke(1.2.dp.toPx()))
+        drawCircle(rim, r * 0.55f, style = androidx.compose.ui.graphics.drawscope.Stroke(0.8.dp.toPx()))
+    }
+}
+
+/** A small grey tag after a play ("you", "played", "my answer"). */
+@Composable
+private fun Tag(text: String) {
+    Text("$text  ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
 }
 
 /** "64.6% (G 23.4% B 0.5%)" style odds for the mover and the opponent. */
@@ -120,46 +159,46 @@ fun CandidateList(
     checkIndex: Int? = null,
     /** The tag of [highlightIndex]'s row: "you" in a review, "played" in My positions. */
     playedLabel: String = "you",
+    /** "Try again": plays tried and taken back (a yellow "tried" marker) and the play made at last (a green ✓). */
+    triedIndices: Set<Int> = emptySet(),
+    finalIndex: Int? = null,
 ) {
     val best = analysis.bestEquity
     Column(Modifier.fillMaxWidth()) {
-        val rows = analysis.candidates.withIndex().filter { (i, _) -> i < maxRows || i == highlightIndex || i == checkIndex }
+        val rows = analysis.candidates.withIndex().filter { (i, _) -> i < maxRows || i == highlightIndex || i == checkIndex || i in triedIndices || i == finalIndex }
         for ((i, c) in rows) {
             val diff = c.equity - best
             val sev = XgRules.severity(-diff * factor)
             val isPlayed = i == highlightIndex
+            // The played row is tinted with its severity's colour and outlined.
             val bg = when {
                 i == selectedIndex -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
-                isPlayed -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                isPlayed -> severityFill(sev).copy(alpha = if (dark()) 0.22f else 0.45f)
                 else -> Color.Transparent
             }
             Column(
                 Modifier
                     .fillMaxWidth()
                     .background(bg, RoundedCornerShape(8.dp))
+                    .let { if (isPlayed) it.border(1.5.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(8.dp)) else it }
                     .let { if (onSelect != null) it.clickable { onSelect(i, c) } else it }
                     .padding(horizontal = 8.dp, vertical = 6.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("${i + 1}", Modifier.width(22.dp), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (isPlayed) {
-                        Box(Modifier.size(8.dp).background(severityColor(sev), RoundedCornerShape(4.dp)))
-                        Spacer(Modifier.width(6.dp))
-                    }
-                    if (i == checkIndex) CheckMark()
                     Text(
                         MoveNotation.format(board, player, c.move),
                         Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = if (isPlayed) FontWeight.Bold else FontWeight.Medium,
                     )
-                    if (isPlayed) Text("$playedLabel  ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        if (i == 0) eq(c.equity) else "(${errText(diff)})",
-                        fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium,
-                        color = if (i == 0) Color.Unspecified else severityColor(sev),
-                    )
+                    if (i in triedIndices) TryMarker("tried", Severity.INACCURACY)
+                    if (i == finalIndex) TryMarker("final", Severity.NONE)
+                    if (i == checkIndex) Tag("my answer")
+                    if (isPlayed) Tag(playedLabel)
+                    if (i == 0) Text(eq(c.equity), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
+                    else ErrorPill("(${errText(diff)})", sev, mono = true)
                 }
                 if (detailed) {
                     val (me, them) = odds(c.probs)
@@ -181,7 +220,7 @@ fun CandidateList(
 @Composable
 private fun OddsChip(color: Color, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(8.dp).background(color, RoundedCornerShape(4.dp)))
+        CheckerIcon(color)
         Text(" $text", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 }
@@ -224,8 +263,6 @@ private fun BarChip(text: String, tag: String, dot: Color, value: String, modifi
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(9.dp).background(dot, RoundedCornerShape(5.dp)))
-        Spacer(Modifier.width(6.dp))
         Text(text, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1,
             overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         Spacer(Modifier.width(6.dp))
@@ -314,14 +351,13 @@ private fun CubeRow(label: String, equity: Float, diff: Float, factor: Float, mi
         Modifier.fillMaxWidth().let { if (mine) it.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f), RoundedCornerShape(6.dp)) else it },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (mine) CheckMark()
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = if (mine) FontWeight.Bold else null)
-        if (played) Text("played  ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (mine) Tag("my answer")
+        if (played) Tag("played")
         Text(eq(equity), Modifier.width(70.dp), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
-        Text(
-            if (diff >= -0.0005f) "" else errText(diff), Modifier.width(64.dp), fontFamily = FontFamily.Monospace,
-            color = severityColor(sev), style = MaterialTheme.typography.bodySmall,
-        )
+        Box(Modifier.width(76.dp), contentAlignment = Alignment.CenterEnd) {
+            if (diff < -0.0005f) ErrorPill(errText(diff), sev, style = MaterialTheme.typography.bodySmall, mono = true)
+        }
     }
 }
 
@@ -353,9 +389,8 @@ fun Labelled(label: String, value: String, modifier: Modifier = Modifier, valueC
     }
 }
 
-/** The small ✓ beside the player's own answer (My positions). */
+/** "Try again": "tried" (yellow) on a play tried and taken back, "final" (green) on the play made at last. */
 @Composable
-private fun CheckMark() {
-    Text("✓", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-    Spacer(Modifier.width(4.dp))
+private fun TryMarker(text: String, colour: Severity) {
+    ErrorPill(text, colour, Modifier.padding(end = 6.dp), style = MaterialTheme.typography.labelSmall, bold = true)
 }

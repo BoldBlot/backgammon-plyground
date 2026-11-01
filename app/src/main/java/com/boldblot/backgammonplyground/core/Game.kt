@@ -64,6 +64,23 @@ data class DecisionRecord(
 ) {
     /** The error PR and the mistake lists use: the first try's when the decision was tried again. */
     val scoredError: Float? get() = firstTry?.error ?: error
+
+    /** The decision as the review shows it: the first try when it was tried again, otherwise this one. */
+    val reviewKind: DecisionKind get() = firstTry?.kind ?: kind
+    val reviewMove: Move? get() = if (firstTry != null) firstTry.move else move
+
+    /** [m]'s place in the checker analysis (null if it is not there). */
+    fun candidateIndex(m: Move?): Int? {
+        m ?: return null
+        val target = board.applyMove(player, m)
+        return checker?.candidates?.indexOfFirst { board.applyMove(player, it.move) == target }?.takeIf { it >= 0 }
+    }
+
+    /** The checker play the review shows as played: the first try's when tried again. */
+    val reviewIndex: Int? get() = if (firstTry != null) candidateIndex(firstTry.move) else checker?.playedIndex
+
+    /** Plays tried and taken back ("Try again"): the first try and those after it, before the last. */
+    val triedIndices: Set<Int> get() = firstTry?.let { t -> (listOf(t.move) + t.tried).mapNotNull(::candidateIndex).toSet() } ?: emptySet()
 }
 
 /** The first try at a decision that was then tried again ([DecisionRecord.firstTry]). */
@@ -75,6 +92,8 @@ data class FirstTry(
     val counted: Boolean = false,
     /** Tries after the first one. */
     val retries: Int = 1,
+    /** The plays of the tries between the first and the last (not stored before 0.7.8). */
+    val tried: List<Move> = emptyList(),
 )
 
 @Serializable
