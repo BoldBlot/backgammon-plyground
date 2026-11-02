@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
@@ -177,6 +178,12 @@ fun SharePositionItems(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val unit = LocalErrorUnit.current
+    // The players' checkers beside their scores in the picture's heading, in the board's colours.
+    val app = context.applicationContext as? com.boldblot.backgammonplyground.PlyGroundApp
+    val settings = app?.settings?.settings?.collectAsState(initial = null)?.value
+    val checkers = settings?.let { com.boldblot.backgammonplyground.ui.board.boardColorsFor(it) }?.let {
+        PositionShare.ScoreCheckers(it.human.toArgb(), it.humanRim.toArgb(), it.cpu.toArgb(), it.cpuRim.toArgb())
+    }
     if (xgid != null) {
         DropdownMenuItem(
             text = { Text("Share XGID…") },
@@ -190,7 +197,7 @@ fun SharePositionItems(
         text = { Text("Share board picture…") },
         onClick = {
             onDone()
-            scope.launch { PositionShare.image(context, PositionShare.withAnalysis(capture.image().asAndroidBitmap(), title, emptyList(), null, unit), "board") }
+            scope.launch { PositionShare.image(context, PositionShare.withAnalysis(capture.image().asAndroidBitmap(), title, emptyList(), null, unit, checkers = checkers), "board") }
         },
     )
     if (lines.isNotEmpty() || noAnalysis != null) {
@@ -199,7 +206,7 @@ fun SharePositionItems(
             onClick = {
                 onDone()
                 if (lines.isEmpty()) noAnalysis?.invoke()
-                else scope.launch { PositionShare.analysisImage(context, capture, title, lines, xgid, unit, playedTag, analysisLabel) }
+                else scope.launch { PositionShare.analysisImage(context, capture, title, lines, xgid, unit, playedTag, analysisLabel, checkers) }
             },
         )
     }
@@ -207,6 +214,9 @@ fun SharePositionItems(
 
 /** Sharing positions as text or pictures (Messenger, WhatsApp, email…). */
 object PositionShare {
+    /** The players' checker colours (ARGB), drawn beside their scores in the heading. */
+    data class ScoreCheckers(val human: Int, val humanRim: Int, val cpu: Int, val cpuRim: Int)
+
     /** One row of the analysis under a shared board: a play or cube action, its equity and its error. */
     data class Line(val text: String, val equity: Float, val diff: Float, val severity: Severity, val played: Boolean)
 
@@ -236,8 +246,8 @@ object PositionShare {
     /** Shares the board as [capture] shows it with [lines] (the top 5 or the cube actions) under it. */
     suspend fun analysisImage(
         context: Context, capture: BoardCapture, title: String, lines: List<Line>, xgid: String?, unit: ErrorUnit,
-        playedTag: String = "played", analysisLabel: String? = null,
-    ) = image(context, withAnalysis(capture.image().asAndroidBitmap(), title, lines, xgid, unit, playedTag, analysisLabel), "analysis")
+        playedTag: String = "played", analysisLabel: String? = null, checkers: ScoreCheckers? = null,
+    ) = image(context, withAnalysis(capture.image().asAndroidBitmap(), title, lines, xgid, unit, playedTag, analysisLabel, checkers), "analysis")
 
     /** The analysis of decision [d] for a shared picture (see the other [analysisLines]). */
     fun analysisLines(d: DecisionRecord, factor: Float): List<Line> {
@@ -289,7 +299,7 @@ object PositionShare {
     /** [board] under [title], with the analysis [lines] and the [xgid] below it (if any), on a white card. */
     fun withAnalysis(
         board: Bitmap, title: String, lines: List<Line>, xgid: String?, unit: ErrorUnit = ErrorUnit.EQ, playedTag: String = "played",
-        analysisLabel: String? = null,
+        analysisLabel: String? = null, checkers: ScoreCheckers? = null,
     ): Bitmap {
         val w = board.width
         val pad = w / 30f
@@ -309,7 +319,7 @@ object PositionShare {
         val sans = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = text; color = dark }
         val bold = Paint(sans).apply { typeface = Typeface.DEFAULT_BOLD }
         val mono = Paint(sans).apply { typeface = Typeface.MONOSPACE; textAlign = Paint.Align.RIGHT }
-        c.drawText(title, pad, pad + text, bold)
+        drawTitle(c, title, pad, pad + text, bold, checkers)
         c.drawBitmap(board.copy(Bitmap.Config.ARGB_8888, false), 0f, top, null)
         var y = top + board.height + pad + text
         for (l in lines) {
@@ -334,6 +344,40 @@ object PositionShare {
         }
         return out
     }
+
+    /**
+     * [title] at ([x], [y]); with [checkers], a checker of each player's colour before their score
+     * ("5-point match · ● 2–1 ●", your score by your checker), as on the screens.
+     */
+    private fun drawTitle(c: Canvas, title: String, x: Float, y: Float, paint: Paint, checkers: ScoreCheckers?) {
+        val m = SCORE.find(title)
+        if (checkers == null || m == null) {
+            c.drawText(title, x, y, paint)
+            return
+        }
+        val size = paint.textSize
+        val r = size * 0.36f
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+        val rim = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = size * 0.07f }
+        var at = x
+        fun text(t: String) { c.drawText(t, at, y, paint); at += paint.measureText(t) }
+        fun checker(colour: Int, rimColour: Int) {
+            val cx = at + r
+            val cy = y - size * 0.35f
+            c.drawCircle(cx, cy, r, fill.apply { color = colour })
+            c.drawCircle(cx, cy, r, rim.apply { color = rimColour })
+            at += 2 * r + size * 0.2f
+        }
+        text(title.substring(0, m.range.first))
+        checker(checkers.human, checkers.humanRim)
+        text("${m.groupValues[1]}\u2013${m.groupValues[2]}")
+        at += size * 0.2f
+        checker(checkers.cpu, checkers.cpuRim)
+        text(title.substring(m.range.last + 1).trimStart().let { if (it.isEmpty()) it else " $it" })
+    }
+
+    /** The score in a heading: "2-1" after "N-point match · ". */
+    private val SCORE = Regex("""(?<=match · )(\d+)-(\d+)""")
 
     /** The heading of a shared picture of saved position [p], as for a decision. */
     fun title(p: StudyPosition): String = buildString {

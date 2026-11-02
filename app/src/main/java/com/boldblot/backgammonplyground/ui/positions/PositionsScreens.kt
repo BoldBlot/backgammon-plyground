@@ -2,6 +2,7 @@ package com.boldblot.backgammonplyground.ui.positions
 
 import androidx.compose.material.icons.filled.Refresh
 import com.boldblot.backgammonplyground.ui.review.ReanalyzeDialog
+import com.boldblot.backgammonplyground.ui.review.ReanalyzeRequest
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.automirrored.filled.NavigateBefore
@@ -103,11 +104,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -126,6 +125,7 @@ import com.boldblot.backgammonplyground.data.ImportPreview
 import com.boldblot.backgammonplyground.data.PositionsRepository.Companion.UNCATEGORIZED
 import com.boldblot.backgammonplyground.data.SavedPosition
 import com.boldblot.backgammonplyground.data.Settings
+import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.ui.board.ArrowColors
 import com.boldblot.backgammonplyground.ui.board.BoardView
 import com.boldblot.backgammonplyground.ui.board.DiceView
@@ -177,6 +177,9 @@ fun MyPositionsScreen(
     var newCategory by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<CategoryCount?>(null) }
     var deleting by remember { mutableStateOf<CategoryCount?>(null) }
+    var analyzingFolder by remember { mutableStateOf<CategoryCount?>(null) }
+    val folderRun by FolderAnalysis.progress.collectAsState()
+    val folderSettings by app.settings.settings.collectAsState(initial = Settings())
     var exporting by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf<ImportPreview?>(null) }
     var importingId by remember { mutableStateOf(false) }
@@ -252,10 +255,24 @@ fun MyPositionsScreen(
                 }
             }
             Spacer(Modifier.height(12.dp))
+            folderRun?.let { r ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text(
+                        "  Analyzing \u201c${r.folder}\u201d again: ${r.done} of ${r.total}",
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { FolderAnalysis.stop() }) { Text("Stop") }
+                }
+            }
             CategoryRow("All positions", total, onClick = { onCategory(null) })
             cats.forEachIndexed { i, c ->
                 CategoryRow(c.name, c.count, onClick = { onCategory(c.id) }) { close ->
                     DropdownMenuItem(text = { Text("Rename") }, onClick = { close(); renaming = c })
+                    DropdownMenuItem(
+                        text = { Text("Analyze again") }, enabled = folderRun == null && c.count > 0,
+                        onClick = { close(); analyzingFolder = c },
+                    )
                     if (i > 0) DropdownMenuItem(text = { Text("Move up") }, onClick = { close(); scope.launch { app.positions.moveCategory(c.id, -1); refresh++ } })
                     if (i < cats.lastIndex) DropdownMenuItem(text = { Text("Move down") }, onClick = { close(); scope.launch { app.positions.moveCategory(c.id, 1); refresh++ } })
                     DropdownMenuItem(text = { Text("Delete") }, onClick = { close(); deleting = c })
@@ -268,6 +285,12 @@ fun MyPositionsScreen(
                 Text("New folder")
             }
         }
+    }
+    analyzingFolder?.let { c ->
+        ReanalyzeDialog(folderSettings, gameNumber = null, onDismiss = { analyzingFolder = null }, onStart = { r ->
+            analyzingFolder = null
+            FolderAnalysis.start(app, c.id, c.name, r.engine, r.checker, Depth(r.cubePlies))
+        })
     }
     if (newCategory) {
         NameDialog("New folder", "") { name ->
@@ -596,7 +619,6 @@ private fun PositionRow(
 fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
     val settings by app.settings.settings.collectAsState(initial = Settings())
     var refresh by remember { mutableIntStateOf(0) }
     var p by remember { mutableStateOf<SavedPosition?>(null) }
@@ -610,14 +632,19 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
     var removing by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var sharing by remember { mutableStateOf(false) }
+    var reanalyzing by remember { mutableStateOf(false) }
     val capture = rememberBoardCapture()
     LaunchedEffect(id, refresh) { p = app.positions.position(id) }
-    fun analyze() {
+    /** Analyzes the position with [r]'s engine and depths, or as in Settings → Analysis without [r]. */
+    fun analyze(r: ReanalyzeRequest? = null) {
         val cur = p ?: return
         analyzing = true
         scope.launch {
             val s = app.settings.settings.first()
-            runCatching { analyzePosition(app, cur.position, s) }
+            runCatching {
+                if (r == null) analyzePosition(app, cur.position, s)
+                else analyzePosition(app, cur.position, r.engine, r.checker, Depth(r.cubePlies))
+            }
                 .onSuccess { app.positions.setAnalysis(cur.id, it); refresh++ }
                 .onFailure { Toast.makeText(context, "Analysis failed: ${it.message}", Toast.LENGTH_LONG).show() }
             analyzing = false
@@ -649,10 +676,11 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("Copy XGID") }, onClick = {
-                                menu = false
-                                p?.let { clipboard.setText(AnnotatedString(it.position.xgid)) }
-                            })
+                            DropdownMenuItem(
+                                text = { Text("Analyze again") }, enabled = p != null && !analyzing,
+                                leadingIcon = { Icon(Icons.Default.Refresh, null) },
+                                onClick = { menu = false; reanalyzing = true },
+                            )
                             DropdownMenuItem(text = { Text("Remove") }, onClick = { menu = false; removing = true })
                         }
                     }
@@ -748,7 +776,6 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                     }
                     a?.cube != null -> CubeTable(a.cube, if (sp.doubled) DecisionKind.TAKE else null, factorOf(sp), sp.beavers, mine = cur.answer?.cube, played = cur.played?.cube, colors = colors, rollerHuman = !sp.doubled)
                 }
-                TextButton(onClick = { analyze() }, enabled = !analyzing) { Text("Analyze again (Settings → Analysis)") }
             }
             if (maxWidth > maxHeight) {
                 Row(Modifier.fillMaxSize().padding(6.dp)) {
@@ -798,6 +825,9 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                 val hidden = cur.labels - settings.labelKeys.toSet()
                 scope.launch { app.positions.setLabels(cur.id, chosen + hidden); refresh++ }
             }
+        }
+        if (reanalyzing) {
+            ReanalyzeDialog(settings, gameNumber = null, onDismiss = { reanalyzing = false }, onStart = { reanalyzing = false; analyze(it) })
         }
         if (removing) {
             AlertDialog(
@@ -1123,16 +1153,11 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
                 Text("  Analyzing…")
             }
             r != null -> QuizResultCard(st, sp, r, vm, capture, readOnly = past != null)
-            p.dice != null && wide -> com.boldblot.backgammonplyground.ui.components.MoveChips(
-                canUndo = st.steps.isNotEmpty(), canDone = st.moveComplete, onUndo = vm::undo, onDone = vm::done, modifier = Modifier.padding(vertical = 2.dp),
-            )
-            p.dice != null -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
-                OutlinedButton(onClick = vm::undo, enabled = st.steps.isNotEmpty()) {
-                    Icon(Icons.AutoMirrored.Filled.Undo, null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Undo")
-                }
-                Button(onClick = vm::done, enabled = st.moveComplete) { Text("Done") }
+            // Undo and Done as chips in both orientations, as in a game, centred in the panel.
+            p.dice != null -> Box(Modifier.fillMaxWidth().padding(vertical = if (wide) 2.dp else 6.dp), contentAlignment = Alignment.Center) {
+                com.boldblot.backgammonplyground.ui.components.MoveChips(
+                    canUndo = st.steps.isNotEmpty(), canDone = st.moveComplete, onUndo = vm::undo, onDone = vm::done,
+                )
             }
             p.doubled && st.firstCube != null -> Column(Modifier.padding(vertical = 6.dp)) {
                 Text("You: ${cubeLabel(st.firstCube)}. Was the opponent's double right?", style = MaterialTheme.typography.bodyMedium)

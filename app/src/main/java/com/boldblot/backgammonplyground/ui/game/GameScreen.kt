@@ -1148,30 +1148,24 @@ private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical:
         )
     // In landscape, Undo and Done are chips here unless Settings → Board puts them on the board.
     val sideButtons = !vertical || !st.settings.onBoardMoveButtons
-    // Portrait: full buttons below the board.
-    val moveButtons: @Composable () -> Unit = {
-        OutlinedButton(onClick = vm::undo, enabled = st.steps.isNotEmpty()) {
-            Icon(Icons.AutoMirrored.Filled.Undo, null)
-            Spacer(Modifier.width(4.dp))
-            Text("Undo", maxLines = 1)
-        }
-        Button(onClick = vm::confirmMove, enabled = st.moveComplete) { Text("Done", maxLines = 1) }
+    // Undo and Done: chips beside the board (landscape) or under it (portrait), always there during
+    // play and greyed out when they can't be used, so nothing jumps about.
+    val moveChips: @Composable () -> Unit = {
+        com.boldblot.backgammonplyground.ui.components.MoveChips(
+            canUndo = moving && st.steps.isNotEmpty(), canDone = moving && st.moveComplete,
+            onUndo = vm::undo, onDone = vm::confirmMove,
+        )
     }
     if (vertical) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (moving && sideButtons) {
-                com.boldblot.backgammonplyground.ui.components.MoveChips(
-                    canUndo = st.steps.isNotEmpty(), canDone = st.moveComplete, onUndo = vm::undo, onDone = vm::confirmMove,
-                )
-            }
+        Column(
+            Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (sideButtons) moveChips()
             GameChips(st, m, vm, canHint, onResign)
         }
     } else {
-        if (moving) {
-            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
-                moveButtons()
-            }
-        }
+        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) { moveChips() }
         GameChips(st, m, vm, canHint, onResign)
     }
     if (moving && st.steps.isEmpty() && !vertical) {

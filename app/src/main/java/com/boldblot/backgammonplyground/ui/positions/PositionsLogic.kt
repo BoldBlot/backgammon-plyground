@@ -2,6 +2,7 @@ package com.boldblot.backgammonplyground.ui.positions
 
 import com.boldblot.backgammonplyground.PlyGroundApp
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import com.boldblot.backgammonplyground.core.AnalysisSettings
 import com.boldblot.backgammonplyground.core.CheckerAnalysis
 import com.boldblot.backgammonplyground.core.DecisionKind
@@ -201,4 +202,48 @@ suspend fun filedText(app: PlyGroundApp, matchId: Long, matchOver: Boolean): Str
             "My positions: $what so far; at the end of the match its ${s.topX} biggest errors go in (Top X per match)."
         else -> "My positions: $what of this match went in (${s.errorsMode.label})."
     }
+}
+
+/**
+ * "Analyze again" on a folder: every position in it, one after another, with the chosen engine and depths
+ * (handy when a new engine comes). It runs in the app's scope, so it goes on when the screen is left;
+ * Stop keeps the positions already done.
+ */
+object FolderAnalysis {
+    data class Progress(val folder: String, val done: Int, val total: Int)
+
+    private val _progress = kotlinx.coroutines.flow.MutableStateFlow<Progress?>(null)
+    val progress: kotlinx.coroutines.flow.StateFlow<Progress?> = _progress
+    private var job: kotlinx.coroutines.Job? = null
+
+    fun start(app: PlyGroundApp, folderId: Long, folder: String, engine: EngineKind, checker: Depth, cube: Depth) {
+        if (job?.isActive == true) return
+        job = app.appScope.launch {
+            var failed = 0
+            var done = 0
+            try {
+                val list = app.positions.positions(folderId)
+                _progress.value = Progress(folder, 0, list.size)
+                for (p in list) {
+                    try {
+                        app.positions.setAnalysis(p.id, analyzePosition(app, p.position, engine, checker, cube))
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        failed++
+                        com.boldblot.backgammonplyground.AppLog.error("Folder analysis failed for position ${p.id}", e)
+                    }
+                    done++
+                    _progress.value = Progress(folder, done, list.size)
+                }
+                val text = ("Analyzed “$folder” again: $done position${if (done == 1) "" else "s"}" + if (failed > 0) ", $failed failed." else ".")
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    android.widget.Toast.makeText(app, text, android.widget.Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                _progress.value = null
+            }
+        }
+    }
+
+    fun stop() { job?.cancel() }
 }

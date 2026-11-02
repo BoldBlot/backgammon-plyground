@@ -5,6 +5,19 @@
 - Long evaluations in endgames: I'm hunting down the bug behind them. I think 0.7.10 fixes it
   (games lost or won whatever is played now stop at 1-ply), but it is still being tested.
 
+## 0.7.14 — 2026-11-02 (build 59, internal test)
+
+- My positions filters: the quiz balance options are now "≤ −3 … ≤ 0, 0, ≥ 0 … ≥ +3" and include
+  their bound (≤ −1 takes in −1). A saved "Below 0" filter becomes "≤ 0", so it now also takes in
+  a balance of 0.
+- A saved position: "Analyze again" moved into ⋮ (in place of Copy XGID, which Share already
+  does) and asks for the engine and depths, as in the quiz. A folder's ⋮ in My positions has
+  "Analyze again" too: every position in it, one after another, with the progress and a Stop
+  button at the top. It goes on if you leave the screen.
+- Shared board pictures show a checker in each player's colour by the score ("● 2–1 ●").
+- Undo and Done: always there during play, greyed out until you can use them. Portrait now uses
+  the same chips as landscape, and they are centred in the panel. The quiz board does the same.
+
 ## 0.7.13 — 2026-11-02 (build 58, internal test)
 
 - Winning chances bar: single wins are now in the checker colour, gammons a shade brighter and
