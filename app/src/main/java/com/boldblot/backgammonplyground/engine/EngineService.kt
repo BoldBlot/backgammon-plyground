@@ -90,6 +90,7 @@ class EngineService(private val context: Context) {
      */
     fun view(kind: () -> EngineKind): AnalysisEngine = object : AnalysisEngine {
         private val e get() = get(kind())
+        override val name: String get() = kind().label
         override fun rankMoves(board: Board, ctx: CubeContext, d1: Int, d2: Int, plies: Int, played: Move?) = e.rankMoves(board, ctx, d1, d2, plies, played)
         override fun chooseMove(board: Board, ctx: CubeContext, d1: Int, d2: Int, level: CpuLevel) = e.chooseMove(board, ctx, d1, d2, level)
         override fun cubeDecision(board: Board, ctx: CubeContext, plies: Int) = e.cubeDecision(board, ctx, plies)

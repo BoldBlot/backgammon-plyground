@@ -10,6 +10,8 @@ import com.boldblot.backgammonplyground.core.Depth
  * equity table (Kazaross XG2) ([GnubgNative]). XG plies are GNU's plies + 1.
  */
 class GnubgEngine : SearchEngine() {
+    override val name: String get() = com.boldblot.backgammonplyground.core.EngineKind.GNUBG.label
+
 
     override fun evaluate(board: Board, ctx: CubeContext, posts: List<Board>, plies: Int): List<PostEval> {
         if (posts.isEmpty()) return emptyList()

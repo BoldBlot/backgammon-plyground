@@ -147,7 +147,8 @@ abstract class SearchEngine : AnalysisEngine {
 
     final override fun cubeDecision(board: Board, ctx: CubeContext, plies: Int): CubeEval {
         cachedCube(board, ctx, plies)?.let { return it }
-        return computeCube(board, ctx, plies).also { cubeKey = cubeKeyOf(board, ctx, plies); cubeCached = it }
+        return computeCube(board, ctx, plies).copy(engine = name.ifEmpty { null }, plies = plies)
+            .also { cubeKey = cubeKeyOf(board, ctx, plies); cubeCached = it }
     }
 
     override fun cachedCube(board: Board, ctx: CubeContext, plies: Int): CubeEval? =

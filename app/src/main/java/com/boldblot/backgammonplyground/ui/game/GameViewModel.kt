@@ -7,6 +7,7 @@ import com.boldblot.backgammonplyground.BuildConfig
 import com.boldblot.backgammonplyground.PlyGroundApp
 import com.boldblot.backgammonplyground.core.AnalysisSettings
 import com.boldblot.backgammonplyground.core.BAR
+import com.boldblot.backgammonplyground.core.MaxBearOff
 import com.boldblot.backgammonplyground.core.Board
 import com.boldblot.backgammonplyground.core.CheckerAnalysis
 import com.boldblot.backgammonplyground.core.CpuLevel
@@ -155,6 +156,8 @@ data class GameUiState(
     val analysisEta: Long? = null,
     /** "Keep rolling": roll for the human even when they could double (until the cube changes or the game ends). */
     val keepRolling: Boolean = false,
+    /** Max Bearoff is on for this game (the chip): bear-offs without contact take off the most checkers. */
+    val maxBearOff: Boolean = false,
     /** The meter in [MeterMode.BAR] shows its numbers after a tap, until the human's next decision. */
     val meterNumbers: Boolean = false,
 )
@@ -330,7 +333,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         val g = opened.game
         val opening = g.rolls.last().dice
         val starter = if (g.turn == Player.HUMAN) "You start" else "Computer starts"
-        _state.update { it.copy(keepRolling = false) }
+        _state.update { it.copy(keepRolling = false, maxBearOff = false) }
         setMatch(opened, message = "Opening roll: you ${opening.d1}, computer ${opening.d2}. $starter.")
         continueFlow()
     }
@@ -593,6 +596,10 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
      */
     private fun playIfNoChoice(m: MatchState) {
         val opts = options ?: return
+        if (opts.canMove && _state.value.maxBearOff && MaxBearOff.applies(m.game.board, Player.HUMAN)) {
+            maxBearOff(m)
+            return
+        }
         val forced = opts.canMove && opts.isForced && settings.autoForced
         val bearOff = opts.canMove && !forced && settings.autoBearOff && m.game.board.isRace() && m.game.board.allHome(Player.HUMAN)
         if (opts.canMove && !forced && !bearOff) {
@@ -654,6 +661,41 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                 _state.update { it.copy(busy = false) }
             }
             applyHuman(engine { controller.humanMove(m, move, hinted = false, auto = true) }, before = m)
+        }
+    }
+
+    /** Max Bearoff on: switches it on or off for the rest of this game, and plays now if it applies. */
+    fun toggleMaxBearOff() {
+        _state.update { it.copy(maxBearOff = !it.maxBearOff) }
+        val m = _state.value.match ?: return
+        if (_state.value.maxBearOff && m.game.phase == Phase.MOVING && m.game.turn == Player.HUMAN && _state.value.steps.isEmpty()) playIfNoChoice(m)
+    }
+
+    /**
+     * The human's turn played by Max Bearoff: the play that bears off the most checkers (1-ply picks
+     * between several), analyzed and counted in PR like a play of their own.
+     */
+    private fun maxBearOff(m: MatchState) {
+        if (humanAutoJob?.isActive == true && humanAutoFor === m) return
+        humanAutoFor = m
+        humanAutoJob = viewModelScope.launch {
+            fun blocked(st: GameUiState) =
+                st.match !== m || st.busy || st.feedback != null || st.steps.isNotEmpty() || autoMode != null || !st.maxBearOff
+            delay(300)
+            if (blocked(_state.value)) return@launch
+            val d = m.game.dice ?: return@launch
+            val plays = MaxBearOff.plays(m.game.board, Player.HUMAN, d.d1, d.d2)
+            val move = plays.singleOrNull() ?: engine("Bearing off…") { controller.bestAmong(m, plays, Depth(1).code) } ?: return@launch
+            if (blocked(_state.value)) return@launch
+            val notation = MoveNotation.format(m.game.board, Player.HUMAN, move)
+            showNotice(BoardNotice(BoardNotice.Kind.FORCED, "Max Bearoff", notation))
+            _state.update { it.copy(busy = true, message = "Max Bearoff: $notation.") }
+            try {
+                animateHumanMove(m.game.board, move)
+            } finally {
+                _state.update { it.copy(busy = false) }
+            }
+            applyHuman(engine("Analyzing your move…") { controller.humanMove(m, move, hinted = false) }, before = m)
         }
     }
 
@@ -744,12 +786,11 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
 
     // ---- human actions -------------------------------------------------------------
 
-    /** Adds the human's decision behind [fb] to the blunder list if it is a big enough mistake ([Settings.blunderList]). */
+    /** Adds the human's decision behind [fb] to New errors if it is a big enough mistake ([Settings.newErrorsMin]). */
     private fun saveBlunder(next: MatchState, fb: Feedback?) {
-        val min = settings.blunderList.minSeverity
-        if (fb == null || !fb.severity.atLeast(min)) return
+        if (fb == null || !fb.severity.atLeast(Severity.ERROR) || fb.weightedError < settings.newErrorsMin) return
         val index = next.game.decisions.indexOfLast { it == fb.decision }
-        if (index >= 0) viewModelScope.launch { repo.saveIfBlunder(next, index, min) }
+        if (index >= 0) viewModelScope.launch { repo.saveIfBlunder(next, index, Severity.ERROR, settings.newErrorsMin) }
     }
 
     /** Whether the practice prompt opens for [fb] now (not in [TrainingMode.AFTER_GAME]). */
@@ -1192,8 +1233,8 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         }
         if (done.player == Player.HUMAN || p.blundersBoth) {
             repo.saveIfBlunder(
-                done, p.matchId, p.gameNumber, p.index, p.matchLength, p.opponentKey, s.blunderList.minSeverity,
-                opponent = done.player != Player.HUMAN,
+                done, p.matchId, p.gameNumber, p.index, p.matchLength, p.opponentKey, Severity.ERROR,
+                opponent = done.player != Player.HUMAN, minError = s.newErrorsMin,
             )
         }
     }

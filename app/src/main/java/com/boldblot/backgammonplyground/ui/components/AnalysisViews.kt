@@ -9,6 +9,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -47,6 +51,9 @@ fun fmt(v: Double, digits: Int = 1): String = String.format(Locale.US, "%.${digi
 
 /** The unit errors are shown in (Settings → Display), provided at the top of the app. */
 val LocalErrorUnit = staticCompositionLocalOf { ErrorUnit.EQ }
+
+/** The board's checker style (Settings → Board), for the checker icons beside plays and chances. */
+val LocalCheckerStyle = staticCompositionLocalOf { com.boldblot.backgammonplyground.data.CheckerStyle.RIMMED }
 
 /** An error or equity difference [v] (signed) in [unit]: "-0.026" or "-26.0". */
 fun err(v: Float, unit: ErrorUnit): String = when (unit) {
@@ -131,9 +138,58 @@ fun ErrorPill(
 @Composable
 fun CheckerIcon(color: Color, modifier: Modifier = Modifier, rim: Color = Color.Unspecified) {
     val edge = if (rim != Color.Unspecified) rim else Color(color.red * 0.62f, color.green * 0.62f, color.blue * 0.62f, color.alpha)
+    val style = LocalCheckerStyle.current
     androidx.compose.foundation.Canvas(modifier.size(12.dp)) {
         with(com.boldblot.backgammonplyground.ui.board.BoardDrawing) {
-            checkerIcon(center, size.minDimension / 2, color, edge)
+            checkerIcon(center, size.minDimension / 2, color, edge, style)
+        }
+    }
+}
+
+/**
+ * A player's shades on a chances bar: single wins, gammons, backgammons. Dark checkers are lightened
+ * and light ones darkened rather than faded, so the three parts stay apart on any background.
+ */
+fun chanceShades(c: Color): List<Color> {
+    val lum = c.luminance()
+    return when {
+        lum < 0.3f -> listOf(androidx.compose.ui.graphics.lerp(c, Color.White, 0.58f), androidx.compose.ui.graphics.lerp(c, Color.White, 0.3f), c)
+        lum > 0.65f -> listOf(c, androidx.compose.ui.graphics.lerp(c, Color.Black, 0.22f), androidx.compose.ui.graphics.lerp(c, Color.Black, 0.45f))
+        else -> listOf(c.copy(alpha = 0.45f), c.copy(alpha = 0.75f), c)
+    }
+}
+
+/**
+ * Winning chances in one bar, as XG shows them: from the left [left]'s backgammons, gammons and single
+ * wins, then [right]'s single wins, gammons and backgammons. [probs] are [left]'s (win, gammon,
+ * backgammon, lose gammon, lose backgammon).
+ */
+@Composable
+fun ChancesBar(probs: List<Float>, left: Color, right: Color, modifier: Modifier = Modifier) {
+    val win = probs[0]
+    val lose = 1 - win
+    val l = chanceShades(left)
+    val r = chanceShades(right)
+    val mine = listOf(probs[2] to l[2], probs[1] - probs[2] to l[1], win - probs[1] to l[0])
+    val theirs = listOf(lose - probs[3] to r[0], probs[3] - probs[4] to r[1], probs[4] to r[2])
+    Row(modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
+        for ((w, c) in mine) if (w > 0.0005f) Box(Modifier.weight(w).fillMaxHeight().background(c))
+        Box(Modifier.width(2.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surface))
+        for ((w, c) in theirs) if (w > 0.0005f) Box(Modifier.weight(w).fillMaxHeight().background(c))
+    }
+}
+
+/** Cubeless chances of both players, each behind a checker in its colour: "62.3%  G 18.1%  B 1.2%". */
+@Composable
+fun ChancesRows(probs: List<Float>, roller: Pair<Color, Color>, other: Pair<Color, Color>, modifier: Modifier = Modifier) {
+    val style = MaterialTheme.typography.labelMedium
+    Column(modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        ChancesBar(probs, roller.first, other.first)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            CheckerIcon(roller.first, rim = roller.second)
+            Text(" ${pct(probs[0])}  G ${pct(probs[1])}  B ${pct(probs[2])}", style = style, modifier = Modifier.weight(1f), maxLines = 1)
+            CheckerIcon(other.first, rim = other.second)
+            Text(" ${pct(1 - probs[0])}  G ${pct(probs[3])}  B ${pct(probs[4])}", style = style, maxLines = 1)
         }
     }
 }
@@ -229,7 +285,7 @@ fun CandidateList(
             }
         }
         Text(
-            "${analysis.legalMoves} legal move${if (analysis.legalMoves == 1) "" else "s"} · ${com.boldblot.backgammonplyground.core.plyLabel(analysis.plies)} · cubeful equity (EMG)",
+            "${analysis.legalMoves} legal move${if (analysis.legalMoves == 1) "" else "s"} · ${analysis.label} · cubeful equity (EMG)",
             Modifier.padding(4.dp), style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -299,11 +355,37 @@ private fun BarChip(text: String, tag: String, dot: Color, value: String, modifi
  * a response to a double shows the taker's options, a raccoon decision the doubler's answers
  * to a beaver. [beavers]: a beaver is one of the taker's options.
  */
+/** The best action at a cube decision of [kind] ("Double, take", "Pass", "Raccoon"); [eval] is the doubler's view. */
+fun bestCubeLabel(eval: CubeEval, kind: DecisionKind?, beavers: Boolean = false): String {
+    if (kind?.isRaccoonDecision == true) return if (4 * eval.doubleTake > 2 * eval.doubleTake) "Raccoon" else "Play on"
+    val beaver = beavers && eval.doubleTake < 0f
+    if (kind?.isResponse == true) return when {
+        beaver -> "Beaver"
+        eval.doubleTake <= eval.doublePass -> "Take"
+        else -> "Pass"
+    }
+    val after = DecisionMath.afterDouble(eval, beavers)
+    return when {
+        !eval.cubeAvailable -> "Cube not available"
+        after > eval.noDouble -> when {
+            beaver -> "Double, beaver"
+            eval.doubleTake <= eval.doublePass -> "Double, take"
+            else -> "Double, pass"
+        }
+        eval.doubleTake > eval.doublePass -> "Too good to double, pass"
+        beaver -> "No double, beaver"
+        else -> "No double, take"
+    }
+}
+
 @Composable
 fun CubeTable(
     eval: CubeEval, kind: DecisionKind?, factor: Float, beavers: Boolean = false, mine: DecisionKind? = null,
     /** What was played in the game (My positions), tagged "played". */
     played: DecisionKind? = null,
+    /** Checker colours for the chances; [rollerHuman]: the player on roll (the doubler, whose view [eval] is) is the human. */
+    colors: com.boldblot.backgammonplyground.ui.board.BoardColors? = null,
+    rollerHuman: Boolean = true,
 ) {
     Column(Modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         if (kind?.isRaccoonDecision == true) {
@@ -319,17 +401,7 @@ fun CubeTable(
             val beaver = beavers && eval.doubleTake < 0f
             val after = DecisionMath.afterDouble(eval, beavers)
             val optimal = if (beaver) maxOf(eval.noDouble, after) else eval.optimal
-            val best = when {
-                !eval.cubeAvailable -> "Cube not available"
-                after > eval.noDouble -> when {
-                    beaver -> "Double, beaver"
-                    eval.doubleTake <= eval.doublePass -> "Double, take"
-                    else -> "Double, pass"
-                }
-                eval.doubleTake > eval.doublePass -> "Too good to double, pass"
-                beaver -> "No double, beaver"
-                else -> "No double, take"
-            }
+            val best = bestCubeLabel(eval, kind, beavers)
             // My answer "Double" goes on the row of the opponent's best answer to it.
             val doubled = mine == DecisionKind.DOUBLE
             val answerRow = when {
@@ -356,8 +428,12 @@ fun CubeTable(
             }
             Text("Best: $bestName", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
         }
+        val c = colors ?: com.boldblot.backgammonplyground.ui.board.BoardColors.gray()
+        val human = c.human to c.humanRim
+        val cpu = c.cpu to c.cpuRim
+        if (eval.probs.size >= 5) ChancesRows(eval.probs, if (rollerHuman) human else cpu, if (rollerHuman) cpu else human)
         Text(
-            "Win ${pct(eval.probs[0])} · gammon ${pct(eval.probs[1])} · lose gammon ${pct(eval.probs[3])} (cubeless)",
+            listOf("cubeless chances", eval.label.ifEmpty { null }?.let { "analysis: $it" }).filterNotNull().joinToString(" · "),
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

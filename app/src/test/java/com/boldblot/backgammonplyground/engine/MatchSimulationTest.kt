@@ -96,8 +96,14 @@ class MatchSimulationTest {
             totals[1] = totals[1] + s.performance[1]
             // Every recorded decision carries analysis, except the computer's when only the human's are analyzed.
             for (d in m.game.decisions) {
-                if ((d.player == Player.CPU && cpuPlies == null) || d.auto) {
+                if (d.auto) {
                     assertNull(d.error)
+                    continue
+                }
+                if (d.player == Player.CPU && cpuPlies == null) {
+                    // Only the quick 1-ply analysis, kept out of the computer's PR.
+                    assertTrue(!d.counted)
+                    d.checker?.let { assertEquals(MatchController.LIGHT_PLIES, it.plies) }
                     continue
                 }
                 d.checker?.let { assertEquals(if (d.player == Player.CPU) cpuPlies else 0, it.plies) }
@@ -147,6 +153,21 @@ class MatchSimulationTest {
             assertEquals(d.kind, r.kind)
             if (d.kind == DecisionKind.CHECKER && r.checker != null) assertEquals(Depth(1).code, r.checker!!.plies)
             if (d.kind != DecisionKind.CHECKER) assertNotNull(r.error)
+        }
+    }
+
+    @Test
+    fun computerNotAnalyzedStillGetsOnePlyAnalysis() {
+        // Feedback 2026-11-02 #12: with the computer's analysis off, its plays showed "No legal move." in the review.
+        assumeTrue("host engine library not provided", engine != null)
+        val games = mutableListOf<GameState>()
+        playMatch(MatchRules(length = 3), seed = 5, humanPolicy = "best", cpuPlies = null, maxGames = 1) { games += it }
+        val cpu = games.flatMap { it.decisions }.filter { it.player == Player.CPU && it.kind == DecisionKind.CHECKER }
+        assertTrue(cpu.isNotEmpty())
+        for (d in cpu) {
+            assertNotNull("computer play without analysis", d.checker)
+            assertEquals(MatchController.LIGHT_PLIES, d.checker!!.plies)
+            assertEquals("PureTD", d.checker!!.engine)
         }
     }
 

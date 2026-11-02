@@ -47,7 +47,13 @@ enum class AnalysisTiming(val label: String, val description: String) {
 /** The background analysis' thread priority (Advanced engine settings). */
 enum class BackgroundPriority(val label: String) { LOW("Low"), NORMAL("Normal") }
 
-/** Which of the human's mistakes go on the blunder list. */
+/** The error thresholds (core's XgRules), for the defaults here. */
+private object XgRulesDefaults {
+    const val ERROR = com.boldblot.backgammonplyground.core.XgRules.ERROR_THRESHOLD
+    const val BLUNDER = com.boldblot.backgammonplyground.core.XgRules.BLUNDER_THRESHOLD
+}
+
+/** Which of the human's mistakes went on the blunder list (before [Settings.errorMin], 0.7.11). */
 enum class BlunderListLevel(val label: String, val minSeverity: Severity) {
     BLUNDERS("Blunders only", Severity.BLUNDER),
     ERRORS("Errors and blunders", Severity.ERROR),
@@ -71,8 +77,24 @@ enum class ErrorUnit(val label: String) { EQ("Eq (0.026)"), MEQ("mEq (26.0)") }
 
 enum class QuizCorrect(val label: String) { NOT_ERROR("Not an error"), BEST_ONLY("Best play only") }
 
-/** How new errors reach My positions: through New errors, or filed at once ([ErrorsSort]). */
-enum class ErrorsMode(val label: String) { MANUAL("Manual"), AUTOMATIC("Automatic") }
+/** The quiz's answers to the player's own cube decisions. */
+enum class QuizMyCube(val label: String) {
+    TWO("No double / Double"), THREE("No double / Double / Too good"), FULL("Full decision"),
+}
+
+/** The quiz's questions when the opponent has doubled. */
+enum class QuizTheirCube(val label: String) {
+    TAKE_PASS("Take or pass"), THEN_DOUBLE("Take or pass, then: was the double right?"), FLIP("Turn the board: the doubler's full decision"),
+}
+
+/**
+ * How new errors reach My positions: through New errors ([MANUAL]), or filed at once ([ErrorsSort]) when
+ * they pass the minimum ([AUTOMATIC]), the adaptive threshold ([ADAPTIVE]) or are among a match's
+ * biggest ([TOP_X], at its end). AUTOMATIC keeps its released name.
+ */
+enum class ErrorsMode(val label: String) {
+    MANUAL("Manual"), AUTOMATIC("Fixed threshold"), ADAPTIVE("Adaptive (experimental)"), TOP_X("Top X per match"),
+}
 
 /** Where new errors are filed: in no folder, or checker plays in Checker and cube decisions in Cube. */
 enum class ErrorsSort(val label: String) { NO_FOLDER("No folder"), SPLIT("Checker and Cube folders") }
@@ -184,10 +206,26 @@ data class Settings(
     val confirmPass: Boolean = true,
     val blunderList: BlunderListLevel = BlunderListLevel.BLUNDERS,
     val errorsMode: ErrorsMode = ErrorsMode.MANUAL,
+    /**
+     * New errors' minimum (weighted, as PR counts it): what goes to New errors (Manual), or to My positions
+     * (Fixed threshold); the floor of Adaptive and Top X. Replaces [blunderList] (0.7.11), which set its start.
+     */
+    val errorMin: Float = XgRulesDefaults.BLUNDER,
+    /** Adaptive: errors above this share of My positions' average error go in. */
+    val adaptiveRatio: Float = 0.9f,
+    /** Top X per match: how many errors of a match (or money session) go in. */
+    val topX: Int = 3,
+    /** The automatic methods: New errors keeps this many of the errors left out, newest first. */
+    val excludedKeep: Int = 50,
+    /** Top X per match: errors filed so far, per match ("id:count"; the newest matches only). */
+    val topXFiled: Set<String> = emptySet(),
     val errorsSort: ErrorsSort = ErrorsSort.SPLIT,
     val quizCorrect: QuizCorrect = QuizCorrect.NOT_ERROR,
     /** The quiz brings missed positions back until each has been answered right. */
     val quizRepeat: Boolean = false,
+    /** Quiz answers to the player's own cube decisions, and to the opponent's doubles. */
+    val quizMyCube: QuizMyCube = QuizMyCube.FULL,
+    val quizTheirCube: QuizTheirCube = QuizTheirCube.TAKE_PASS,
     /** Delete a position from My positions once its quiz balance (right minus missed) reaches [quizDeleteAt]. */
     val quizAutoDelete: Boolean = false,
     val quizDeleteAt: Int = 3,
@@ -220,6 +258,8 @@ data class Settings(
     val speedTestResult: String = "",
     /** Landscape: the side column (players, Undo / Done, menus) right of the board instead of left. */
     val railRight: Boolean = false,
+    /** Landscape: Undo and Done in the side column as before, instead of on the board (Undo) and by the dice (Done). */
+    val sideMoveButtons: Boolean = false,
     /** Automatic labels turned off in Settings → My positions ([com.boldblot.backgammonplyground.core.AutoLabel] names): hidden everywhere. */
     val labelsOff: Set<String> = emptySet(),
     /** The player's own labels, in their order. */
@@ -238,6 +278,16 @@ data class Settings(
 
     /** [keys] without the labels turned off or deleted. */
     fun visible(keys: Set<String>): Set<String> = keys.intersect(labelKeys.toSet())
+
+    /** What a new error must cost to enter New errors: the minimum with Manual; any error with the automatic methods (kept on a rolling list). */
+    val newErrorsMin: Float get() = if (errorsMode == ErrorsMode.MANUAL) errorMin else XgRulesDefaults.ERROR
+
+    /** Top X per match: errors of match [id] filed so far. */
+    fun topXFiledOf(id: Long): Int = topXFiled.firstNotNullOfOrNull { e -> e.split(':').takeIf { it.size == 2 && it[0] == id.toString() }?.get(1)?.toIntOrNull() } ?: 0
+
+    /** [topXFiled] with match [id] at [count], keeping the 30 newest matches. */
+    fun withTopXFiled(id: Long, count: Int): Set<String> =
+        (topXFiled.filterNot { it.startsWith("$id:") } + "$id:$count").sortedByDescending { it.substringBefore(':').toLongOrNull() ?: 0L }.take(30).toSet()
 
     val checkerDepth: Depth get() = Depth(checkerPlies, moveFilter)
     val cubeDepth: Depth get() = Depth(cubePlies)
@@ -309,9 +359,16 @@ class SettingsStore(private val context: Context) {
         val confirmPass = booleanPreferencesKey("confirm_pass")
         val blunderList = stringPreferencesKey("blunder_list_level")
         val errorsMode = stringPreferencesKey("errors_mode")
+        val errorMin = floatPreferencesKey("error_min")
+        val adaptiveRatio = floatPreferencesKey("adaptive_ratio")
+        val topX = intPreferencesKey("top_x")
+        val excludedKeep = intPreferencesKey("excluded_keep")
+        val topXFiled = androidx.datastore.preferences.core.stringSetPreferencesKey("top_x_filed")
         val errorsSort = stringPreferencesKey("errors_sort")
         val quizCorrect = stringPreferencesKey("quiz_correct")
         val quizRepeat = booleanPreferencesKey("quiz_repeat")
+        val quizMyCube = stringPreferencesKey("quiz_my_cube")
+        val quizTheirCube = stringPreferencesKey("quiz_their_cube")
         val quizAutoDelete = booleanPreferencesKey("quiz_auto_delete")
         val quizDeleteAt = intPreferencesKey("quiz_delete_at")
         val theme = stringPreferencesKey("board_theme")
@@ -331,6 +388,7 @@ class SettingsStore(private val context: Context) {
         val speedTestAt = longPreferencesKey("speed_test_at")
         val speedTestResult = stringPreferencesKey("speed_test_result")
         val railRight = booleanPreferencesKey("rail_right")
+        val sideMoveButtons = booleanPreferencesKey("side_move_buttons")
         val labelsOff = stringPreferencesKey("labels_off")
         val myLabels = stringPreferencesKey("my_labels")
         val blunderFilter = stringPreferencesKey("blunder_filter")
@@ -393,9 +451,17 @@ class SettingsStore(private val context: Context) {
             confirmPass = p[Keys.confirmPass] ?: d.confirmPass,
             blunderList = p.enum(Keys.blunderList, d.blunderList),
             errorsMode = p.enum(Keys.errorsMode, d.errorsMode),
+            // Until the slider is moved, "Errors and blunders" or "Blunders only" set it.
+            errorMin = p[Keys.errorMin] ?: if (p.enum(Keys.blunderList, d.blunderList) == BlunderListLevel.ERRORS) XgRulesDefaults.ERROR else XgRulesDefaults.BLUNDER,
+            adaptiveRatio = p[Keys.adaptiveRatio] ?: d.adaptiveRatio,
+            topX = p[Keys.topX] ?: d.topX,
+            excludedKeep = p[Keys.excludedKeep] ?: d.excludedKeep,
+            topXFiled = p[Keys.topXFiled] ?: d.topXFiled,
             errorsSort = p.enum(Keys.errorsSort, d.errorsSort),
             quizCorrect = p.enum(Keys.quizCorrect, d.quizCorrect),
             quizRepeat = p[Keys.quizRepeat] ?: d.quizRepeat,
+            quizMyCube = p.enum(Keys.quizMyCube, d.quizMyCube),
+            quizTheirCube = p.enum(Keys.quizTheirCube, d.quizTheirCube),
             quizAutoDelete = p[Keys.quizAutoDelete] ?: d.quizAutoDelete,
             quizDeleteAt = p[Keys.quizDeleteAt] ?: d.quizDeleteAt,
             boardTheme = p.enum(Keys.theme, d.boardTheme),
@@ -418,6 +484,7 @@ class SettingsStore(private val context: Context) {
             speedTestAt = p[Keys.speedTestAt] ?: d.speedTestAt,
             speedTestResult = p[Keys.speedTestResult] ?: d.speedTestResult,
             railRight = p[Keys.railRight] ?: d.railRight,
+            sideMoveButtons = p[Keys.sideMoveButtons] ?: d.sideMoveButtons,
             labelsOff = lines(p[Keys.labelsOff]).toSet(),
             myLabels = lines(p[Keys.myLabels]),
             blunderFilter = lines(p[Keys.blunderFilter]).toSet(),
@@ -475,9 +542,16 @@ class SettingsStore(private val context: Context) {
             p[Keys.confirmPass] = s.confirmPass
             p[Keys.blunderList] = s.blunderList.name
             p[Keys.errorsMode] = s.errorsMode.name
+            p[Keys.errorMin] = s.errorMin
+            p[Keys.adaptiveRatio] = s.adaptiveRatio
+            p[Keys.topX] = s.topX
+            p[Keys.excludedKeep] = s.excludedKeep
+            p[Keys.topXFiled] = s.topXFiled
             p[Keys.errorsSort] = s.errorsSort.name
             p[Keys.quizCorrect] = s.quizCorrect.name
             p[Keys.quizRepeat] = s.quizRepeat
+            p[Keys.quizMyCube] = s.quizMyCube.name
+            p[Keys.quizTheirCube] = s.quizTheirCube.name
             p[Keys.quizAutoDelete] = s.quizAutoDelete
             p[Keys.quizDeleteAt] = s.quizDeleteAt
             p[Keys.theme] = s.boardTheme.name
@@ -497,6 +571,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.speedTestAt] = s.speedTestAt
             p[Keys.speedTestResult] = s.speedTestResult
             p[Keys.railRight] = s.railRight
+            p[Keys.sideMoveButtons] = s.sideMoveButtons
             p[Keys.labelsOff] = s.labelsOff.joinToString("\n")
             p[Keys.myLabels] = s.myLabels.joinToString("\n")
             p[Keys.blunderFilter] = s.blunderFilter.joinToString("\n")

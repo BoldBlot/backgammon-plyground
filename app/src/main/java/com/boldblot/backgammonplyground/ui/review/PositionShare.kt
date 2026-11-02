@@ -139,7 +139,8 @@ fun SharePositionItems(
     val study = StudyPosition.of(d, matchLength, jacoby)
     SharePositionItems(
         study?.let { PositionIds.toXgid(it.setup.copy(doubled = it.doubled)) }, title,
-        PositionShare.analysisLines(d, XgRules.errorFactor(matchLength)), capture, onDone = onDone,
+        PositionShare.analysisLines(d, XgRules.errorFactor(matchLength)), capture,
+        analysisLabel = (d.checker?.label ?: d.cubeEval?.label)?.ifBlank { null }, onDone = onDone,
     )
 }
 
@@ -158,13 +159,17 @@ fun SharePositionItems(
             playedIndex = answerIndex, playedKind = answerCube, factor = XgRules.errorFactor(p.setup.matchLength),
         )
     }.orEmpty()
-    SharePositionItems(PositionIds.toXgid(p.setup.copy(doubled = p.doubled)), PositionShare.title(p), lines, capture, playedTag = "you", onDone = onDone)
+    val label = analysis?.let { a -> a.label.ifBlank { a.checker?.label ?: a.cube?.label ?: "" } }?.ifBlank { null }
+    SharePositionItems(PositionIds.toXgid(p.setup.copy(doubled = p.doubled)), PositionShare.title(p), lines, capture, playedTag = "you", analysisLabel = label, onDone = onDone)
 }
 
 /** The share menu's entries: [xgid] as text (if any), the board picture, and the board with [lines] (if any). */
 @Composable
 fun SharePositionItems(
-    xgid: String?, title: String, lines: List<PositionShare.Line>, capture: BoardCapture, playedTag: String = "played", onDone: () -> Unit,
+    xgid: String?, title: String, lines: List<PositionShare.Line>, capture: BoardCapture, playedTag: String = "played",
+    /** "PureTD 3-ply, pruned": the engine and depth of [lines], printed under them. */
+    analysisLabel: String? = null,
+    onDone: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -191,7 +196,7 @@ fun SharePositionItems(
             onClick = {
                 onDone()
                 scope.launch {
-                    PositionShare.image(context, PositionShare.withAnalysis(capture.image().asAndroidBitmap(), title, lines, xgid, unit, playedTag), "analysis")
+                    PositionShare.image(context, PositionShare.withAnalysis(capture.image().asAndroidBitmap(), title, lines, xgid, unit, playedTag, analysisLabel), "analysis")
                 }
             },
         )
@@ -274,14 +279,19 @@ object PositionShare {
     }
 
     /** [board] under [title], with the analysis [lines] and the [xgid] below it (if any), on a white card. */
-    fun withAnalysis(board: Bitmap, title: String, lines: List<Line>, xgid: String?, unit: ErrorUnit = ErrorUnit.EQ, playedTag: String = "played"): Bitmap {
+    fun withAnalysis(
+        board: Bitmap, title: String, lines: List<Line>, xgid: String?, unit: ErrorUnit = ErrorUnit.EQ, playedTag: String = "played",
+        analysisLabel: String? = null,
+    ): Bitmap {
         val w = board.width
         val pad = w / 30f
         val text = w / 30f
         val small = text * 0.7f
         val row = text * 1.45f
         val top = pad + row
-        val below = (if (lines.isNotEmpty()) pad + row * lines.size else 0f) + (if (xgid != null) small * 2 else 0f) + pad / 2
+        val label = analysisLabel?.takeIf { lines.isNotEmpty() }
+        val below = (if (lines.isNotEmpty()) pad + row * lines.size else 0f) + (if (label != null) small * 1.6f else 0f) +
+            (if (xgid != null) small * 2 else 0f) + pad / 2
         val h = (top + board.height + below).toInt()
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val c = Canvas(out)
@@ -304,6 +314,11 @@ object PositionShare {
                 c.drawText(err(l.diff, unit), w - pad, y, Paint(mono).apply { color = Quality.color(l.severity, false).toArgb() })
             }
             y += row
+        }
+        if (label != null) {
+            y += small * 0.1f
+            c.drawText("Analysis: $label", pad, y, Paint(sans).apply { textSize = small; color = grey })
+            y += small * 1.6f
         }
         if (xgid != null) {
             y += small * 0.5f

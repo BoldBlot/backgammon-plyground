@@ -139,6 +139,9 @@ class Repository(private val db: AppDatabase) {
         dao.upsertMatch(entity.copy(humanScore = newScore[0], cpuScore = newScore[1], games = entity.games + 1))
     }
 
+    /** Called when a match is finished or a money session ended (Top X per match files its errors then). */
+    var onMatchFinished: (suspend (Long) -> Unit)? = null
+
     /** Marks the match as finished (or a money session as ended) and updates the rating. */
     suspend fun finishMatch(m: MatchState, abandoned: Boolean = false) {
         val entity = dao.match(m.id) ?: return
@@ -167,6 +170,15 @@ class Repository(private val db: AppDatabase) {
             updated = updated.copy(eloBefore = rating, eloAfter = after)
         }
         dao.upsertMatch(updated)
+        onMatchFinished?.invoke(m.id)
+    }
+
+    /** Whether match [id] is over (finished, ended or abandoned). */
+    suspend fun matchOver(id: Long): Boolean = dao.match(id)?.let { it.status != MatchStatus.IN_PROGRESS } ?: true
+
+    /** The errors of match [matchId] waiting in New errors (the human's). */
+    suspend fun blundersOf(matchId: Long): List<SavedBlunder> = dao.blundersOfMatch(matchId).filter { !it.opponent }.mapNotNull { e ->
+        runCatching { SavedBlunder(e, AppJson.decodeFromString<DecisionRecord>(e.record)) }.getOrNull()
     }
 
     /** Report of the games of match [matchId] finished so far. */
@@ -316,9 +328,9 @@ class Repository(private val db: AppDatabase) {
     // ---- blunder list ----------------------------------------------------------------
 
     /** Saves the decision at [index] of [m]'s current game if it is one of the human's mistakes of at least [min]. */
-    suspend fun saveIfBlunder(m: MatchState, index: Int, min: Severity = Severity.BLUNDER) {
+    suspend fun saveIfBlunder(m: MatchState, index: Int, min: Severity = Severity.BLUNDER, minError: Float = 0f) {
         val d = m.game.decisions.getOrNull(index) ?: return
-        saveIfBlunder(d, m.id, m.gameNumber, index, m.rules.length, m.opponentKey, min)
+        saveIfBlunder(d, m.id, m.gameNumber, index, m.rules.length, m.opponentKey, min, minError = minError)
     }
 
     /**
@@ -328,11 +340,13 @@ class Repository(private val db: AppDatabase) {
     suspend fun saveIfBlunder(
         d: DecisionRecord, matchId: Long, gameNumber: Int, index: Int, matchLength: Int, opponentKey: String, min: Severity,
         opponent: Boolean = false,
+        /** The weighted error it must cost at least (Settings → My positions → New errors). */
+        minError: Float = 0f,
     ) {
         if (opponent == (d.player == Player.HUMAN)) return
         val rec = d.turned()
         val error = (rec.error ?: return) * XgRules.errorFactor(matchLength)
-        if (!Blunders.isBlunder(rec, error, min)) return
+        if (!Blunders.isBlunder(rec, error, min) || error < minError) return
         val e = BlunderEntity(
             matchId = matchId, gameNumber = gameNumber, decisionIndex = index,
             playedAt = System.currentTimeMillis(), matchLength = matchLength, cpuLevel = opponentKey,

@@ -1,6 +1,7 @@
 package com.boldblot.backgammonplyground.ui.positions
 
 import com.boldblot.backgammonplyground.PlyGroundApp
+import kotlinx.coroutines.flow.first
 import com.boldblot.backgammonplyground.core.AnalysisSettings
 import com.boldblot.backgammonplyground.core.CheckerAnalysis
 import com.boldblot.backgammonplyground.core.DecisionKind
@@ -122,6 +123,20 @@ fun cubeAnswerError(p: StudyPosition, a: PositionAnalysis, c: CubeAnswer): Float
     return DecisionMath.doubleError(e, c.double, p.beavers) + response
 }
 
+/** The best [CubeAnswer] with the cube action [double]: the opponent's answer, which wasn't asked, made right. */
+fun withBestResponse(p: StudyPosition, a: PositionAnalysis, double: Boolean): CubeAnswer =
+    CubeAnswer.entries.filter { it.double == double }.minBy { cubeAnswerError(p, a, it) ?: Float.MAX_VALUE }
+
+/** Whether the opponent's double was right in doubled position [p]: doubling costs nothing more than not doubling. */
+fun doubleWasRight(p: StudyPosition, a: PositionAnalysis): Boolean? {
+    val e = a.cube ?: return null
+    return DecisionMath.doubleError(e, true, p.beavers) <= DecisionMath.doubleError(e, false, p.beavers)
+}
+
+/** Doubled position [p] turned over: the doubler at the bottom, before the double (their full cube decision). */
+fun turnedToDoubler(p: StudyPosition): StudyPosition =
+    StudyPosition(StudyPosition.turned(p.setup, p.setup.onRoll), doubled = false, beavers = p.beavers)
+
 /** The engine's answer among [CubeAnswer] in doubling decision [p]. */
 fun bestCubeAnswer(p: StudyPosition, a: PositionAnalysis): CubeAnswer? =
     if (a.cube == null) null else CubeAnswer.entries.minByOrNull { cubeAnswerError(p, a, it) ?: Float.MAX_VALUE }
@@ -161,3 +176,30 @@ fun contextText(p: StudyPosition): String {
 /** What was played or answered, for lists: the move or the cube action. */
 fun decisionText(p: StudyPosition, move: Move?, kind: DecisionKind?): String =
     if (move != null) describeAction(DecisionKind.CHECKER, p.board, Player.HUMAN, move) else kind?.let { cubeLabel(it) } ?: ""
+
+/** My positions' average error (weighted): of the positions whose game play is known and was an error. */
+suspend fun libraryAverageError(app: PlyGroundApp): Float? =
+    com.boldblot.backgammonplyground.core.NewErrors.average(
+        app.positions.positions(null).mapNotNull { sp -> sp.played?.let { answerError(sp.position, sp.analysis, it) } },
+    )
+
+/** The keys (XGID, doubled) of everything in My positions, to tell which game decisions are in it. */
+suspend fun libraryKeys(app: PlyGroundApp): Set<Pair<String, Boolean>> =
+    app.positions.positions(null).map { it.position.xgid to it.position.doubled }.toSet()
+
+/**
+ * The automatic methods' line on a match's summary: how many of match [matchId]'s errors are in My positions,
+ * and with Top X before its end how many will go. Null with Manual.
+ */
+suspend fun filedText(app: PlyGroundApp, matchId: Long, matchOver: Boolean): String? {
+    val s = app.settings.settings.first()
+    if (s.errorsMode == com.boldblot.backgammonplyground.data.ErrorsMode.MANUAL) return null
+    val keys = libraryKeys(app)
+    val filed = app.repository.errorPositions(matchId, com.boldblot.backgammonplyground.core.Severity.ERROR).count { (it.xgid to it.doubled) in keys }
+    val what = if (filed == 1) "1 error" else "$filed errors"
+    return when {
+        s.errorsMode == com.boldblot.backgammonplyground.data.ErrorsMode.TOP_X && !matchOver ->
+            "My positions: $what so far; at the end of the match its ${s.topX} biggest errors go in (Top X per match)."
+        else -> "My positions: $what of this match went in (${s.errorsMode.label})."
+    }
+}

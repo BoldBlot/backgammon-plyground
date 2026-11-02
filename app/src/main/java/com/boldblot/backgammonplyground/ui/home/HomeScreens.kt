@@ -1,5 +1,11 @@
 package com.boldblot.backgammonplyground.ui.home
 
+import androidx.compose.runtime.produceState
+import com.boldblot.backgammonplyground.ui.components.errWithUnit
+import com.boldblot.backgammonplyground.ui.components.LocalErrorUnit
+import com.boldblot.backgammonplyground.core.XgRules
+import com.boldblot.backgammonplyground.ui.positions.libraryAverageError
+import com.boldblot.backgammonplyground.core.NewErrors
 import com.boldblot.backgammonplyground.AppLog
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -942,6 +948,16 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
     Header("Quiz")
     Chips("A right answer is", QuizCorrect.entries, s.quizCorrect, { it.label }) { v -> update { it.copy(quizCorrect = v) } }
     Note("Not an error: anything within 0.020 of the best play (or your own answer, when you set one).")
+    Chips("My cube decisions", com.boldblot.backgammonplyground.data.QuizMyCube.entries, s.quizMyCube, { it.label }) { v -> update { it.copy(quizMyCube = v) } }
+    Note("Full decision: no double, too good, double/take or double/pass. With fewer answers the opponent's answer to the double isn't asked.")
+    Chips("When I'm doubled", com.boldblot.backgammonplyground.data.QuizTheirCube.entries, s.quizTheirCube, { it.label }) { v -> update { it.copy(quizTheirCube = v) } }
+    Note(
+        when (s.quizTheirCube) {
+            com.boldblot.backgammonplyground.data.QuizTheirCube.TAKE_PASS -> "Take or pass (or beaver)."
+            com.boldblot.backgammonplyground.data.QuizTheirCube.THEN_DOUBLE -> "After take or pass: was the opponent's double right? The answer is right only when both parts are."
+            com.boldblot.backgammonplyground.data.QuizTheirCube.FLIP -> "The board turns: you are the doubler and give the full decision (no double, too good, double/take, double/pass)."
+        },
+    )
     Toggle("Show the position's labels after answering", s.quizLabels) { v -> update { it.copy(quizLabels = v) } }
     Toggle("Repeat missed positions until all are right", s.quizRepeat) { v -> update { it.copy(quizRepeat = v) } }
     Note("Each position counts its right and missed answers; their balance is right minus missed. The Filter menus can pick positions by them.")
@@ -1039,21 +1055,61 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
     }
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("New errors")
-    Chips("Add to New errors", BlunderListLevel.entries, s.blunderList, { it.label }) { v -> update { it.copy(blunderList = v) } }
-    Note("Applies to your decisions from now on; New errors keeps what it has.")
-    Chips("Filing", ErrorsMode.entries, s.errorsMode, { it.label }) { v -> update { it.copy(errorsMode = v) } }
-    if (s.errorsMode == ErrorsMode.MANUAL) {
-        Note(
-            "Manual: My positions has a New errors button, next to Quiz. Go through your new errors there and add " +
-                "the ones you keep to My positions. (Automatic has no New errors button.)",
+    Chips("Method", ErrorsMode.entries, s.errorsMode, { it.label }) { v -> update { it.copy(errorsMode = v) } }
+    // The minimum, in the error unit of Settings → Display: up to 0.5, only enormous blunders.
+    val unit = LocalErrorUnit.current
+    Text(
+        "Minimum error: ${errWithUnit(s.errorMin.toDouble(), unit)}" + when {
+            s.errorMin <= XgRules.ERROR_THRESHOLD + 0.0001f -> " (every error)"
+            s.errorMin <= XgRules.BLUNDER_THRESHOLD + 0.0001f && s.errorMin >= XgRules.BLUNDER_THRESHOLD - 0.0001f -> " (blunders)"
+            else -> ""
+        },
+        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp),
+    )
+    Slider(
+        value = s.errorMin, valueRange = NewErrors.MIN_ERROR..NewErrors.MAX_ERROR, steps = 95,
+        onValueChange = { v -> update { it.copy(errorMin = (Math.round(v * 200) / 200f).coerceIn(NewErrors.MIN_ERROR, NewErrors.MAX_ERROR)) } },
+    )
+    when (s.errorsMode) {
+        ErrorsMode.MANUAL -> Note(
+            "Manual: errors of at least the minimum go to New errors (the button next to Quiz). Go through them there " +
+                "and add the ones you keep to My positions.",
         )
-    } else {
-        Note(
-            "Automatic: there is no New errors button. Every new error goes straight to My positions, sorted as set " +
-                "below. (Manual has a New errors button, to go through them first.)",
-        )
+        ErrorsMode.AUTOMATIC -> Note("Errors of at least the minimum go straight to My positions, sorted as set below.")
+        ErrorsMode.ADAPTIVE -> {
+            val average by produceState<Float?>(null, s.errorsMode) { value = libraryAverageError(app) }
+            Text(
+                "Share of the library's average: ${Math.round(s.adaptiveRatio * 100)}%",
+                style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp),
+            )
+            Slider(
+                value = s.adaptiveRatio, valueRange = 0.5f..1.5f, steps = 19,
+                onValueChange = { v -> update { it.copy(adaptiveRatio = Math.round(v * 20) / 20f) } },
+            )
+            val now = NewErrors.adaptiveThreshold(s.errorMin, s.adaptiveRatio, average)
+            Note(
+                "Experimental. An error goes straight to My positions when it costs more than ${Math.round(s.adaptiveRatio * 100)}% " +
+                    "of the average error in My positions, and at least the minimum. As the library fills with bigger " +
+                    "errors, the bar rises. Library average now: " +
+                    (average?.let { errWithUnit(it.toDouble(), unit) } ?: "no errors yet") + " · bar now: ${errWithUnit(now.toDouble(), unit)}.",
+            )
+        }
+        ErrorsMode.TOP_X -> {
+            Chips("Errors per match", listOf(1, 2, 3, 5, 10), s.topX, { "$it" }) { v -> update { it.copy(topX = v) } }
+            Note(
+                "At the end of each match (a money session: when you end it) its ${s.topX} biggest errors of at least the " +
+                    "minimum go to My positions, checker and cube together.",
+            )
+        }
+    }
+    if (s.errorsMode != ErrorsMode.MANUAL) {
         Chips("Sort into", ErrorsSort.entries, s.errorsSort, { it.label }) { v -> update { it.copy(errorsSort = v) } }
         Note("The Checker and Cube folders are made when needed.")
+        Chips("New errors keeps the newest", listOf(20, 50, 100, 200), s.excludedKeep, { "$it" }) { v -> update { it.copy(excludedKeep = v) } }
+        Note(
+            "The errors the method leaves out wait in New errors (next to Quiz in My positions), so you can still add " +
+                "one by hand. The oldest go when there are more.",
+        )
     }
     Note("Your autofilters (below) take the errors they match in both cases.")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))

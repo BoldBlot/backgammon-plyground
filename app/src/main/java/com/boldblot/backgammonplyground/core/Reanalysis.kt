@@ -12,6 +12,12 @@ class Reanalysis(
 ) {
     private val controller = MatchController(engine, DiceSource.secure(), AnalysisSettings(plies = checkerDepth, cubePlies = cubeDepth))
 
+    companion object {
+        /** Whether [g] has computer decisions that were never analyzed (computer analysis off, or still pending). */
+        fun unanalyzedCpu(g: GameState): Boolean =
+            g.decisions.any { it.player == Player.CPU && !it.auto && it.checker == null && it.cubeEval == null }
+    }
+
     /** Whether "analyze again" redoes [d] ([cpu]: the computer's decisions too). */
     fun wanted(d: DecisionRecord, cpu: Boolean): Boolean = !d.auto && (cpu || d.player == Player.HUMAN)
 

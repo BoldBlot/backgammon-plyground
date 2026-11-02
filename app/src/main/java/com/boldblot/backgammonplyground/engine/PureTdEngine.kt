@@ -20,6 +20,8 @@ import com.boldblot.backgammonplyground.core.moneyJanowski
  * Janowski and our own match equity table at its leaves), or that Janowski alone at 1-ply. The checker search, levels and luck are [SearchEngine]'s.
  */
 class PureTdEngine(private val handle: Long, private val met: MatchEquityTable = MatchEquityTable.DEFAULT) : SearchEngine() {
+    override val name: String get() = com.boldblot.backgammonplyground.core.EngineKind.PURETD.label
+
 
     /**
      * Experimental (off in the app): money checker plays scored with the cubeful network. Each

@@ -5,6 +5,46 @@
 - Long evaluations in endgames: I'm hunting down the bug behind them. I think 0.7.10 fixes it
   (games lost or won whatever is played now stop at 1-ply), but it is still being tested.
 
+## 0.7.11 — 2026-11-02 (build 56, internal test)
+
+- Review: the computer's moves played without its analysis no longer show "No legal move." They
+  get a quick 1-ply analysis while you play (kept out of the computer's PR), and in older matches
+  they say "Not analyzed". Analyze again includes the computer's decisions by default when some
+  were never analyzed.
+- Review: a "Cube" chip on any checker play shows that turn's cube decision, no doubles included
+  (analyzed on the spot when it wasn't recorded).
+- Review: the played/best bar stays for cube decisions and positions not analyzed ("[n/a]"), so
+  the arrows below no longer jump, and the arrows go on into the previous or next game.
+- Review: errors in My positions have a folder mark; with Top X per match, an outlined one marks
+  the errors that go in when the match ends.
+- Cube analysis: the chances show for both players, each behind a checker in its colour (win,
+  gammon, backgammon), with a chances bar; the engine and depth are named under it. Checker plays
+  name the engine too ("PureTD 3-ply, pruned"), and so do shared pictures with the top plays.
+- The chances bar keeps wins, gammons and backgammons apart with dark (and very light) checkers.
+- The checkers beside plays and chances are drawn in your board's checker style.
+- Analyze Position: Share, as in the review: the XGID, the board, or the board with the top 5.
+- Game: the Max Bearoff chip (Autofinish is in the ⋮ menu): for the rest of the game, once
+  contact is broken and all your checkers are home, it bears off as many checkers as possible
+  each turn (1-ply picks between plays that take off the same number). These plays count in PR.
+- Landscape: Undo is on the board, in the half without the dice, and Done appears next to your
+  dice when the move is complete (tapping the dice ends the turn too). Settings → Board brings
+  them back to the side panel.
+- New errors: a minimum-error slider, from every error up to 0.500 (enormous blunders only),
+  replaces "Blunders only / Errors and blunders" (it starts where that was set). Four methods:
+  Manual, Fixed threshold, Adaptive (experimental: errors above a share of My positions' average
+  error, 90% by default, and at least the minimum; the average shows under the slider) and Top X
+  per match (checker and cube together; a money session at its end).
+- New errors with the automatic methods: the button stays and holds the errors left out, the
+  newest 50 by default, so any of them can still be added by hand. The end-of-game summary says
+  how many errors of the match went to My positions.
+- Quiz: arrows back through the cards answered this round (view only), a folder button to move
+  a card to other folders, and a tap on the dice (or where they would be) goes to the next card.
+- Quiz: when it ends, its positions are listed below the results, as in a folder.
+- Quiz settings for cube decisions: your own as No double / Double, No double / Double / Too good,
+  or the full decision; when you're doubled, take or pass, take or pass then "was the double
+  right?" (both must be right), or the board turned for the doubler's full decision.
+- Quiz filter: balance chips from below −3 to above +3.
+
 ## 0.7.10 — 2026-11-01 (build 55)
 
 - Checker analysis: a game that can no longer be won (or lost), with no gammon at stake between

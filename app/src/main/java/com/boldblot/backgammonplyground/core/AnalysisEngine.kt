@@ -50,7 +50,14 @@ data class CubeEval(
     val optional: Boolean,
     val cubeAvailable: Boolean,
     val probs: List<Float>,
+    /** The engine that evaluated it ("PureTD"); null in analyses saved before 0.7.11. */
+    val engine: String? = null,
+    /** Its depth ([Depth] code); null in analyses saved before 0.7.11. */
+    val plies: Int? = null,
 ) {
+    /** "PureTD 4-ply", "4-ply" or "" for what is recorded. */
+    val label: String get() = listOfNotNull(engine, plies?.let { Depth.of(it).label(cube = true) }).joinToString(" ")
+
     /** Equity after doubling, given the opponent's best response. */
     val afterDouble: Float get() = minOf(doubleTake, doublePass)
 }
@@ -124,6 +131,8 @@ enum class EngineKind(val label: String) { PURETD("PureTD"), GNUBG("GNU BG"), SA
 
 /** An evaluation engine (PureTD, GNU Backgammon, Open Sage). All methods are blocking. */
 interface AnalysisEngine {
+    /** "PureTD", "GNU BG", "Open Sage"; recorded with each analysis. */
+    val name: String get() = ""
     fun rankMoves(board: Board, ctx: CubeContext, d1: Int, d2: Int, plies: Int, played: Move?): RankResult
     fun chooseMove(board: Board, ctx: CubeContext, d1: Int, d2: Int, level: CpuLevel): Move
     fun cubeDecision(board: Board, ctx: CubeContext, plies: Int): CubeEval

@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -91,6 +92,7 @@ import com.boldblot.backgammonplyground.ui.components.CubeTable
 @Composable
 fun PositionScreen(vm: PositionViewModel, onBack: () -> Unit) {
     val st by vm.state.collectAsState()
+    val capture = com.boldblot.backgammonplyground.ui.review.rememberBoardCapture()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(st.message) {
         val m = st.message ?: return@LaunchedEffect
@@ -104,13 +106,13 @@ fun PositionScreen(vm: PositionViewModel, onBack: () -> Unit) {
                 val side = minOf(400.dp, maxWidth * 0.42f)
                 Row(Modifier.fillMaxSize().padding(6.dp)) {
                     Column(Modifier.width(side).fillMaxHeight()) {
-                        TopRow(vm, st.canUndo, onBack)
+                        TopRow(vm, st, capture, onBack)
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { Controls(st, vm, colors) }
                     }
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            EditorBoard(st, vm, colors, Modifier.aspectRatio(1.38f))
+                            EditorBoard(st, vm, colors, Modifier.aspectRatio(1.38f).then(capture.modifier))
                         }
                         BrushRow(st, vm, colors)
                     }
@@ -123,8 +125,8 @@ fun PositionScreen(vm: PositionViewModel, onBack: () -> Unit) {
                     if (st.checker != null || st.cubeEval != null) scroll.animateScrollTo(resultsTop)
                 }
                 Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
-                    TopRow(vm, st.canUndo, onBack)
-                    EditorBoard(st, vm, colors, Modifier.fillMaxWidth().aspectRatio(1.38f))
+                    TopRow(vm, st, capture, onBack)
+                    EditorBoard(st, vm, colors, Modifier.fillMaxWidth().aspectRatio(1.38f).then(capture.modifier))
                     BrushRow(st, vm, colors)
                     Column(Modifier.weight(1f).verticalScroll(scroll)) { Controls(st, vm, colors) { resultsTop = it } }
                 }
@@ -135,8 +137,10 @@ fun PositionScreen(vm: PositionViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-private fun TopRow(vm: PositionViewModel, canUndo: Boolean, onBack: () -> Unit) {
+private fun TopRow(vm: PositionViewModel, st: PositionState, capture: com.boldblot.backgammonplyground.ui.review.BoardCapture, onBack: () -> Unit) {
+    val canUndo = st.canUndo
     var menu by remember { mutableStateOf(false) }
+    var sharing by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf<StudyPosition?>(null) }
     val clipboard = LocalClipboardManager.current
@@ -148,6 +152,23 @@ private fun TopRow(vm: PositionViewModel, canUndo: Boolean, onBack: () -> Unit) 
             Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
             Spacer(Modifier.width(6.dp))
             Text("Import")
+        }
+        // Share, as in the review and the quiz: the XGID, the board, or the board with the top 5.
+        Box {
+            IconButton(onClick = { sharing = true }) { Icon(Icons.Default.Share, "Share") }
+            DropdownMenu(sharing, onDismissRequest = { sharing = false }) {
+                val study = vm.study()
+                val lines = com.boldblot.backgammonplyground.ui.review.PositionShare.analysisLines(
+                    st.board, st.onRoll, st.checker, st.cubeEval, response = false, beavers = false,
+                    playedIndex = null, playedKind = null, factor = XgRules.errorFactor(st.matchLength),
+                )
+                com.boldblot.backgammonplyground.ui.review.SharePositionItems(
+                    xgid = vm.exportId(xgid = true),
+                    title = study?.let { com.boldblot.backgammonplyground.ui.review.PositionShare.title(it) } ?: "Analyze Position",
+                    lines = lines, capture = capture,
+                    analysisLabel = (st.checker?.label ?: st.cubeEval?.label)?.ifBlank { null },
+                ) { sharing = false }
+            }
         }
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
@@ -365,12 +386,12 @@ private fun Results(st: PositionState, vm: PositionViewModel, colors: BoardColor
         HorizontalDivider()
         if (st.onRoll == Player.CPU) {
             Text("If your opponent doubles: take or pass?", style = MaterialTheme.typography.titleSmall)
-            CubeTable(e, DecisionKind.TAKE, factor)
+            CubeTable(e, DecisionKind.TAKE, factor, colors = boardColorsFor(st.settings), rollerHuman = false)
             Text("Your opponent's cube decision", style = MaterialTheme.typography.titleSmall)
         } else {
             Text("Your cube decision", style = MaterialTheme.typography.titleSmall)
         }
-        CubeTable(e, null, factor)
+        CubeTable(e, null, factor, colors = boardColorsFor(st.settings), rollerHuman = st.onRoll == Player.HUMAN)
     }
 }
 

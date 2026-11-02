@@ -120,7 +120,12 @@ data class CheckerAnalysis(
     val worstEquity: Float,
     val legalMoves: Int,
     val plies: Int,
+    /** The engine that analyzed it ("PureTD"); null in analyses saved before 0.7.11. */
+    val engine: String? = null,
 ) {
+    /** "PureTD 3-ply, pruned" (the engine when recorded). */
+    val label: String get() = listOfNotNull(engine, plyLabel(plies)).joinToString(" ")
+
     val error: Float get() = (bestEquity - playedEquity).coerceAtLeast(0f)
 
     /** XG: forced moves and plays with a best/worst spread under 0.001 are obvious. */

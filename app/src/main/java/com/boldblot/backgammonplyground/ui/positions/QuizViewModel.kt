@@ -1,5 +1,8 @@
 package com.boldblot.backgammonplyground.ui.positions
 
+import com.boldblot.backgammonplyground.core.StudyPosition
+import com.boldblot.backgammonplyground.data.QuizTheirCube
+import com.boldblot.backgammonplyground.data.QuizMyCube
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.boldblot.backgammonplyground.AppLog
@@ -62,7 +65,16 @@ data class QuizResult(
     val deleted: Boolean = false,
     /** Deleted with the Delete button (Undo puts it back). */
     val removed: DeletedPosition? = null,
+    /** The answer and the engine's as the quiz asked them ("Double" when the opponent's answer wasn't asked). */
+    val youText: String? = null,
+    val bestText: String? = null,
+    /** Doubled with the follow-up question: the player's "the double was right", and the engine's. */
+    val doubleClaim: Boolean? = null,
+    val doubleRight: Boolean? = null,
 )
+
+/** A card answered this round, for the arrows back through the quiz and the list at its end. */
+data class QuizCard(val position: SavedPosition, val result: QuizResult)
 
 data class QuizState(
     val loading: Boolean = true,
@@ -97,12 +109,18 @@ data class QuizState(
     val lastRemoved: DeletedPosition? = null,
     val finished: Boolean = false,
     val message: String? = null,
+    /** Cards answered this round, oldest first. */
+    val history: List<QuizCard> = emptyList(),
+    /** The answered card shown with the arrows (index into [history]); null = the current card. */
+    val viewing: Int? = null,
+    /** Doubled, with the follow-up question: the take or pass given, waiting for "was the double right?". */
+    val firstCube: DecisionKind? = null,
 ) {
     val current: SavedPosition? get() = queue.firstOrNull()
 }
 
 /** The My positions quiz: the positions [spec] picks (folders, labels, how many, order), answered on the board. */
-class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) : ViewModel() {
+class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewModel() {
 
     private val _state = MutableStateFlow(QuizState())
     val state: StateFlow<QuizState> = _state.asStateFlow()
@@ -124,7 +142,12 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
     fun start() {
         val left = all.filter { it.id !in gone }
         val ordered = if (spec.newestFirst) left.sortedByDescending { it.entity.savedAt } else left.shuffled()
-        val list = if (spec.limit > 0) ordered.take(spec.limit) else ordered
+        val picked = if (spec.limit > 0) ordered.take(spec.limit) else ordered
+        // Turned over, a double becomes the doubler's full decision (the player's own answer is about the take).
+        val turn = _state.value.settings.quizTheirCube == QuizTheirCube.FLIP
+        val list = picked.map { sp ->
+            if (turn && sp.position.doubled) sp.copy(position = turnedToDoubler(sp.position), answer = null, played = null) else sp
+        }
         _state.update { QuizState(loading = false, settings = it.settings, queue = list, total = list.size, finished = list.isEmpty()) }
         show()
     }
@@ -140,7 +163,7 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
                 board = p.board, steps = emptyList(), movable = opts?.movableFrom(emptyList()) ?: emptySet(),
                 diceOrder = d?.highFirst ?: emptyList(), diceDim = d?.highFirst?.map { 0f } ?: emptyList(),
                 moveComplete = opts != null && !opts.canMove, result = null, message = null,
-                view = ReviewView.ARROWS, candidate = null,
+                view = ReviewView.ARROWS, candidate = null, firstCube = null,
             )
         }
     }
@@ -163,9 +186,11 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
         apply(st.steps + chain)
     }
 
-    /** Tap on the dice: answer when the move is complete, otherwise swap them. */
+    /** Tap on the dice: answer when the move is complete, otherwise swap them; once answered, the next card. */
     fun tapDice() {
         val st = _state.value
+        if (st.viewing != null) { forward(); return }
+        if (st.result != null && !st.busy) { next(); return }
         val opts = options ?: return
         if (st.busy || st.result != null) return
         if (st.moveComplete) { done(); return }
@@ -220,21 +245,39 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
         answer(move = if (opts.canMove) Move(st.steps) else Move.NONE, cube = null)
     }
 
-    /** A response to a double (take, pass, beaver) is the answer. */
+    /**
+     * A response to a double (take, pass, beaver) is the answer; or a cube action alone ("No double / Double",
+     * Settings → My positions → Quiz). With the follow-up question it waits for [answerDoubleClaim].
+     */
     fun answerCube(k: DecisionKind) {
         val st = _state.value
         if (st.busy || st.result != null || st.current?.position?.dice != null) return
+        if (k.isResponse && st.settings.quizTheirCube == QuizTheirCube.THEN_DOUBLE) {
+            _state.update { it.copy(firstCube = k) }
+            return
+        }
         answer(move = null, cube = k)
     }
 
-    /** A doubling decision's answer, with the opponent's expected answer ("Double, pass"). */
-    fun answerCube(c: CubeAnswer) {
+    /** The follow-up to take or pass: whether the opponent's double was right. */
+    fun answerDoubleClaim(right: Boolean) {
         val st = _state.value
-        if (st.busy || st.result != null || st.current?.position?.dice != null) return
-        answer(move = null, cube = c.kind, cubeAnswer = c)
+        val k = st.firstCube ?: return
+        if (st.busy || st.result != null) return
+        answer(move = null, cube = k, claim = right)
     }
 
-    private fun answer(move: Move?, cube: DecisionKind?, cubeAnswer: CubeAnswer? = null) {
+    /**
+     * A doubling decision's answer, with the opponent's expected answer ("Double, pass"). [partial]: only the
+     * cube action was asked, so the opponent's answer is taken as the right one.
+     */
+    fun answerCube(c: CubeAnswer, partial: Boolean = false) {
+        val st = _state.value
+        if (st.busy || st.result != null || st.current?.position?.dice != null) return
+        answer(move = null, cube = c.kind, cubeAnswer = c, partial = partial)
+    }
+
+    private fun answer(move: Move?, cube: DecisionKind?, cubeAnswer: CubeAnswer? = null, partial: Boolean = false, claim: Boolean? = null) {
         val sp = _state.value.current ?: return
         val p = sp.position
         val s = _state.value.settings
@@ -244,7 +287,9 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
                 // A position saved without analysis (or imported) is analyzed now, and keeps it.
                 val a = sp.analysis ?: analyzePosition(app, p, s).also { app.positions.setAnalysis(sp.id, it) }
                 val factor = factorOf(p)
-                val result = judge(sp, a, move, cube, cubeAnswer, s, null)
+                val asked = cubeAnswer?.let { if (partial) withBestResponse(p, a, it.double) else it }
+                val judged = judge(sp, a, move, cube, asked, s, null)
+                val result = judged.withAsked(p, a, s, cubeAnswer.takeIf { partial }, claim)
                 val counted = app.positions.setResult(sp.id, result.right, MyAnswer(move = move, cube = cube))
                     ?.let { sp.copy(entity = it) }
                 val deleted = counted != null && s.quizAutoDelete && counted.quizBalance >= s.quizDeleteAt
@@ -315,6 +360,27 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
     }
 
     /**
+     * [this] verdict as the quiz asked: [partialOf] (the cube action alone) names the answers without the
+     * opponent's, and [claim] (the follow-up "was the double right?") must be right too.
+     */
+    private fun QuizResult.withAsked(p: StudyPosition, a: PositionAnalysis, s: Settings, partialOf: CubeAnswer?, claim: Boolean?): QuizResult {
+        var r = this
+        if (partialOf != null) {
+            val best = bestCubeAnswer(p, a)
+            val three = s.quizMyCube == QuizMyCube.THREE
+            r = r.copy(
+                youText = if (partialOf.double) "Double" else if (three) partialOf.label else "No double",
+                bestText = best?.let { b -> if (b.double) "Double" else if (three) b.label else "No double" },
+            )
+        }
+        if (claim != null) {
+            val engine = doubleWasRight(p, a)
+            r = r.copy(doubleClaim = claim, doubleRight = engine, right = r.right && (engine == null || engine == claim))
+        }
+        return r
+    }
+
+    /**
      * "Analyze again" on the result: analyzes the position with [r]'s engine and depths, keeps the new analysis
      * on the position and judges the answer again by it. If right / missed changes, the position's quiz counts
      * and this round's score change with it.
@@ -332,7 +398,10 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
                 val a = analyzePosition(app, p, r.engine, r.checker, Depth(r.cubePlies))
                 val kept = !old.deleted && old.removed == null
                 if (kept) app.positions.setAnalysis(sp.id, a)
-                val fresh = judge(sp.copy(analysis = a), a, old.move, old.cube, old.cubeAnswer, s, r.engine)
+                // An answer of the cube action alone is judged again with the opponent's best answer by the new analysis.
+                val partialOf = old.cubeAnswer.takeIf { old.youText != null }
+                val asked = partialOf?.let { withBestResponse(p, a, it.double) } ?: old.cubeAnswer
+                val fresh = judge(sp.copy(analysis = a), a, old.move, old.cube, asked, s, r.engine).withAsked(p, a, s, partialOf, old.doubleClaim)
                 val flipped = fresh.right != old.right
                 val counted = if (kept && flipped) app.positions.fixResult(sp.id, fresh.right)?.let { sp.copy(entity = it) } else null
                 val result = fresh.copy(
@@ -363,8 +432,28 @@ class QuizViewModel(private val app: PlyGroundApp, private val spec: QuizSpec) :
         val cur = st.current ?: return
         val again = !r.right && st.settings.quizRepeat && !r.deleted && r.removed == null
         val rest = st.queue.drop(1) + if (again) listOf(cur) else emptyList()
-        _state.update { it.copy(queue = rest, result = null, finished = rest.isEmpty()) }
+        _state.update { it.copy(queue = rest, result = null, finished = rest.isEmpty(), history = it.history + QuizCard(cur, r), viewing = null) }
         if (rest.isNotEmpty()) show()
+    }
+
+    /** The arrow back: the card answered before the one shown (view only). */
+    fun back() = _state.update {
+        val at = it.viewing ?: it.history.size
+        if (at <= 0) it else it.copy(viewing = at - 1, candidate = null, view = ReviewView.ARROWS)
+    }
+
+    /** The arrow forward: the next answered card, then the current one again. */
+    fun forward() = _state.update {
+        val at = it.viewing ?: return@update it
+        it.copy(viewing = if (at + 1 < it.history.size) at + 1 else null, candidate = null, view = ReviewView.ARROWS)
+    }
+
+    /** Files the card shown (the current one, or an answered one) in [folders] instead of its folders now. */
+    fun moveToFolders(id: Long, folders: Set<Long>) {
+        viewModelScope.launch {
+            app.positions.setCategories(id, folders)
+            _state.update { it.copy(message = if (folders.isEmpty()) "Out of all folders." else "Moved.") }
+        }
     }
 
     fun dismissMessage() = _state.update { it.copy(message = null) }

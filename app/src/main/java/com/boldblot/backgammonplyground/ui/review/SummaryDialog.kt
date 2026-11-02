@@ -198,8 +198,8 @@ private fun resultText(res: GameResult): String {
  */
 suspend fun deleteMatchEverywhere(app: PlyGroundApp, matchId: Long, errors: Boolean) {
     if (errors) {
-        val min = app.settings.settings.first().blunderList.minSeverity
-        app.positions.removeFiled(app.repository.errorPositions(matchId, min))
+        // Every error that could have been filed (the New errors minimum is never below an error).
+        app.positions.removeFiled(app.repository.errorPositions(matchId, com.boldblot.backgammonplyground.core.Severity.ERROR))
         app.repository.removeBlundersOf(matchId)
     }
     app.repository.deleteMatch(matchId)

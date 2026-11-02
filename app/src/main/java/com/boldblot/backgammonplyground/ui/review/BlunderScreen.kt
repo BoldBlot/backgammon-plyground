@@ -423,7 +423,7 @@ private fun Detail(st: BlunderState, b: SavedBlunder, vm: BlunderViewModel) {
                 moverColor = colors.human, opponentColor = colors.cpu, moverRim = colors.humanRim, opponentRim = colors.cpuRim,
                 onSelect = { i, _ -> vm.selectCandidate(if (st.candidate == i) null else i) },
             )
-            d.cubeEval != null -> CubeTable(d.cubeEval, d.kind, st.factor, d.beavers)
+            d.cubeEval != null -> CubeTable(d.cubeEval, d.kind, st.factor, d.beavers, colors = colors, rollerHuman = (d.player == Player.HUMAN) != d.kind.isResponse)
         }
     }
 }

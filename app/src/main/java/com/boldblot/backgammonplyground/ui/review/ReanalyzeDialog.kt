@@ -47,8 +47,13 @@ data class ReanalyzeRequest(
  * (game review only) offers this game or the whole match, and the computer's decisions.
  */
 @Composable
-fun ReanalyzeDialog(settings: Settings, gameNumber: Int?, onDismiss: () -> Unit, onStart: (ReanalyzeRequest) -> Unit) {
-    var r by remember { mutableStateOf(ReanalyzeRequest(settings.analysisEngine, settings.checkerDepth, settings.cubePlies, cpu = settings.cpuAnalysis)) }
+fun ReanalyzeDialog(
+    settings: Settings, gameNumber: Int?, onDismiss: () -> Unit,
+    /** The computer's decisions are on by default: as in the settings, or because some of them were never analyzed. */
+    cpuDefault: Boolean = settings.cpuAnalysis,
+    onStart: (ReanalyzeRequest) -> Unit,
+) {
+    var r by remember { mutableStateOf(ReanalyzeRequest(settings.analysisEngine, settings.checkerDepth, settings.cubePlies, cpu = cpuDefault)) }
     AlertDialog(
         onDismissRequest = onDismiss,
         // Wider than the default, so that four depth buttons fit across.

@@ -103,9 +103,15 @@ import com.boldblot.backgammonplyground.ui.components.ErrorPill
 import com.boldblot.backgammonplyground.ui.components.errText
 import com.boldblot.backgammonplyground.ui.components.decisionCube
 import com.boldblot.backgammonplyground.ui.components.describeAction
+import com.boldblot.backgammonplyground.ui.components.bestCubeLabel
 import com.boldblot.backgammonplyground.ui.components.fmt
 import com.boldblot.backgammonplyground.ui.components.severityColor
 import kotlinx.coroutines.Job
+import com.boldblot.backgammonplyground.core.CubeEval
+import com.boldblot.backgammonplyground.core.CubeContext
+import kotlinx.coroutines.flow.first
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.filled.Folder
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -113,6 +119,12 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 enum class ReviewFilter(val label: String) { ALL("All"), MINE("Mine"), MISTAKES("My mistakes") }
+
+/**
+ * The cube decision before a checker play (the Cube chip): the recorded one ([record]), or one analyzed when
+ * asked ([eval] alone); [available] false when the player couldn't double.
+ */
+data class TurnCube(val record: DecisionRecord?, val eval: CubeEval?, val available: Boolean, val busy: Boolean = false)
 
 data class ReviewState(
     val loading: Boolean = true,
@@ -129,6 +141,13 @@ data class ReviewState(
     /** The selected decision's analysis is closed (tapped again), so the whole list shows. */
     val collapsed: Boolean = false,
     val settings: Settings = Settings(),
+    /** Keys (XGID, doubled) of My positions, for the folder marker on decisions filed there. */
+    val library: Set<Pair<String, Boolean>> = emptySet(),
+    /** Top X per match, before the match ends: the errors going to My positions at its end (game index, decision index). */
+    val goingIn: Set<Pair<Int, Int>> = emptySet(),
+    /** The Cube chip on a checker play: that turn's cube decision is shown instead ([turnCube] once known). */
+    val cubeShown: Boolean = false,
+    val turnCube: TurnCube? = null,
     /** Analyzing again: decisions done and in all; null = not running. */
     val progress: Pair<Int, Int>? = null,
     val message: String? = null,
@@ -201,14 +220,84 @@ class ReviewViewModel(
             val games = app.repository.games(matchId)
             val index = games.indexOfFirst { it.first.number == startGame }.takeIf { it >= 0 } ?: (games.size - 1).coerceAtLeast(0)
             _state.update { it.copy(loading = false, match = match, games = games, gameIndex = index) }
+            loadLibrary()
         }
         viewModelScope.launch { app.settings.settings.collect { s -> _state.update { it.copy(settings = s) } } }
     }
 
-    fun selectGame(i: Int) = _state.update { it.copy(gameIndex = i, position = 0, candidate = null, collapsed = false) }
-    fun setFilter(f: ReviewFilter) = _state.update { it.copy(filter = f, position = 0, candidate = null, collapsed = false) }
+    /** The folder markers: what is in My positions, and with Top X what will go at the end of the match. */
+    private suspend fun loadLibrary() {
+        val keys = com.boldblot.backgammonplyground.ui.positions.libraryKeys(app)
+        val st = _state.value
+        val s = app.settings.settings.first()
+        val m = st.match
+        var going = emptySet<Pair<Int, Int>>()
+        if (m != null && s.errorsMode == com.boldblot.backgammonplyground.data.ErrorsMode.TOP_X && m.status == com.boldblot.backgammonplyground.data.MatchStatus.IN_PROGRESS) {
+            val factor = XgRules.errorFactor(m.length)
+            val errors = st.games.flatMapIndexed { gi, (_, g) ->
+                g.decisions.mapIndexedNotNull { di, d ->
+                    val w = (d.scoredError ?: return@mapIndexedNotNull null) * factor
+                    if (d.player == Player.HUMAN && !d.hinted && severityAtLeastError(w)) ((gi.toLong() shl 32) or di.toLong()) to w else null
+                }
+            }
+            going = com.boldblot.backgammonplyground.core.NewErrors.topX(errors, s.topX, s.errorMin, s.topXFiledOf(m.id))
+                .map { (it shr 32).toInt() to (it and 0xffffffffL).toInt() }.toSet()
+        }
+        _state.update { it.copy(library = keys, goingIn = going) }
+    }
+
+    private fun severityAtLeastError(w: Float) = XgRules.severity(w).atLeast(Severity.ERROR)
+
+    fun selectGame(i: Int) = _state.update { it.copy(gameIndex = i, position = 0, candidate = null, collapsed = false, cubeShown = false, turnCube = null) }
+    fun setFilter(f: ReviewFilter) = _state.update { it.copy(filter = f, position = 0, candidate = null, collapsed = false, cubeShown = false, turnCube = null) }
     fun go(pos: Int) = _state.update {
-        it.copy(position = pos.coerceIn(0, (it.decisions.size - 1).coerceAtLeast(0)), candidate = null, collapsed = false)
+        it.copy(position = pos.coerceIn(0, (it.decisions.size - 1).coerceAtLeast(0)), candidate = null, collapsed = false, cubeShown = false, turnCube = null)
+    }
+
+    /** The Cube chip: the selected checker play's cube decision (recorded, or analyzed now), or back to the play. */
+    fun toggleCube() {
+        val st = _state.value
+        if (st.cubeShown) { _state.update { it.copy(cubeShown = false) }; return }
+        val m = st.match ?: return
+        val g = st.game ?: return
+        val (index, d) = st.decisions.getOrNull(st.position) ?: return
+        if (d.kind != DecisionKind.CHECKER) return
+        // The doubling decision of the same turn comes just before it (an answer to a double may sit between).
+        var k = index - 1
+        var rec: DecisionRecord? = null
+        while (k >= 0 && g.decisions[k].kind != DecisionKind.CHECKER) {
+            val c = g.decisions[k]
+            if (c.player == d.player && (c.kind == DecisionKind.DOUBLE || c.kind == DecisionKind.NO_DOUBLE)) { rec = c; break }
+            k--
+        }
+        if (rec?.cubeEval != null) { _state.update { it.copy(cubeShown = true, turnCube = TurnCube(rec, rec.cubeEval, true)) }; return }
+        val ctx = CubeContext(m.length, d.score, d.crawford, m.jacoby, d.cube, d.player)
+        _state.update { it.copy(cubeShown = true, turnCube = TurnCube(rec, null, true, busy = true)) }
+        viewModelScope.launch {
+            val s = _state.value.settings
+            val e = runCatching { app.engine.run { cubeDecision(d.board, ctx, Depth(s.cubePlies).code) } }.getOrNull()
+            _state.update { st2 ->
+                if (st2.decisions.getOrNull(st2.position)?.value !== d) st2
+                else st2.copy(turnCube = TurnCube(rec, e, e?.cubeAvailable ?: false))
+            }
+        }
+    }
+
+    /** The next decision, or the first of the next game after the last one. */
+    fun next() {
+        val st = _state.value
+        if (st.position < st.decisions.size - 1) go(st.position + 1)
+        else if (st.gameIndex < st.games.size - 1) selectGame(st.gameIndex + 1)
+    }
+
+    /** The previous decision, or the last of the previous game before the first one. */
+    fun previous() {
+        val st = _state.value
+        if (st.position > 0) go(st.position - 1)
+        else if (st.gameIndex > 0) _state.update {
+            val prev = it.copy(gameIndex = it.gameIndex - 1)
+            prev.copy(position = (prev.decisions.size - 1).coerceAtLeast(0), candidate = null, collapsed = false, cubeShown = false, turnCube = null)
+        }
     }
 
     /** A tap on a decision in the list: opens it, or closes its analysis when it is open already. */
@@ -370,6 +459,7 @@ private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, cap
         ReanalyzeDialog(
             st.settings, gameNumber = st.games.getOrNull(st.gameIndex)?.first?.number,
             onDismiss = { ask = false },
+            cpuDefault = st.settings.cpuAnalysis || st.games.any { (_, g) -> Reanalysis.unanalyzedCpu(g) },
             onStart = { ask = false; vm.reanalyze(it) },
         )
     }
@@ -561,7 +651,15 @@ private fun BottomBar(st: ReviewState, vm: ReviewViewModel, landscape: Boolean) 
             onPlayed = { d.reviewIndex?.let { vm.selectCandidate(it) } },
             onBest = { vm.selectCandidate(0) },
         )
-    } else if (landscape) {
+    } else if (d != null) {
+        // Cube decisions and decisions not analyzed keep the bar too, so the arrows below don't jump.
+        PlayedBestBar(
+            playedText = describeAction(d.reviewKind, d.board, d.player, d.reviewMove),
+            playedError = d.scoredError, playedSeverity = st.severityOf(d),
+            bestText = d.cubeEval?.let { bestCubeLabel(it, d.kind, d.beavers) } ?: "[n/a]", bestEquity = null,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    } else {
         KeepRoom(false) { EmptyPlayedBestBar() }
     }
     val n = st.decisions.size
@@ -570,9 +668,10 @@ private fun BottomBar(st: ReviewState, vm: ReviewViewModel, landscape: Boolean) 
         horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { vm.go(st.position - 1) }, enabled = st.position > 0) { Icon(Icons.AutoMirrored.Filled.NavigateBefore, "Previous") }
+            // At either end of a game the arrows go on into the previous or next game.
+            IconButton(onClick = vm::previous, enabled = st.position > 0 || st.gameIndex > 0) { Icon(Icons.AutoMirrored.Filled.NavigateBefore, "Previous") }
             Text(if (n == 0) "0 / 0" else "${st.position + 1} / $n", style = MaterialTheme.typography.titleSmall)
-            IconButton(onClick = { vm.go(st.position + 1) }, enabled = st.position < n - 1) { Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next") }
+            IconButton(onClick = vm::next, enabled = st.position < n - 1 || st.gameIndex < st.games.size - 1) { Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next") }
             TextButton(onClick = vm::nextMistake, enabled = st.nextMistake != null) { Text("Next mistake") }
         }
         if (!landscape) ReviewTools(st, vm)
@@ -629,6 +728,17 @@ private fun DecisionList(st: ReviewState, vm: ReviewViewModel, modifier: Modifie
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                     )
                     val scored = d.scoredError
+                    // In My positions (filled folder), or going there at the end of the match with Top X (outlined).
+                    val inLibrary = d.player == Player.HUMAN && st.match != null && sev.atLeast(Severity.ERROR) &&
+                        com.boldblot.backgammonplyground.core.StudyPosition.of(d, st.match.length, st.match.jacoby)?.let { (it.xgid to it.doubled) in st.library } == true
+                    val going = !inLibrary && (st.gameIndex to st.decisions[pos].index) in st.goingIn
+                    if (inLibrary || going) {
+                        Icon(
+                            if (inLibrary) Icons.Default.Folder else Icons.Outlined.Folder,
+                            if (inLibrary) "In My positions" else "Goes to My positions at the end of the match",
+                            Modifier.size(16.dp).padding(end = 2.dp), tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                     if (scored != null && sev != Severity.NONE && !selected) ErrorPill(errText(-scored), sev, style = MaterialTheme.typography.bodySmall, mono = true)
                     if (scored != null && selected) SeverityBadge(sev, scored * st.factor, factor = st.factor)
                 }
@@ -647,7 +757,9 @@ private fun DecisionAnalysis(st: ReviewState, vm: ReviewViewModel, d: DecisionRe
         val notes = buildList {
             if (d.hinted) add("hint used, not counted")
             if (d.auto) add("played by autofinish, not counted")
-            if (d.error != null && !d.counted && !d.hinted) add("obvious decision, not counted in PR")
+            val quick = d.player == Player.CPU && (d.checker?.plies ?: d.cubeEval?.plies) == com.boldblot.backgammonplyground.core.MatchController.LIGHT_PLIES
+            if (quick && !d.counted) add("quick 1-ply analysis, not in the computer's PR (its analysis is off)")
+            else if (d.error != null && !d.counted && !d.hinted) add("obvious decision, not counted in PR")
             if (d.kind == DecisionKind.CHECKER && d.checker?.legalMoves == 1) add("forced move")
             d.firstTry?.let { t ->
                 val last = describeAction(d.kind, d.board, d.player, d.move)
@@ -659,6 +771,35 @@ private fun DecisionAnalysis(st: ReviewState, vm: ReviewViewModel, d: DecisionRe
             Text(notes.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.height(4.dp))
+        // A checker play's Cube chip shows the cube decision of the same turn (no doubles are often left out of the list).
+        if (d.kind == DecisionKind.CHECKER) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(selected = !st.cubeShown, onClick = { if (st.cubeShown) vm.toggleCube() }, label = { Text("Checker") })
+                FilterChip(selected = st.cubeShown, onClick = { if (!st.cubeShown) vm.toggleCube() }, label = { Text("Cube") })
+            }
+        }
+        val tc = st.turnCube
+        if (st.cubeShown && tc != null) {
+            val played = tc.record?.let { describeAction(it.kind, it.board, it.player, null) }
+            when {
+                tc.busy -> Text("Analyzing the cube decision…", style = MaterialTheme.typography.bodyMedium)
+                tc.eval == null -> Text("The cube decision could not be analyzed.")
+                !tc.eval.cubeAvailable -> Text("No cube decision: the cube wasn't available to ${if (d.player == Player.HUMAN) "you" else "the computer"}.")
+                else -> {
+                    val sev = tc.record?.scoredError?.let { st.severityOf(tc.record) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Before this roll: " + (played ?: "rolled (not recorded)"),
+                            style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f),
+                        )
+                        val e = tc.record?.scoredError
+                        if (e != null && sev != null && sev != Severity.NONE) ErrorPill(errText(-e), sev, style = MaterialTheme.typography.bodySmall, mono = true)
+                    }
+                    CubeTable(tc.eval, tc.record?.kind, st.factor, d.beavers || tc.record?.beavers == true, colors = colors, rollerHuman = d.player == Player.HUMAN)
+                }
+            }
+            return@Column
+        }
         when {
             d.checker != null && d.checker.candidates.isNotEmpty() -> CandidateList(
                 board = d.board, player = d.player, analysis = d.checker, factor = st.factor,
@@ -670,9 +811,12 @@ private fun DecisionAnalysis(st: ReviewState, vm: ReviewViewModel, d: DecisionRe
                 opponentColor = if (d.player == Player.HUMAN) colors.cpu else colors.human,
                 onSelect = { i, _ -> vm.selectCandidate(if (st.candidate == i) null else i) },
             )
-            d.cubeEval != null -> CubeTable(d.cubeEval, d.kind, st.factor, d.beavers)
-            d.kind == DecisionKind.CHECKER -> Text("No legal move.")
-            else -> Text("Not analyzed.")
+            d.cubeEval != null -> CubeTable(d.cubeEval, d.kind, st.factor, d.beavers, colors = colors, rollerHuman = (d.player == Player.HUMAN) != d.kind.isResponse)
+            d.kind == DecisionKind.CHECKER && d.checker != null -> Text("No legal move.")
+            d.auto -> Text("Not analyzed (played by autofinish).")
+            d.pending -> Text("Not analyzed yet: waiting for the background analysis. Analyze again does it now.")
+            d.player == Player.CPU -> Text("Not analyzed. Analyze again, with \"The computer's decisions too\" on, analyzes it.")
+            else -> Text("Not analyzed. Analyze again analyzes it.")
         }
     }
 }

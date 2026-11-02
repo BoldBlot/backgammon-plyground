@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -109,9 +110,19 @@ fun BoardSettings(s: Settings, update: ((Settings) -> Settings) -> Unit) {
         FilterChip(selected = s.railRight, onClick = { update { it.copy(railRight = true) } }, label = { Text("Right") })
     }
     Text(
-        "The column with the players, Undo and Done. Put it on your bear-off side, where Roll and Double appear, to keep your thumb close to all of them.",
+        "The column with the players and the game's chips. Put it on your bear-off side, where Roll and Double appear, to keep your thumb close to all of them.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Undo and Done in the side panel (landscape)", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Off: Undo appears on the board, in the half without the dice, and Done next to your dice once the move is complete (tapping the dice ends the turn too).",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(s.sideMoveButtons, { v -> update { it.copy(sideMoveButtons = v) } })
+    }
     Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         OutlinedButton(onClick = { designer = true }) {
             Icon(Icons.Default.Palette, null)

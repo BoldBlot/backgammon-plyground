@@ -111,8 +111,9 @@ class MainActivity : ComponentActivity() {
             }
             // Errors in Eq or mEq everywhere (Settings → Display).
             val errorUnit by androidx.compose.runtime.remember { app.settings.settings.map { it.errorUnit } }.collectAsState(initial = com.boldblot.backgammonplyground.data.ErrorUnit.EQ)
+            val checkerStyle by androidx.compose.runtime.remember { app.settings.settings.map { it.checkerStyle } }.collectAsState(initial = com.boldblot.backgammonplyground.data.CheckerStyle.RIMMED)
             GammonTheme {
-                androidx.compose.runtime.CompositionLocalProvider(com.boldblot.backgammonplyground.ui.components.LocalErrorUnit provides errorUnit) {
+                androidx.compose.runtime.CompositionLocalProvider(com.boldblot.backgammonplyground.ui.components.LocalErrorUnit provides errorUnit, com.boldblot.backgammonplyground.ui.components.LocalCheckerStyle provides checkerStyle) {
                     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                         Box(Modifier.fillMaxSize().safeDrawingPadding()) { AppNav() }
                     }
@@ -247,7 +248,7 @@ class MainActivity : ComponentActivity() {
             composable("positions/quiz/{spec}") { entry ->
                 val key = entry.arguments?.getString("spec").orEmpty()
                 val vm: QuizViewModel = viewModel(key = "quiz-$key", factory = factory { QuizViewModel(app, QuizSpec.decode(key)) })
-                QuizScreen(vm, onBack = { nav.popBackStack() })
+                QuizScreen(vm, onBack = { nav.popBackStack() }, onOpen = { p -> nav.navigate("positions/item/$p") })
             }
             composable("settings") {
                 SettingsScreen(

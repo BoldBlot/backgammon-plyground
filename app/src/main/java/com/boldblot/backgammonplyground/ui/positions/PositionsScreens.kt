@@ -3,6 +3,8 @@ package com.boldblot.backgammonplyground.ui.positions
 import androidx.compose.material.icons.filled.Refresh
 import com.boldblot.backgammonplyground.ui.review.ReanalyzeDialog
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
+import androidx.compose.material.icons.automirrored.filled.NavigateBefore
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
@@ -234,15 +236,13 @@ fun MyPositionsScreen(
                     Spacer(Modifier.width(6.dp))
                     Text("Quiz…")
                 }
-                // The errors from games, waiting to be added to a folder or deleted. With automatic
-                // filing only while some are left from before.
+                // The errors from games, waiting to be added to a folder or deleted. With the automatic
+                // methods: the errors they left out (the newest ones), to add by hand.
                 val manual by produceState(true) { app.settings.settings.collect { value = it.errorsMode == ErrorsMode.MANUAL } }
-                if (manual || newErrors > 0) {
-                    FilledTonalButton(onClick = onNewErrors) {
-                        Icon(Icons.Default.Inbox, null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("New errors ($newErrors)")
-                    }
+                FilledTonalButton(onClick = onNewErrors) {
+                    Icon(Icons.Default.Inbox, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("New errors ($newErrors)")
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -717,7 +717,7 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                             checkIndex = mine?.takeIf { it >= 0 }, playedLabel = "played",
                         )
                     }
-                    a?.cube != null -> CubeTable(a.cube, if (sp.doubled) DecisionKind.TAKE else null, factorOf(sp), sp.beavers, mine = cur.answer?.cube, played = cur.played?.cube)
+                    a?.cube != null -> CubeTable(a.cube, if (sp.doubled) DecisionKind.TAKE else null, factorOf(sp), sp.beavers, mine = cur.answer?.cube, played = cur.played?.cube, colors = colors, rollerHuman = !sp.doubled)
                 }
                 TextButton(onClick = { analyze() }, enabled = !analyzing) { Text("Analyze again (Settings → Analysis)") }
             }
@@ -945,7 +945,7 @@ fun SaveToPositionsDialog(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit) {
+fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit = {}) {
     val st by vm.state.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(st.lastRemoved) {
@@ -981,7 +981,7 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit) {
                 when {
                     st.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                     st.total == 0 -> Text("No positions to ask.", Modifier.padding(24.dp))
-                    st.finished -> QuizSummary(st, vm, onBack)
+                    st.finished -> QuizSummary(st, vm, onBack, onOpen)
                     else -> QuizContent(st, vm, header.takeIf { landscape })
                 }
             }
@@ -990,8 +990,8 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Done", style = MaterialTheme.typography.titleLarge)
         Text("${st.total} position${if (st.total == 1) "" else "s"}, ${st.answered} answer${if (st.answered == 1) "" else "s"}.")
         Text("Right: ${st.right} of ${st.answered}")
@@ -1007,14 +1007,22 @@ private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit) {
             Button(onClick = vm::start) { Text("Again") }
             OutlinedButton(onClick = onBack) { Text("Done") }
         }
+        // The quiz's positions, as a folder lists them (the last answer to each; deleted ones left out).
+        val cards = st.history.reversed().distinctBy { it.position.id }.reversed().filter { !it.result.deleted && it.result.removed == null }
+        if (cards.isNotEmpty()) {
+            Text("Positions in this quiz", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            cards.forEach { c -> PositionRow(c.position, st.settings) { onOpen(c.position.id) } }
+        }
     }
 }
 
 @Composable
 private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable () -> Unit)? = null) {
-    val sp = st.current ?: return
+    // The arrows can show an answered card again (view only).
+    val past = st.viewing?.let { st.history.getOrNull(it) }
+    val sp = past?.position ?: st.current ?: return
     val p = sp.position
-    val r = st.result
+    val r = past?.result ?: st.result
     val colors = boardColorsFor(st.settings)
     val capture = rememberBoardCapture()
     val checker = r?.analysis?.checker
@@ -1035,6 +1043,7 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
         }
     }
     val interactive = r == null && !st.busy && p.dice != null
+    val diceOrder = if (past != null) p.dice?.highFirst ?: emptyList() else st.diceOrder
     val board: @Composable (Modifier) -> Unit = { m ->
         val shown = when {
             afterMove != null -> p.board.applyMove(Player.HUMAN, afterMove)
@@ -1043,14 +1052,15 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
         }
         BoardView(
             board = shown, modifier = m.then(capture.modifier), colors = colors, mirrored = st.settings.mirrorBoard,
-            dice = listOfNotNull(p.dice?.takeIf { afterMove == null }?.let { DiceView(Player.HUMAN, st.diceOrder, if (r != null) st.diceOrder.map { 0f } else st.diceDim, error = st.diceError) }),
+            dice = listOfNotNull(p.dice?.takeIf { afterMove == null }?.let { DiceView(Player.HUMAN, diceOrder, if (r != null) diceOrder.map { 0f } else st.diceDim, error = st.diceError) }),
             cube = p.setup.cube, cubeOffered = p.doubled,
             crawford = p.setup.crawford, crawfordSign = st.settings.crawfordSign,
             movable = if (interactive) st.movable else emptySet(),
             pips = listOf(shown.pipCount(Player.HUMAN), shown.pipCount(Player.CPU)),
             arrows = arrows,
             onTap = if (interactive) vm::tap else null, onDrag = if (interactive) vm::drag else null,
-            onDiceTap = if (interactive) vm::tapDice else null,
+            // Once answered, a tap on the dice (or where they would be) goes to the next card.
+            onDiceTap = if (interactive || (r != null && !st.busy)) vm::tapDice else null,
         )
     }
     val panel: @Composable () -> Unit = {
@@ -1063,7 +1073,7 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 Text("  Analyzing…")
             }
-            r != null -> QuizResultCard(st, sp, r, vm, capture)
+            r != null -> QuizResultCard(st, sp, r, vm, capture, readOnly = past != null)
             p.dice != null -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
                 OutlinedButton(onClick = vm::undo, enabled = st.steps.isNotEmpty()) {
                     Icon(Icons.AutoMirrored.Filled.Undo, null)
@@ -1072,11 +1082,44 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
                 }
                 Button(onClick = vm::done, enabled = st.moveComplete) { Text("Done") }
             }
+            p.doubled && st.firstCube != null -> Column(Modifier.padding(vertical = 6.dp)) {
+                Text("You: ${cubeLabel(st.firstCube)}. Was the opponent's double right?", style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledTonalButton(onClick = { vm.answerDoubleClaim(true) }) { Text("Yes, a double") }
+                    FilledTonalButton(onClick = { vm.answerDoubleClaim(false) }) { Text("No, not a double") }
+                }
+            }
             p.doubled -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
                 cubeActions(p).forEach { k -> FilledTonalButton(onClick = { vm.answerCube(k) }) { Text(cubeLabel(k)) } }
             }
             else -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
-                CubeAnswer.entries.forEach { c -> FilledTonalButton(onClick = { vm.answerCube(c) }) { Text(c.label) } }
+                // Settings → My positions → Quiz: the full decision, or the cube action alone (with Too good).
+                when (st.settings.quizMyCube) {
+                    com.boldblot.backgammonplyground.data.QuizMyCube.FULL ->
+                        CubeAnswer.entries.forEach { c -> FilledTonalButton(onClick = { vm.answerCube(c) }) { Text(c.label) } }
+                    com.boldblot.backgammonplyground.data.QuizMyCube.THREE -> {
+                        FilledTonalButton(onClick = { vm.answerCube(CubeAnswer.NO_DOUBLE) }) { Text("No double") }
+                        FilledTonalButton(onClick = { vm.answerCube(CubeAnswer.DOUBLE_TAKE, partial = true) }) { Text("Double") }
+                        FilledTonalButton(onClick = { vm.answerCube(CubeAnswer.TOO_GOOD) }) { Text("Too good") }
+                    }
+                    com.boldblot.backgammonplyground.data.QuizMyCube.TWO -> {
+                        FilledTonalButton(onClick = { vm.answerCube(CubeAnswer.NO_DOUBLE, partial = true) }) { Text("No double") }
+                        FilledTonalButton(onClick = { vm.answerCube(CubeAnswer.DOUBLE_TAKE, partial = true) }) { Text("Double") }
+                    }
+                }
+            }
+        }
+        // Back and forth through the cards answered this round.
+        if (st.history.isNotEmpty()) {
+            val at = st.viewing ?: st.history.size
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = vm::back, enabled = at > 0) { Icon(Icons.AutoMirrored.Filled.NavigateBefore, "Previous card") }
+                Text(
+                    if (st.viewing != null) "Card ${at + 1} of ${st.history.size} answered" else "Answered cards: ${st.history.size}",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                IconButton(onClick = vm::forward, enabled = st.viewing != null) { Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next card") }
+                if (st.viewing != null) TextButton(onClick = { repeat(st.history.size) { vm.forward() } }) { Text("Back to the quiz") }
             }
         }
         st.message?.let {
@@ -1111,8 +1154,15 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: QuizViewModel, capture: BoardCapture) {
+private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: QuizViewModel, capture: BoardCapture, readOnly: Boolean = false) {
     val p = sp.position
+    var filing by remember { mutableStateOf(false) }
+    if (filing) {
+        CategoriesDialog(vm.app, initial = null, positionId = sp.id, title = "Move to folder", onDismiss = { filing = false }) { ids, _ ->
+            filing = false
+            vm.moveToFolders(sp.id, ids)
+        }
+    }
     val answerIndex = r.move?.let { m -> r.analysis.checker?.candidates?.indexOfFirst { p.board.applyMove(Player.HUMAN, it.move) == p.board.applyMove(Player.HUMAN, m) }?.takeIf { it >= 0 } }
     Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1128,11 +1178,20 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
                         SharePositionItems(p, r.analysis, answerIndex, r.cube, capture) { sharing = false }
                     }
                 }
-                if (!r.deleted && r.removed == null) IconButton(onClick = vm::deleteCurrent) { Icon(Icons.Default.Delete, "Delete from My positions") }
-                Button(onClick = vm::next) { Text("Next") }
+                if (!r.deleted && r.removed == null) IconButton(onClick = { filing = true }) { Icon(Icons.Default.Folder, "Move to folder") }
+                if (!readOnly && !r.deleted && r.removed == null) IconButton(onClick = vm::deleteCurrent) { Icon(Icons.Default.Delete, "Delete from My positions") }
+                if (!readOnly) Button(onClick = vm::next) { Text("Next") }
             }
-            val you = r.cubeAnswer?.label ?: decisionText(p, r.move, r.cube)
+            val you = r.youText ?: r.cubeAnswer?.label ?: decisionText(p, r.move, r.cube)
             Text("You: $you", style = MaterialTheme.typography.bodyMedium)
+            if (r.doubleClaim != null) {
+                fun yn(b: Boolean) = if (b) "yes" else "no"
+                Text(
+                    "Was the double right? You: ${yn(r.doubleClaim)}" + (r.doubleRight?.let { " · engine: ${yn(it)}" } ?: ""),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (r.doubleRight == null || r.doubleRight == r.doubleClaim) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                )
+            }
             if (r.counts != null) Text("This position: ${r.counts}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (r.deleted) {
                 Text(
@@ -1143,7 +1202,7 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
             if (r.removed != null) Text("Deleted from My positions.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (r.mine != null) Text("★ Your saved answer: ${r.mine}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
             if (r.played != null) Text("In the game: ${r.played}", style = MaterialTheme.typography.bodyMedium)
-            val best = r.bestCubeAnswer?.label ?: decisionText(p, r.bestMove, r.bestCube)
+            val best = r.bestText ?: r.bestCubeAnswer?.label ?: decisionText(p, r.bestMove, r.bestCube)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Engine: $best", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 SeverityBadge(r.severity, r.error, factor = r.factor)
@@ -1159,14 +1218,14 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
                 )
                 if (st.reanalyzing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                else TextButton(onClick = { asking = true }) {
+                else if (!readOnly) TextButton(onClick = { asking = true }) {
                     Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Analyze again")
                 }
             }
             if (asking) ReanalyzeDialog(st.settings, gameNumber = null, onDismiss = { asking = false }, onStart = { asking = false; vm.reanalyze(it) })
-            r.analysis.cube?.let { CubeTable(it, if (p.doubled) DecisionKind.TAKE else null, factorOf(p), p.beavers) }
+            r.analysis.cube?.let { CubeTable(it, if (p.doubled) DecisionKind.TAKE else null, factorOf(p), p.beavers, colors = boardColorsFor(st.settings), rollerHuman = !p.doubled) }
             r.analysis.checker?.let { c ->
                 ReviewViewChips(st.view, true, vm::setView, null, Modifier.fillMaxWidth())
                 CandidateList(

@@ -125,7 +125,7 @@ class MatchController(
         val r = engine.rankMoves(board, ctx, d.d1, d.d2, plies, played)
         val all = r.candidates
         if (all.isEmpty()) {
-            return CheckerAnalysis(emptyList(), -1, 0f, 0f, 0f, legalMoves = 0, plies = plies)
+            return CheckerAnalysis(emptyList(), -1, 0f, 0f, 0f, legalMoves = 0, plies = plies, engine = engine.name.ifEmpty { null })
         }
         val keep = all.take(MAX_CANDIDATES).toMutableList()
         var playedIndex = r.playedIndex
@@ -142,11 +142,14 @@ class MatchController(
             worstEquity = all.minOf { it.equity },
             legalMoves = all.size,
             plies = plies,
+            engine = engine.name.ifEmpty { null },
         )
     }
 
     /** Records a checker play, analyzed at [plies] (null = not analyzed; [pending]: by the background analysis). */
-    private fun recordChecker(m: MatchState, move: Move, hinted: Boolean, plies: Int?, auto: Boolean = false, pending: Boolean = false): Pair<MatchState, DecisionRecord> {
+    private fun recordChecker(
+        m: MatchState, move: Move, hinted: Boolean, plies: Int?, auto: Boolean = false, pending: Boolean = false, rated: Boolean = true,
+    ): Pair<MatchState, DecisionRecord> {
         val g = m.game
         val d = requireNotNull(g.dice)
         val player = g.turn
@@ -154,7 +157,7 @@ class MatchController(
         val rec = baseRecord(m, player, DecisionKind.CHECKER).copy(
             dice = d, move = move, checker = analysis,
             error = analysis?.error,
-            counted = analysis != null && analysis.isDecision && !hinted && !auto,
+            counted = analysis != null && analysis.isDecision && !hinted && !auto && rated,
             hinted = hinted, auto = auto, pending = pending && analysis == null,
         )
         val next = m.copy(game = g.record(rec).move(move, m.rules))
@@ -243,9 +246,18 @@ class MatchController(
         Analysis.NONE -> null
     }
 
+    /**
+     * The computer is not analyzed at the analysis depths (Settings), but its decisions still get a quick
+     * 1-ply analysis (milliseconds), so that the review never shows them blank. Not with no analysis at all.
+     */
+    private val cpuLight: Boolean get() = !settings.analyzeCpu && !settings.none
+
+    /** The computer's decision [this] stays out of its PR when it has only the quick analysis ([cpuLight]). */
+    private fun DecisionRecord.rated(): DecisionRecord = if (settings.analyzeCpu) this else copy(counted = false)
+
     /** The computer's cube analysis (null when the computer is not analyzed now), reusing [eval] when there is one. */
     private fun cpuCubeAnalysis(m: MatchState, eval: CubeEval?): CubeEval? {
-        if (!settings.analyzeCpu) return null
+        if (!settings.analyzeCpu) return if (cpuLight) eval ?: analyzeCube(m, LIGHT_PLIES) else null
         return eval ?: cubeAnalysis(m, if (settings.deferred) Analysis.LATER else Analysis.NOW)
     }
 
@@ -300,7 +312,7 @@ class MatchController(
         // Computer's response at its playing strength.
         val take = mistakeMaker(m)?.take(cpuView, factor(m)) ?: cpuView.shouldTake
         val kind = responseKind(m, take, beaver = cpuView.doubleTake < 0f)
-        val cpuRec = recordTakeDecision(state, kind, cpuCubeAnalysis(m, eval), hinted = false).later(cpuAnalysis)
+        val cpuRec = recordTakeDecision(state, kind, cpuCubeAnalysis(m, eval), hinted = false).rated().later(cpuAnalysis)
         state = state.copy(game = respond(state.game.record(cpuRec), kind, m.rules))
         return state to feedback
     }
@@ -319,7 +331,7 @@ class MatchController(
         if (state.game.phase == Phase.BEAVERED) {
             // The computer answers the beaver: a raccoon pays when the double was right for it.
             val raccoon = cpuCubeView(m).doubleTake > 0f
-            val cpuRec = recordRaccoonDecision(state, raccoon, cpuCubeAnalysis(m, eval), hinted = false).later(cpuAnalysis)
+            val cpuRec = recordRaccoonDecision(state, raccoon, cpuCubeAnalysis(m, eval), hinted = false).rated().later(cpuAnalysis)
             state = state.copy(game = state.game.record(cpuRec).let { if (raccoon) it.raccoon() else it.acceptBeaver() })
         }
         return state to feedbackFor(m, rec)
@@ -418,6 +430,15 @@ class MatchController(
     fun autoCube(m: MatchState): CubeEval = engine.cubeDecision(m.game.board, m.ctx(), Depth(settings.autoPlies.coerceAtLeast(1)).code)
 
     /** Ranked candidate plays for the human's current roll (the hint). */
+    /** The best of [moves] (legal for the dice) at [plies], by the resulting position; null if none is legal. */
+    fun bestAmong(m: MatchState, moves: List<Move>, plies: Int): Move? {
+        val d = requireNotNull(m.game.dice)
+        val board = m.game.board
+        val wanted = moves.map { board.applyMove(m.game.turn, it) }.toSet()
+        return engine.rankMoves(board, m.ctx(), d.d1, d.d2, plies, null).candidates
+            .firstOrNull { board.applyMove(m.game.turn, it.move) in wanted }?.move ?: moves.firstOrNull()
+    }
+
     fun hintMoves(m: MatchState): CheckerAnalysis {
         val d = requireNotNull(m.game.dice)
         return analyzeChecker(m.game.board, m.ctx(), d, null)
@@ -451,15 +472,15 @@ class MatchController(
                 if (g.mayDouble(m.rules, m.score)) {
                     val view = cpuCubeView(m)
                     val how = cpuAnalysis
-                    val analysis = cubeAnalysis(m, how)
+                    val analysis = cubeAnalysis(m, how) ?: if (cpuLight) analyzeCube(m, LIGHT_PLIES) else null
                     val doubles = mistakeMaker(m)?.double(view, factor(m)) ?: view.shouldDouble
                     if (view.cubeAvailable && doubles) {
-                        val rec = recordDoubleDecision(m, doubled = true, eval = analysis, hinted = false).later(how)
+                        val rec = recordDoubleDecision(m, doubled = true, eval = analysis, hinted = false).rated().later(how)
                         return m.copy(game = g.record(rec).double()) to CpuAction.Doubled
                     }
                     val recorded = if (analysis != null) analysis.cubeAvailable else how == Analysis.LATER
                     if (view.cubeAvailable && recorded) {
-                        val rec = recordDoubleDecision(m, doubled = false, eval = analysis, hinted = false).later(how)
+                        val rec = recordDoubleDecision(m, doubled = false, eval = analysis, hinted = false).rated().later(how)
                         return cpuRollOrWait(m.copy(game = g.record(rec)))
                     }
                 }
@@ -472,7 +493,7 @@ class MatchController(
                     maker.checker(cpu(m).rankMoves(g.board, m.ctx(), d.d1, d.d2, requireNotNull(m.mistakes).checkerDepth, null).candidates, factor(m))
                 } else cpu(m).chooseMove(g.board, m.ctx(), d.d1, d.d2, m.cpuLevel)
                 val how = cpuAnalysis
-                val (next, _) = recordChecker(m, move, hinted = false, plies = settings.cpuPlies.takeIf { how == Analysis.NOW }, pending = how == Analysis.LATER)
+                val (next, _) = recordChecker(m, move, hinted = false, plies = settings.cpuPlies.takeIf { how == Analysis.NOW } ?: LIGHT_PLIES.takeIf { cpuLight }, pending = how == Analysis.LATER, rated = settings.analyzeCpu)
                 next to CpuAction.Moved(move)
             }
             else -> error("computer cannot act in phase ${g.phase}")
@@ -482,6 +503,9 @@ class MatchController(
     companion object {
         /** Candidates kept per checker decision (plus the played move if outside). */
         const val MAX_CANDIDATES = 10
+
+        /** Depth of the computer's quick analysis when it is not analyzed at the analysis depths. */
+        val LIGHT_PLIES = Depth(1).code
 
 
         /**

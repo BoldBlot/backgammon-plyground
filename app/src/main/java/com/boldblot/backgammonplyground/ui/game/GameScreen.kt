@@ -81,6 +81,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -446,7 +447,7 @@ private fun GameContent(
                     Spacer(Modifier.width(gap))
                 }
                 Box(Modifier.width(boardWidth).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                    BoardArea(st, m, vm, Modifier.fillMaxWidth().aspectRatio(BOARD_ASPECT))
+                    BoardArea(st, m, vm, Modifier.fillMaxWidth().aspectRatio(BOARD_ASPECT), onBoardMoveButtons = !st.settings.sideMoveButtons)
                 }
                 if (railRight) {
                     Spacer(Modifier.width(gap))
@@ -576,7 +577,11 @@ private fun PlayerStrip(st: GameUiState, m: MatchState, player: Int) {
 }
 
 @Composable
-private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifier: Modifier) {
+private fun BoardArea(
+    st: GameUiState, m: MatchState, vm: GameViewModel, modifier: Modifier,
+    /** Landscape: Undo on the board in the half without dice, and Done next to the dice. */
+    onBoardMoveButtons: Boolean = false,
+) {
     val g = m.game
     val showBoard = st.preview ?: st.board
     val previewing = st.preview != null
@@ -636,6 +641,7 @@ private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifie
                     })
                 }
             }
+            if (onBoardMoveButtons) MoveButtonsOnBoard(st, vm, w, maxHeight, mirrored, pointW, buttonH, interactive)
             // Pass to a double goes in the computer's half, next to the offered cube.
             if (passShown(st, m) && asking == null) {
                 val geo = BoardGeometry(w.value, maxHeight.value, mirrored)
@@ -690,6 +696,41 @@ private fun BoardArea(st: GameUiState, m: MatchState, vm: GameViewModel, modifie
             }
         }
         if (st.busy) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp)) else Spacer(Modifier.height(2.dp))
+    }
+}
+
+/**
+ * Landscape: Undo in the computer's half (no dice there while the human moves), centred, once a checker
+ * has moved; Done next to the human's dice, on the side away from the bar, once the move is complete.
+ */
+@Composable
+private fun MoveButtonsOnBoard(
+    st: GameUiState, vm: GameViewModel, w: Dp, h: Dp, mirrored: Boolean, pointW: Dp, buttonH: Dp, interactive: Boolean,
+) {
+    if (!interactive || st.noLegalMove || st.feedback != null || st.autoFinishing || hasPanel(st)) return
+    val geo = BoardGeometry(w.value, h.value, mirrored)
+    val label = buttonLabel(pointW)
+    val pad = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+    if (st.steps.isNotEmpty()) {
+        val cpuHalfLeft = if (mirrored) geo.columnLeft(6) else geo.columnLeft(0)
+        Box(Modifier.offset(x = cpuHalfLeft.dp).width((geo.pointW * 6).dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
+            FilledTonalButton(onClick = vm::undo, modifier = Modifier.width(pointW * 2 - 4.dp).height(buttonH), contentPadding = pad) {
+                Icon(Icons.AutoMirrored.Filled.Undo, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(2.dp))
+                Text("Undo", style = label, maxLines = 1)
+            }
+        }
+    }
+    if (st.moveComplete) {
+        val dice = geo.diceRects(Player.HUMAN)
+        val gap = geo.dieSize * 0.3f
+        val chipW = geo.pointW * 1.6f
+        val x = if (!mirrored) dice[1].right + gap else dice[0].left - gap - chipW
+        Box(Modifier.offset(x = x.dp, y = dice[0].top.dp).width(chipW.dp).height(geo.dieSize.dp)) {
+            Button(onClick = vm::confirmMove, modifier = Modifier.fillMaxSize(), contentPadding = pad, shape = RoundedCornerShape(8.dp)) {
+                Text("Done", style = label, maxLines = 1)
+            }
+        }
     }
 }
 
@@ -943,7 +984,7 @@ private fun CubeMistakeSign(st: GameUiState, m: MatchState) {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     SeverityBadge(fb.severity, fb.weightedError, factor = XgRules.errorFactor(m.rules.length))
                     Spacer(Modifier.height(8.dp))
-                    CubeTable(eval, d.kind, XgRules.errorFactor(m.rules.length), d.beavers)
+                    CubeTable(eval, d.kind, XgRules.errorFactor(m.rules.length), d.beavers, colors = boardColorsFor(st.settings), rollerHuman = !d.kind.isResponse)
                 }
             },
             confirmButton = { TextButton(onClick = { open = false }) { Text("Close") } },
@@ -1024,7 +1065,7 @@ private fun Panels(st: GameUiState, m: MatchState, vm: GameViewModel) {
                     Phase.BEAVERED -> DecisionKind.RACCOON
                     else -> null
                 }
-                CubeTable(c, kind, XgRules.errorFactor(m.rules.length), m.rules.beaversAllowed)
+                CubeTable(c, kind, XgRules.errorFactor(m.rules.length), m.rules.beaversAllowed, colors = boardColorsFor(st.settings), rollerHuman = kind != DecisionKind.TAKE)
             }
         }
     }
@@ -1046,8 +1087,10 @@ private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical:
             (g.phase == Phase.DOUBLED && g.responder == Player.HUMAN) ||
             (g.phase == Phase.BEAVERED && humanTurn)
         )
+    // In landscape, Undo and Done are on the board unless Settings → Board puts them back here.
+    val sideButtons = !vertical || st.settings.sideMoveButtons
     val moveButtons: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
-        if (moving) {
+        if (moving && sideButtons) {
             OutlinedButton(onClick = vm::undo, enabled = st.steps.isNotEmpty(), modifier = if (vertical) Modifier.weight(1f) else Modifier) {
                 Icon(Icons.AutoMirrored.Filled.Undo, null)
                 Spacer(Modifier.width(4.dp))
@@ -1058,7 +1101,7 @@ private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical:
     }
     if (vertical) {
         Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (moving) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) { moveButtons() }
+            if (moving && sideButtons) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) { moveButtons() }
             GameChips(st, m, vm, canHint, onResign)
         }
     } else {
@@ -1078,7 +1121,7 @@ private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical:
 }
 
 /**
- * Hint, Keep rolling, Autofinish and Resign: always in the same place during a game, greyed out
+ * Hint, Keep rolling, Max Bearoff and Resign: always in the same place during a game, greyed out
  * when they can't be used. Resign while the computer plays offers the resignation at the human's next
  * turn (the chip then shows it is queued; a tap cancels).
  */
@@ -1104,10 +1147,11 @@ private fun GameChips(st: GameUiState, m: MatchState, vm: GameViewModel, canHint
             selected = st.keepRolling, onClick = vm::toggleKeepRolling, enabled = keepRollingOn,
             label = { Text("Keep rolling", maxLines = 1) },
         )
+        // Autofinish stays in the ⋮ menu.
         FilterChip(
-            selected = false, onClick = vm::startAutoFinish, enabled = st.canAutoFinish,
+            selected = st.maxBearOff, onClick = vm::toggleMaxBearOff, enabled = inPlay || st.maxBearOff,
             leadingIcon = { Icon(Icons.Default.FastForward, null, Modifier.size(18.dp)) },
-            label = { Text("Autofinish", maxLines = 1) },
+            label = { Text("Max Bearoff", maxLines = 1) },
         )
         FilterChip(
             selected = queued, onClick = { if (queued) vm.cancelQueuedResign() else onResign() },
@@ -1131,17 +1175,11 @@ private fun Meter(st: GameUiState, vm: GameViewModel, twoLines: Boolean) {
     val colors = boardColorsFor(st.settings)
     val win = p[0]
     val lose = 1 - p[0]
-    val mine = listOf(p[2] to 1f, p[1] - p[2] to 0.75f, win - p[1] to 0.45f)
-    val theirs = listOf(lose - p[3] to 0.45f, p[3] - p[4] to 0.75f, p[4] to 1f)
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 3.dp)
             .then(if (mode == MeterMode.BAR) Modifier.clickable(onClick = vm::toggleMeterNumbers) else Modifier),
     ) {
-        Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-            for ((w, a) in mine) if (w > 0.0005f) Box(Modifier.weight(w).fillMaxHeight().background(colors.human.copy(alpha = a)))
-            Box(Modifier.width(2.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surface))
-            for ((w, a) in theirs) if (w > 0.0005f) Box(Modifier.weight(w).fillMaxHeight().background(colors.cpu.copy(alpha = a)))
-        }
+        com.boldblot.backgammonplyground.ui.components.ChancesBar(p, colors.human, colors.cpu)
         if (mode == MeterMode.BAR_AND_NUMBERS || st.meterNumbers) {
             val you = "You ${pct(win)} (G ${pct(p[1])}, B ${pct(p[2])})"
             val cpu = "Computer ${pct(lose)} (G ${pct(p[3])}, B ${pct(p[4])})"
@@ -1219,7 +1257,7 @@ private fun FeedbackCard(st: GameUiState, m: MatchState, vm: GameViewModel) {
                     OutlinedButton(onClick = { showBoth() }) { Text("Played vs best") }
                 }
                 d.cubeEval != null -> {
-                    CubeTable(d.cubeEval, d.kind, factor, d.beavers)
+                    CubeTable(d.cubeEval, d.kind, factor, d.beavers, colors = boardColorsFor(st.settings), rollerHuman = !d.kind.isResponse)
                 }
                 else -> Unit
             }
@@ -1368,6 +1406,11 @@ private fun GameOverDialog(
                             OutlinedButton(onClick = { vm.analyzeMatchNow(info.matchId) }) { Text("Analyze now") }
                         }
                     }
+                    // The automatic New errors methods: what of this match went to My positions.
+                    val filed by produceState<String?>(null, info, analysisLeft) {
+                        value = com.boldblot.backgammonplyground.ui.positions.filedText(vm.app, info.matchId, info.matchOver)
+                    }
+                    filed?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp)) }
                     if (info.afterMatch && analysisLeft == 0 && !info.offerAnalysis) {
                         Text(
                             when (info.mistakes) {

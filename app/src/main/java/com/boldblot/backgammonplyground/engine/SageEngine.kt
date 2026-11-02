@@ -11,6 +11,8 @@ import com.boldblot.backgammonplyground.core.Player
  * and match equity table ([SageNative]).
  */
 class SageEngine(private val handle: Long) : SearchEngine() {
+    override val name: String get() = com.boldblot.backgammonplyground.core.EngineKind.SAGE.label
+
 
     /** [board] from [me]'s point of view, in Open Sage's layout. */
     private fun sage(board: Board, me: Int, out: IntArray = IntArray(26), at: Int = 0): IntArray {

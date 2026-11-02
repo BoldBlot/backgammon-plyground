@@ -1,5 +1,7 @@
 package com.boldblot.backgammonplyground
 
+import com.boldblot.backgammonplyground.core.NewErrors
+import com.boldblot.backgammonplyground.ui.positions.libraryAverageError
 import android.app.Application
 import com.boldblot.backgammonplyground.data.AppDatabase
 import com.boldblot.backgammonplyground.data.BackgroundPriority
@@ -41,11 +43,11 @@ class PlyGroundApp : Application() {
                 settings.update { it.copy(folders074 = true, errorsMode = if (collecting) ErrorsMode.AUTOMATIC else it.errorsMode) }
             }
         }
-        // A new error: autofilters take the ones they match, and with automatic filing every error is
-        // filed at once ([Settings.errorsSort]). A filed error skips New errors.
+        // A new error: autofilters take the ones they match; the automatic methods file it at once when it
+        // passes the fixed or adaptive threshold ([Settings.errorsSort]), Top X at the end of the match. A filed
+        // error skips New errors; with the automatic methods New errors keeps the others, a rolling list.
         repository.onNewBlunder = { b ->
             val s = settings.settings.first()
-            val jacoby: suspend (Long) -> Boolean = { id -> repository.match(id)?.jacoby ?: true }
             var filed = false
             for (c in positions.categories()) {
                 val filter = c.filter?.takeIf { c.autoAdd }?.let { com.boldblot.backgammonplyground.core.Labels.decode(it) } ?: continue
@@ -54,12 +56,21 @@ class PlyGroundApp : Application() {
                     filed = true
                 }
             }
-            if (s.errorsMode == ErrorsMode.AUTOMATIC) {
+            val threshold = when (s.errorsMode) {
+                ErrorsMode.AUTOMATIC -> s.errorMin
+                ErrorsMode.ADAPTIVE -> NewErrors.adaptiveThreshold(s.errorMin, s.adaptiveRatio, libraryAverageError(this))
+                else -> null
+            }
+            if (!b.entity.opponent && threshold != null && b.entity.error >= threshold) {
                 positions.fileErrors(listOf(b), s.errorsSort == ErrorsSort.SPLIT, jacoby)
                 filed = true
             }
             if (filed) repository.removeBlunder(b.entity.id)
+            // An error analyzed after its match ended (the background analysis) can still be among its top X.
+            if (!filed && s.errorsMode == ErrorsMode.TOP_X && repository.matchOver(b.entity.matchId)) fileTopX(b.entity.matchId)
+            if (s.errorsMode != ErrorsMode.MANUAL) trimNewErrors(s.excludedKeep)
         }
+        repository.onMatchFinished = { id -> if (settings.settings.first().errorsMode == ErrorsMode.TOP_X) fileTopX(id) }
         // Analysis uses the engine chosen in Settings.
         appScope.launch {
             settings.settings.collect {
@@ -70,5 +81,25 @@ class PlyGroundApp : Application() {
                 engine.backgroundLow = it.backgroundPriority == BackgroundPriority.LOW
             }
         }
+    }
+
+    private val jacoby: suspend (Long) -> Boolean = { id -> repository.match(id)?.jacoby ?: true }
+
+    /** Top X per match: files the biggest errors of match [id] still in New errors, up to X with the ones filed before. */
+    private suspend fun fileTopX(id: Long) {
+        val s = settings.settings.first()
+        val waiting = repository.blundersOf(id)
+        val already = s.topXFiledOf(id)
+        val chosen = NewErrors.topX(waiting.map { it.entity.id to it.entity.error }, s.topX, s.errorMin, already).toSet()
+        if (chosen.isEmpty()) return
+        positions.fileErrors(waiting.filter { it.entity.id in chosen }, s.errorsSort == ErrorsSort.SPLIT, jacoby)
+        repository.removeBlunders(chosen)
+        settings.update { it.copy(topXFiled = it.withTopXFiled(id, already + chosen.size)) }
+    }
+
+    /** The automatic methods' New errors: only the [keep] newest errors left out stay. */
+    private suspend fun trimNewErrors(keep: Int) {
+        val ids = repository.blunders(com.boldblot.backgammonplyground.data.BlunderSort.NEWEST).map { it.entity.id }
+        NewErrors.overflow(ids, keep).takeIf { it.isNotEmpty() }?.let { repository.removeBlunders(it) }
     }
 }

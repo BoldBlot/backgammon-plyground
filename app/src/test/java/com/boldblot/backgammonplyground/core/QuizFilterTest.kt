@@ -27,4 +27,14 @@ class QuizFilterTest {
         assertEquals("Quiz answers: Missed · Quiz balance (right − missed): Below 0 or 0",
             QuizFilter.text(keys(QuizFilter.BALANCE_ZERO, QuizFilter.SOME_WRONG, QuizFilter.BALANCE_BELOW) + "CHECKER"))
     }
+
+    @Test
+    fun balanceThresholds() {
+        // Feedback 2026-11-02 #28: below −3 … above +3 next to below 0 / 0 / above 0.
+        assertTrue(QuizFilter.matches(5, 1, keys(QuizFilter.BALANCE_ABOVE_3)))
+        assertFalse(QuizFilter.matches(4, 1, keys(QuizFilter.BALANCE_ABOVE_3)))
+        assertTrue(QuizFilter.matches(0, 2, keys(QuizFilter.BALANCE_BELOW_1)))
+        assertFalse(QuizFilter.matches(0, 1, keys(QuizFilter.BALANCE_BELOW_1)))
+        assertEquals(QuizFilter.BALANCE_BELOW, QuizFilter.of("quiz:BALANCE_BELOW"))
+    }
 }

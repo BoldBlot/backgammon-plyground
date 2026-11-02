@@ -8,9 +8,16 @@ enum class QuizFilter(val title: String, val group: Group, val test: (right: Int
     NOT_TRIED("Not tried yet", Group.ANSWERS, { r, w -> r + w == 0 }),
     SOME_RIGHT("Answered right", Group.ANSWERS, { r, _ -> r > 0 }),
     SOME_WRONG("Missed", Group.ANSWERS, { _, w -> w > 0 }),
+    // Released keys keep their names (BALANCE_BELOW, BALANCE_ZERO, BALANCE_ABOVE); the others came in 0.7.11.
+    BALANCE_BELOW_3("Below −3", Group.BALANCE, { r, w -> r - w < -3 }),
+    BALANCE_BELOW_2("Below −2", Group.BALANCE, { r, w -> r - w < -2 }),
+    BALANCE_BELOW_1("Below −1", Group.BALANCE, { r, w -> r - w < -1 }),
     BALANCE_BELOW("Below 0", Group.BALANCE, { r, w -> r - w < 0 }),
     BALANCE_ZERO("0", Group.BALANCE, { r, w -> r == w }),
-    BALANCE_ABOVE("Above 0", Group.BALANCE, { r, w -> r - w > 0 });
+    BALANCE_ABOVE("Above 0", Group.BALANCE, { r, w -> r - w > 0 }),
+    BALANCE_ABOVE_1("Above +1", Group.BALANCE, { r, w -> r - w > 1 }),
+    BALANCE_ABOVE_2("Above +2", Group.BALANCE, { r, w -> r - w > 2 }),
+    BALANCE_ABOVE_3("Above +3", Group.BALANCE, { r, w -> r - w > 3 });
 
     enum class Group(val title: String) { ANSWERS("Quiz answers"), BALANCE("Quiz balance (right − missed)") }
 
