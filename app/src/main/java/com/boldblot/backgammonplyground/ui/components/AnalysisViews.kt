@@ -31,6 +31,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.foundation.text.appendInlineContent
 import com.boldblot.backgammonplyground.core.Board
 import com.boldblot.backgammonplyground.core.Candidate
 import com.boldblot.backgammonplyground.core.CheckerAnalysis
@@ -147,16 +149,42 @@ fun CheckerIcon(color: Color, modifier: Modifier = Modifier, rim: Color = Color.
 }
 
 /**
- * A player's shades on a chances bar: single wins, gammons, backgammons. Dark checkers are lightened
- * and light ones darkened rather than faded, so the three parts stay apart on any background.
+ * [before], the match score with a checker in each player's colours on either side ("[o] 3–5 [o]",
+ * your score first, by your checker), then [after]. Without a [score] (money) only the text.
+ */
+@Composable
+fun ScoreText(
+    before: String, score: List<Int>?, after: String, colors: com.boldblot.backgammonplyground.ui.board.BoardColors,
+    modifier: Modifier = Modifier, style: androidx.compose.ui.text.TextStyle = androidx.compose.material3.LocalTextStyle.current,
+    color: Color = Color.Unspecified, maxLines: Int = Int.MAX_VALUE,
+) {
+    val text = androidx.compose.ui.text.buildAnnotatedString {
+        append(before)
+        if (score != null) {
+            appendInlineContent("you", "●")
+            append(" ${score[0]}–${score[1]} ")
+            appendInlineContent("them", "●")
+        }
+        append(after)
+    }
+    fun icon(c: Color, rim: Color) = androidx.compose.foundation.text.InlineTextContent(
+        androidx.compose.ui.text.Placeholder(1.em, 1.em, androidx.compose.ui.text.PlaceholderVerticalAlign.TextCenter),
+    ) { CheckerIcon(c, rim = rim) }
+    Text(
+        text, modifier, color = color, style = style, maxLines = maxLines, overflow = TextOverflow.Ellipsis,
+        inlineContent = mapOf("you" to icon(colors.human, colors.humanRim), "them" to icon(colors.cpu, colors.cpuRim)),
+    )
+}
+
+/**
+ * A player's shades on a chances bar: single wins, gammons, backgammons. Single wins are the checker
+ * colour itself; gammons and backgammons step away from it: brighter for dark and mid-tone checkers,
+ * darker for light ones (which cannot get brighter), so the three parts stay apart on any background.
  */
 fun chanceShades(c: Color): List<Color> {
-    val lum = c.luminance()
-    return when {
-        lum < 0.3f -> listOf(androidx.compose.ui.graphics.lerp(c, Color.White, 0.58f), androidx.compose.ui.graphics.lerp(c, Color.White, 0.3f), c)
-        lum > 0.65f -> listOf(c, androidx.compose.ui.graphics.lerp(c, Color.Black, 0.22f), androidx.compose.ui.graphics.lerp(c, Color.Black, 0.45f))
-        else -> listOf(c.copy(alpha = 0.45f), c.copy(alpha = 0.75f), c)
-    }
+    val toward = if (c.luminance() > 0.65f) Color.Black else Color.White
+    val steps = if (toward == Color.Black) listOf(0.22f, 0.45f) else listOf(0.3f, 0.58f)
+    return listOf(c) + steps.map { androidx.compose.ui.graphics.lerp(c, toward, it) }
 }
 
 /**

@@ -503,7 +503,7 @@ private fun GameContent(
                     Spacer(Modifier.width(gap))
                 }
                 Box(Modifier.width(boardWidth).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                    BoardArea(st, m, vm, Modifier.fillMaxWidth().aspectRatio(BOARD_ASPECT), capture, onBoardMoveButtons = !st.settings.sideMoveButtons)
+                    BoardArea(st, m, vm, Modifier.fillMaxWidth().aspectRatio(BOARD_ASPECT), capture, onBoardMoveButtons = st.settings.onBoardMoveButtons)
                 }
                 if (railRight) {
                     Spacer(Modifier.width(gap))
@@ -1146,21 +1146,24 @@ private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical:
             (g.phase == Phase.DOUBLED && g.responder == Player.HUMAN) ||
             (g.phase == Phase.BEAVERED && humanTurn)
         )
-    // In landscape, Undo and Done are on the board unless Settings → Board puts them back here.
-    val sideButtons = !vertical || st.settings.sideMoveButtons
-    val moveButtons: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
-        if (moving && sideButtons) {
-            OutlinedButton(onClick = vm::undo, enabled = st.steps.isNotEmpty(), modifier = if (vertical) Modifier.weight(1f) else Modifier) {
-                Icon(Icons.AutoMirrored.Filled.Undo, null)
-                Spacer(Modifier.width(4.dp))
-                Text("Undo", maxLines = 1)
-            }
-            Button(onClick = vm::confirmMove, enabled = st.moveComplete, modifier = if (vertical) Modifier.weight(1f) else Modifier) { Text("Done", maxLines = 1) }
+    // In landscape, Undo and Done are chips here unless Settings → Board puts them on the board.
+    val sideButtons = !vertical || !st.settings.onBoardMoveButtons
+    // Portrait: full buttons below the board.
+    val moveButtons: @Composable () -> Unit = {
+        OutlinedButton(onClick = vm::undo, enabled = st.steps.isNotEmpty()) {
+            Icon(Icons.AutoMirrored.Filled.Undo, null)
+            Spacer(Modifier.width(4.dp))
+            Text("Undo", maxLines = 1)
         }
+        Button(onClick = vm::confirmMove, enabled = st.moveComplete) { Text("Done", maxLines = 1) }
     }
     if (vertical) {
         Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (moving && sideButtons) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) { moveButtons() }
+            if (moving && sideButtons) {
+                com.boldblot.backgammonplyground.ui.components.MoveChips(
+                    canUndo = st.steps.isNotEmpty(), canDone = st.moveComplete, onUndo = vm::undo, onDone = vm::confirmMove,
+                )
+            }
             GameChips(st, m, vm, canHint, onResign)
         }
     } else {

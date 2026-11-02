@@ -686,13 +686,14 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
                     }
                     LabelFilterButton(settings?.labelKeys.orEmpty().filterNot { Labels.isMine(it) }, filter, { f ->
                         scope.launch { app.settings.update { s -> s.copy(blunderFilter = f) } }
-                    })
+                    }, count = { f -> errors.orEmpty().count { Labels.matches(it.labels, f) } }, total = errors.orEmpty().size)
                 }
             }
             shown?.let { list ->
                 val sel = selected
                 BlunderList(
                     list, filtered = filter.isNotEmpty(), selection = sel,
+                    colors = settings?.let { com.boldblot.backgammonplyground.ui.board.boardColorsFor(it) } ?: com.boldblot.backgammonplyground.ui.board.BoardColors.gray(),
                     onLongClick = { id -> selected = (sel ?: emptySet()).let { if (id in it) it - id else it + id } },
                     onOpen = { id -> if (sel != null) selected = if (id in sel) sel - id else sel + id else onOpen(id) },
                 )

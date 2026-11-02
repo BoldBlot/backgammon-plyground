@@ -67,6 +67,7 @@ import com.boldblot.backgammonplyground.ui.components.LabelTags
 import com.boldblot.backgammonplyground.ui.components.LabelsDialog
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -567,7 +568,7 @@ private fun PositionRow(
                 cube = sp.setup.cube, cubeOffered = sp.doubled, showNumbers = false,
             )
             Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                Text(contextText(sp), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                ContextText(sp, boardColorsFor(settings), style = MaterialTheme.typography.bodySmall, maxLines = 2)
                 if (p.entity.note.isNotBlank()) {
                     Text(p.entity.note, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -679,7 +680,7 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                 )
             }
             val details: @Composable () -> Unit = {
-                Text(contextText(sp), style = MaterialTheme.typography.titleSmall)
+                ContextText(sp, colors, style = MaterialTheme.typography.titleSmall)
                 Text(
                     listOfNotNull(cur.entity.source.ifBlank { null }, a?.label?.ifBlank { null }).joinToString(" · "),
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -976,7 +977,7 @@ fun SaveToPositionsDialog(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit = {}) {
+fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit = {}, onSettings: () -> Unit = {}) {
     val st by vm.state.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(st.lastRemoved) {
@@ -991,9 +992,11 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit = {
     // In landscape the title goes into the side panel, so the board has the whole height and sits in the middle.
     val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val header: @Composable () -> Unit = {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
             Title(title)
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") }
         }
     }
     Scaffold(
@@ -1002,6 +1005,7 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit = {
             if (!landscape) TopAppBar(
                 title = { Title(title) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                actions = { IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") } },
             )
         },
     ) { padding ->
@@ -1094,8 +1098,22 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
             onDiceTap = if (interactive || (r != null && !st.busy)) vm::tapDice else null,
         )
     }
-    val panel: @Composable () -> Unit = {
-        Text(contextText(p), style = MaterialTheme.typography.titleSmall)
+    // [wide]: landscape, beside the board (Undo and Done as chips there, as in a game).
+    val panel: @Composable (wide: Boolean) -> Unit = { wide ->
+        ContextText(p, colors, style = MaterialTheme.typography.titleSmall)
+        // Back and forth through the cards answered this round (above the answer, so they stay in one place).
+        if (st.history.isNotEmpty()) {
+            val at = st.viewing ?: st.history.size
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = vm::back, enabled = at > 0) { Icon(Icons.AutoMirrored.Filled.NavigateBefore, "Previous card") }
+                Text(
+                    if (st.viewing != null) "Card ${at + 1} of ${st.history.size} answered" else "Answered cards: ${st.history.size}",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                IconButton(onClick = vm::forward, enabled = st.viewing != null) { Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next card") }
+                if (st.viewing != null) TextButton(onClick = { repeat(st.history.size) { vm.forward() } }) { Text("Back to the quiz") }
+            }
+        }
         // The position's labels, after the answer (some, like Blunder, would give it away).
         if (r != null && st.settings.quizLabels) LabelTags(st.settings.visible(sp.labels), Modifier.padding(vertical = 4.dp))
         if (sp.entity.note.isNotBlank() && r != null) Text(sp.entity.note, style = MaterialTheme.typography.bodySmall)
@@ -1105,6 +1123,9 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
                 Text("  Analyzing…")
             }
             r != null -> QuizResultCard(st, sp, r, vm, capture, readOnly = past != null)
+            p.dice != null && wide -> com.boldblot.backgammonplyground.ui.components.MoveChips(
+                canUndo = st.steps.isNotEmpty(), canDone = st.moveComplete, onUndo = vm::undo, onDone = vm::done, modifier = Modifier.padding(vertical = 2.dp),
+            )
             p.dice != null -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
                 OutlinedButton(onClick = vm::undo, enabled = st.steps.isNotEmpty()) {
                     Icon(Icons.AutoMirrored.Filled.Undo, null)
@@ -1140,19 +1161,6 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
                 }
             }
         }
-        // Back and forth through the cards answered this round.
-        if (st.history.isNotEmpty()) {
-            val at = st.viewing ?: st.history.size
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = vm::back, enabled = at > 0) { Icon(Icons.AutoMirrored.Filled.NavigateBefore, "Previous card") }
-                Text(
-                    if (st.viewing != null) "Card ${at + 1} of ${st.history.size} answered" else "Answered cards: ${st.history.size}",
-                    style = MaterialTheme.typography.labelMedium,
-                )
-                IconButton(onClick = vm::forward, enabled = st.viewing != null) { Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next card") }
-                if (st.viewing != null) TextButton(onClick = { repeat(st.history.size) { vm.forward() } }) { Text("Back to the quiz") }
-            }
-        }
         st.message?.let {
             Text(
                 it, color = if (it.startsWith("Analysis failed")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1169,7 +1177,7 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
             Row(Modifier.fillMaxSize().padding(6.dp)) {
                 Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())) {
                     header?.invoke()
-                    panel()
+                    panel(true)
                 }
                 Spacer(Modifier.width(8.dp))
                 Box(Modifier.weight(1.4f).fillMaxHeight(), contentAlignment = Alignment.Center) { board(Modifier.aspectRatio(1.38f)) }
@@ -1177,7 +1185,7 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
         } else {
             Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
                 board(Modifier.fillMaxWidth().aspectRatio(1.38f))
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 6.dp)) { panel() }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 6.dp)) { panel(false) }
             }
         }
     }
@@ -1267,4 +1275,14 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
             }
         }
     }
+}
+
+/** [contextParts] as one line, with a checker by each player's score. */
+@Composable
+private fun ContextText(
+    p: StudyPosition, colors: com.boldblot.backgammonplyground.ui.board.BoardColors,
+    style: androidx.compose.ui.text.TextStyle, maxLines: Int = Int.MAX_VALUE,
+) {
+    val (before, score, after) = contextParts(p)
+    com.boldblot.backgammonplyground.ui.components.ScoreText(before, score, after, colors, style = style, maxLines = maxLines)
 }

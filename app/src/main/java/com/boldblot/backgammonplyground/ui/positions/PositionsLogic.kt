@@ -155,11 +155,9 @@ fun answerText(p: StudyPosition, a: MyAnswer): String = when {
 /** The weighted error factor of [p] (×1.5 in a 1-point match, as for PR). */
 fun factorOf(p: StudyPosition): Float = XgRules.errorFactor(p.setup.matchLength)
 
-/** "Money game", "5-point match, 2–3, Crawford" and the cube, for a saved position. */
-fun contextText(p: StudyPosition): String {
+/** "Money game", "5-point match, 2–3, Crawford" and the cube, for a saved position: the text before the score, the score, the rest. */
+fun contextParts(p: StudyPosition): Triple<String, List<Int>?, String> {
     val s = p.setup
-    val game = if (s.matchLength == 0) "Money game" else
-        "${s.matchLength}-point match, ${s.score[0]}–${s.score[1]}" + if (s.crawford) ", Crawford" else ""
     val cube = when {
         s.cube.value == 1 -> ""
         s.cube.owner == Player.HUMAN -> " · you own the cube at ${s.cube.value}"
@@ -170,7 +168,8 @@ fun contextText(p: StudyPosition): String {
         p.doubled -> " · you are doubled"
         else -> " · cube decision"
     }
-    return game + cube + what
+    return if (s.matchLength == 0) Triple("Money game", null, cube + what)
+    else Triple("${s.matchLength}-point match, ", s.score.toList(), (if (s.crawford) ", Crawford" else "") + cube + what)
 }
 
 /** What was played or answered, for lists: the move or the cube action. */

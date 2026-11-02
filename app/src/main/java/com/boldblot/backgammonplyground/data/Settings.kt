@@ -258,8 +258,8 @@ data class Settings(
     val speedTestResult: String = "",
     /** Landscape: the side column (players, Undo / Done, menus) right of the board instead of left. */
     val railRight: Boolean = false,
-    /** Landscape: Undo and Done in the side column as before, instead of on the board (Undo) and by the dice (Done). */
-    val sideMoveButtons: Boolean = false,
+    /** Landscape: Undo on the board and Done by the dice, instead of as chips in the side column. */
+    val onBoardMoveButtons: Boolean = false,
     /** Automatic labels turned off in Settings → My positions ([com.boldblot.backgammonplyground.core.AutoLabel] names): hidden everywhere. */
     val labelsOff: Set<String> = emptySet(),
     /** The player's own labels, in their order. */
@@ -388,7 +388,8 @@ class SettingsStore(private val context: Context) {
         val speedTestAt = longPreferencesKey("speed_test_at")
         val speedTestResult = stringPreferencesKey("speed_test_result")
         val railRight = booleanPreferencesKey("rail_right")
-        val sideMoveButtons = booleanPreferencesKey("side_move_buttons")
+        // "side_move_buttons" (0.7.11–0.7.12, side column instead of on the board) is retired: don't reuse it.
+        val onBoardMoveButtons = booleanPreferencesKey("board_move_buttons")
         val labelsOff = stringPreferencesKey("labels_off")
         val myLabels = stringPreferencesKey("my_labels")
         val blunderFilter = stringPreferencesKey("blunder_filter")
@@ -484,7 +485,7 @@ class SettingsStore(private val context: Context) {
             speedTestAt = p[Keys.speedTestAt] ?: d.speedTestAt,
             speedTestResult = p[Keys.speedTestResult] ?: d.speedTestResult,
             railRight = p[Keys.railRight] ?: d.railRight,
-            sideMoveButtons = p[Keys.sideMoveButtons] ?: d.sideMoveButtons,
+            onBoardMoveButtons = p[Keys.onBoardMoveButtons] ?: d.onBoardMoveButtons,
             labelsOff = lines(p[Keys.labelsOff]).toSet(),
             myLabels = lines(p[Keys.myLabels]),
             blunderFilter = lines(p[Keys.blunderFilter]).toSet(),
@@ -571,7 +572,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.speedTestAt] = s.speedTestAt
             p[Keys.speedTestResult] = s.speedTestResult
             p[Keys.railRight] = s.railRight
-            p[Keys.sideMoveButtons] = s.sideMoveButtons
+            p[Keys.onBoardMoveButtons] = s.onBoardMoveButtons
             p[Keys.labelsOff] = s.labelsOff.joinToString("\n")
             p[Keys.myLabels] = s.myLabels.joinToString("\n")
             p[Keys.blunderFilter] = s.blunderFilter.joinToString("\n")

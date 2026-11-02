@@ -115,13 +115,13 @@ fun BoardSettings(s: Settings, update: ((Settings) -> Settings) -> Unit) {
     )
     Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text("Undo and Done in the side panel (landscape)", style = MaterialTheme.typography.bodyMedium)
+            Text("Undo and Done on the board (landscape)", style = MaterialTheme.typography.bodyMedium)
             Text(
-                "Off: Undo appears on the board, in the half without the dice, and Done next to your dice once the move is complete (tapping the dice ends the turn too).",
+                "On: Undo appears on the board, in the half without the dice, and Done next to your dice once the move is complete. Off: they are chips in the side panel. Tapping the dice ends the turn either way.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Switch(s.sideMoveButtons, { v -> update { it.copy(sideMoveButtons = v) } })
+        Switch(s.onBoardMoveButtons, { v -> update { it.copy(onBoardMoveButtons = v) } })
     }
     Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         OutlinedButton(onClick = { designer = true }) {

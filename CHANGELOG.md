@@ -5,6 +5,21 @@
 - Long evaluations in endgames: I'm hunting down the bug behind them. I think 0.7.10 fixes it
   (games lost or won whatever is played now stop at 1-ply), but it is still being tested.
 
+## 0.7.13 — 2026-11-02 (build 58, internal test)
+
+- Winning chances bar: single wins are now in the checker colour, gammons a shade brighter and
+  backgammons brighter still (light checkers get darker instead).
+- Scores show a checker in each player's colour on either side ("● 3–5 ●", your score by your
+  checker): in the quiz, My positions, a saved position and New errors.
+- Landscape: Undo and Done are back in the side panel, as small chips in negative colours (bright
+  in dark mode, dark in light mode). Undo appears once a checker has moved, Done once the move is
+  complete. Settings → Board → "Undo and Done on the board" puts them on the board as in 0.7.11
+  (off for everyone after this update). The quiz uses the same chips in landscape.
+- Quiz: a Settings button in the title bar; changes apply when you come back. The card arrows and
+  "Back to the quiz" sit under the position line, above the answer.
+- New errors: the Filter shows how many errors pass it ("Filter: 12 of 40") and how many each
+  option would leave.
+
 ## 0.7.12 — 2026-11-02 (build 57, internal test)
 
 - Share everywhere a position is shown, with the same three choices: the XGID, the board picture,

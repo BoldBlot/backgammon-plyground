@@ -248,7 +248,7 @@ class MainActivity : ComponentActivity() {
             composable("positions/quiz/{spec}") { entry ->
                 val key = entry.arguments?.getString("spec").orEmpty()
                 val vm: QuizViewModel = viewModel(key = "quiz-$key", factory = factory { QuizViewModel(app, QuizSpec.decode(key)) })
-                QuizScreen(vm, onBack = { nav.popBackStack() }, onOpen = { p -> nav.navigate("positions/item/$p") })
+                QuizScreen(vm, onBack = { nav.popBackStack() }, onOpen = { p -> nav.navigate("positions/item/$p") }, onSettings = { nav.navigate("settings") })
             }
             composable("settings") {
                 SettingsScreen(

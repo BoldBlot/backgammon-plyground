@@ -79,6 +79,7 @@ import com.boldblot.backgammonplyground.data.SavedBlunder
 import com.boldblot.backgammonplyground.data.Settings
 import com.boldblot.backgammonplyground.ui.board.BoardView
 import com.boldblot.backgammonplyground.ui.board.DiceView
+import com.boldblot.backgammonplyground.ui.board.BoardColors
 import com.boldblot.backgammonplyground.ui.board.boardColorsFor
 import com.boldblot.backgammonplyground.ui.components.CandidateList
 import com.boldblot.backgammonplyground.ui.components.CubeTable
@@ -90,6 +91,7 @@ import com.boldblot.backgammonplyground.ui.components.eq
 import com.boldblot.backgammonplyground.ui.components.errText
 import com.boldblot.backgammonplyground.ui.components.ErrorPill
 import com.boldblot.backgammonplyground.ui.components.severityColor
+import com.boldblot.backgammonplyground.ui.components.ScoreText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -99,15 +101,23 @@ import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
-/** "5-pt match vs World Class · 2-1 · 11 Oct 2026" for a saved blunder. */
-private fun context(b: SavedBlunder): String {
+/**
+ * "5-pt match vs World Class · [o] 2–1 [o] · 11 Oct 2026" for a saved blunder, with a checker in each
+ * player's [colors] by the score.
+ */
+@Composable
+private fun BlunderContext(b: SavedBlunder, colors: BoardColors, style: androidx.compose.ui.text.TextStyle, maxLines: Int = Int.MAX_VALUE) {
     val e = b.entity
     val d = b.decision
     val level = Opponent.name(e.cpuLevel)
     val what = (if (e.opponent) "Opponent's · " else "") + if (e.matchLength == 0) "Money" else "${e.matchLength}-pt match"
-    val score = if (e.matchLength == 0) "" else " · score ${d.score[0]}-${d.score[1]}" + if (d.crawford) " Crawford" else ""
+    val match = e.matchLength != 0
     val cube = if (d.cube.value > 1) " · cube ${d.cube.value}" else ""
-    return "$what vs $level$score$cube · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(e.playedAt))}"
+    val after = (if (match && d.crawford) " Crawford" else "") + "$cube · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(e.playedAt))}"
+    ScoreText(
+        "$what vs $level" + if (match) " · " else "", d.score.takeIf { match }, after, colors,
+        style = style, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = maxLines,
+    )
 }
 
 /**
@@ -119,6 +129,8 @@ private fun context(b: SavedBlunder): String {
 fun BlunderList(
     blunders: List<SavedBlunder>, onOpen: (Long) -> Unit, modifier: Modifier = Modifier, filtered: Boolean = false,
     selection: Set<Long>? = null, onLongClick: ((Long) -> Unit)? = null,
+    /** The board's colours, for the checkers by the score. */
+    colors: BoardColors = BoardColors.gray(),
 ) {
     if (blunders.isEmpty()) {
         Text(
@@ -144,10 +156,7 @@ fun BlunderList(
                             (d.dice?.let { "$it  " } ?: "") + describeAction(d.kind, d.board, d.player, d.move),
                             style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
-                        Text(
-                            context(b), style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
-                        )
+                        BlunderContext(b, colors, MaterialTheme.typography.bodySmall, maxLines = 2)
                     }
                     ErrorPill(errText(-b.entity.error / XgRules.errorFactor(b.entity.matchLength)), sev, mono = true)
                 }
@@ -401,7 +410,7 @@ private fun Detail(st: BlunderState, b: SavedBlunder, vm: BlunderViewModel) {
             )
             SeverityBadge(st.severity, b.entity.error, factor = st.factor)
         }
-        Text(context(b), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        BlunderContext(b, colors, MaterialTheme.typography.labelMedium)
         var ask by remember { mutableStateOf(false) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { ask = true }, enabled = !st.analyzing) {

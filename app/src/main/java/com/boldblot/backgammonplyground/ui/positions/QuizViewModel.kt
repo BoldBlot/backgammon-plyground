@@ -135,6 +135,8 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
             all = spec.pick(quizPositions(app, spec.folders), s)
             _state.update { it.copy(loading = false, settings = s) }
             start()
+            // Settings opened from the quiz apply when it comes back (the round's cards stay as they are).
+            app.settings.settings.collect { n -> _state.update { it.copy(settings = n) } }
         }
     }
 
