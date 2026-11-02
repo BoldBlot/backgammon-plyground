@@ -5,6 +5,24 @@
 - Long evaluations in endgames: I'm hunting down the bug behind them. I think 0.7.10 fixes it
   (games lost or won whatever is played now stop at 1-ply), but it is still being tested.
 
+## 0.7.12 — 2026-11-02 (build 57, internal test)
+
+- Share everywhere a position is shown, with the same three choices: the XGID, the board picture,
+  and the board with the top 5 plays (or the cube actions) with the engine and depth under them.
+  New in My positions (a share icon next to ⋮, replacing the file share) and in games (next to
+  ⋮). In a game the top 5 comes from an open hint; without one, PlyGround says to open Hint.
+- Analyze Position: the board with the top 5 is always offered; without an analysis it analyzes
+  the position first. Import moved to ⋮ → Import XGID…, so the title fits on one line.
+- My positions: ⋮ → Import XGID… saves a position from an XGID or a GNU Backgammon ID, and it is
+  analyzed after saving.
+- Analyses name their engine everywhere, also in positions saved before 0.7.11 (taken from the
+  position's analysis label). Where an older analysis did not record it: "Engine unknown". Cube
+  analyses start with the engine and depth ("PureTD 4-ply · cubeless chances").
+- Game: a hint no longer stops play. The dice stay, you can move and finish the turn (or roll,
+  double, take or pass) with the hint open, and finishing closes it. Choosing a play in the hint
+  shows its arrows on the board; a partly entered move is taken back first, and moving a checker
+  clears the arrows.
+
 ## 0.7.11 — 2026-11-02 (build 56, internal test)
 
 - Review: the computer's moves played without its analysis no longer show "No legal move." They

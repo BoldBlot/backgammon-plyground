@@ -9,6 +9,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import com.boldblot.backgammonplyground.core.XgRules
+import com.boldblot.backgammonplyground.core.UNKNOWN_ENGINE
+import com.boldblot.backgammonplyground.ui.position.PositionIdImportDialog
 import com.boldblot.backgammonplyground.ui.components.LocalErrorUnit
 import com.boldblot.backgammonplyground.ui.components.errWithUnit
 import com.boldblot.backgammonplyground.ui.review.BoardCapture
@@ -176,6 +178,8 @@ fun MyPositionsScreen(
     var deleting by remember { mutableStateOf<CategoryCount?>(null) }
     var exporting by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf<ImportPreview?>(null) }
+    var importingId by remember { mutableStateOf(false) }
+    var savingImported by remember { mutableStateOf<StudyPosition?>(null) }
     LaunchedEffect(refresh) {
         categories = app.positions.categories()
         uncategorized = app.positions.uncategorizedCount()
@@ -205,6 +209,7 @@ fun MyPositionsScreen(
                         IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(text = { Text("New folder") }, onClick = { menu = false; newCategory = true })
+                            DropdownMenuItem(text = { Text("Import XGID…") }, onClick = { menu = false; importingId = true })
                             DropdownMenuItem(text = { Text("Import a file…") }, onClick = { menu = false; pick.launch(arrayOf("*/*")) })
                             DropdownMenuItem(text = { Text("Export…") }, enabled = total > 0, onClick = { menu = false; exporting = true })
                         }
@@ -294,6 +299,16 @@ fun MyPositionsScreen(
             }
         }
     }
+    // An XGID or GNU ID typed or pasted: saved like a position from Analyze Position (analyzed after saving).
+    if (importingId) {
+        PositionIdImportDialog(onDismiss = { importingId = false }) { text ->
+            runCatching { StudyPosition.parse(text) }.fold(
+                onSuccess = { savingImported = it; null },
+                onFailure = { it.message ?: "Could not read that position." },
+            )
+        }
+    }
+    savingImported?.let { SaveToPositionsDialog(app, it, "Imported XGID", onSaved = { refresh++ }) { savingImported = null } }
     importing?.let { preview ->
         ImportDialog(preview, onDismiss = { importing = null }) { cats, other ->
             importing = null
@@ -593,6 +608,8 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
     var labelling by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
+    var sharing by remember { mutableStateOf(false) }
+    val capture = rememberBoardCapture()
     LaunchedEffect(id, refresh) { p = app.positions.position(id) }
     fun analyze() {
         val cur = p ?: return
@@ -613,16 +630,27 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                 title = { Title("Position") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
+                    // Share: the XGID, the board, or the board with the top 5 / the cube actions.
+                    Box {
+                        IconButton(onClick = { sharing = true }, enabled = p != null) { Icon(Icons.Default.Share, "Share") }
+                        DropdownMenu(expanded = sharing, onDismissRequest = { sharing = false }) {
+                            p?.let { cur ->
+                                SharePositionItems(
+                                    cur.position, cur.analysis, answerIndex = null, answerCube = null, capture = capture,
+                                    noAnalysis = {
+                                        Toast.makeText(context, "Analyzing the position; share again when it is done.", Toast.LENGTH_SHORT).show()
+                                        if (!analyzing) analyze()
+                                    },
+                                ) { sharing = false }
+                            }
+                        }
+                    }
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(text = { Text("Copy XGID") }, onClick = {
                                 menu = false
                                 p?.let { clipboard.setText(AnnotatedString(it.position.xgid)) }
-                            })
-                            DropdownMenuItem(text = { Text("Share") }, onClick = {
-                                menu = false
-                                scope.launch { sharePositions(context, "Position", app.positions.export(emptyList(), listOf(id))) }
                             })
                             DropdownMenuItem(text = { Text("Remove") }, onClick = { menu = false; removing = true })
                         }
@@ -644,7 +672,7 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
         BoxWithConstraints(Modifier.padding(padding).fillMaxSize()) {
             val board: @Composable (Modifier) -> Unit = { m ->
                 BoardView(
-                    board = sp.board, modifier = m, colors = colors, mirrored = settings.mirrorBoard,
+                    board = sp.board, modifier = m.then(capture.modifier), colors = colors, mirrored = settings.mirrorBoard,
                     dice = listOfNotNull(sp.dice?.let { DiceView(Player.HUMAN, it.highFirst) }),
                     cube = sp.setup.cube, cubeOffered = sp.doubled,
                     pips = listOf(sp.board.pipCount(Player.HUMAN), sp.board.pipCount(Player.CPU)), arrows = arrows,
@@ -927,6 +955,8 @@ fun SaveToPositionsDialog(
     labels: Set<String>? = null,
     /** What was played in the game. */
     played: MyAnswer? = null,
+    /** Called once the position is saved (before its analysis). */
+    onSaved: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -934,6 +964,7 @@ fun SaveToPositionsDialog(
         onDismiss()
         app.appScope.launch {
             val id = app.positions.save(position, source, note, ids, labels = labels, played = played)
+            onSaved()
             val s = app.settings.settings.first()
             runCatching { analyzePosition(app, position, s) }.onSuccess { app.positions.setAnalysis(id, it) }
         }
@@ -1214,7 +1245,7 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
             var asking by remember { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Analysis: ${r.analysis.label.ifBlank { "depth not recorded" }}",
+                    "Analysis: ${r.analysis.label.ifBlank { UNKNOWN_ENGINE }}",
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
                 )
                 if (st.reanalyzing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)

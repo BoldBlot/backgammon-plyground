@@ -52,6 +52,23 @@ data class StudyPosition(val setup: PositionSetup, val doubled: Boolean, val bea
             return StudyPosition(turned(s, d.player), doubled, d.beavers)
         }
 
+        /**
+         * The position of match [m] as it stands, for the player who decides (the one answering a
+         * double, otherwise the one on roll); null when there is no decision (between games, a beaver).
+         */
+        fun current(m: MatchState): StudyPosition? {
+            val g = m.game
+            val doubled = g.phase == Phase.DOUBLED
+            if (g.phase != Phase.MOVING && g.phase != Phase.PRE_ROLL && !doubled) return null
+            if (g.phase == Phase.MOVING && g.dice == null) return null
+            val s = PositionSetup(
+                board = g.board, onRoll = g.turn, dice = g.dice.takeIf { g.phase == Phase.MOVING },
+                cube = g.cube, matchLength = m.rules.length, score = m.score, crawford = g.crawford, jacoby = m.rules.jacoby,
+                format = "XGID",
+            )
+            return StudyPosition(turned(s, if (doubled) g.responder else g.turn), doubled, m.rules.beaversAllowed)
+        }
+
         /** [s] with [decider]'s checkers at the bottom (sides, score and cube exchanged if needed). */
         fun turned(s: PositionSetup, decider: Int): PositionSetup {
             if (decider == Player.HUMAN) return s
@@ -73,7 +90,19 @@ data class PositionAnalysis(
     val cube: CubeEval? = null,
     /** "PureTD 3-ply" and the like. */
     val label: String = "",
-)
+) {
+    /**
+     * With the engine (and the cube's depth) that [label] names filled in where the analysis itself
+     * does not record them (saved before 0.7.11), and [label] filled in from the analysis when blank.
+     */
+    fun withRecordedEngine(): PositionAnalysis {
+        val named = EngineKind.entries.firstOrNull { label.startsWith(it.label + " ") }?.label
+        val depth = Regex("""(\d)-ply""").find(label)?.groupValues?.get(1)?.toInt()?.let { Depth(it).code }
+        val c = checker?.let { if (it.engine == null && named != null) it.copy(engine = named) else it }
+        val e = cube?.let { if (it.engine == null && named != null) it.copy(engine = named, plies = it.plies ?: depth) else it }
+        return copy(checker = c, cube = e, label = label.ifBlank { c?.label ?: e?.label ?: "" })
+    }
+}
 
 /** The player's own right answer for a saved position: a play, or a cube action. */
 @Serializable

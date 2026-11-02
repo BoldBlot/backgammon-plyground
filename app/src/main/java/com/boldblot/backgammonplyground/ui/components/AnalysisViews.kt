@@ -433,7 +433,7 @@ fun CubeTable(
         val cpu = c.cpu to c.cpuRim
         if (eval.probs.size >= 5) ChancesRows(eval.probs, if (rollerHuman) human else cpu, if (rollerHuman) cpu else human)
         Text(
-            listOf("cubeless chances", eval.label.ifEmpty { null }?.let { "analysis: $it" }).filterNotNull().joinToString(" · "),
+            "${eval.label} · cubeless chances",
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

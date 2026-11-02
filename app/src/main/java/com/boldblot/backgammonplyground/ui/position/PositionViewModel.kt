@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 data class PositionState(
@@ -280,12 +281,13 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
     /** Sets the level of the next analysis (not an edit: the position and its results stay). */
     fun setLevel(checker: Depth, cubePlies: Int) = _state.update { it.copy(level = checker to cubePlies) }
 
-    fun analyze() {
+    /** Analyzes the position; returns the analysis job (null when it cannot start). */
+    fun analyze(): Job? {
         val st = _state.value
-        if (st.analyzing) return
-        st.problem?.let { msg -> _state.update { it.copy(message = msg) }; return }
+        if (st.analyzing) return null
+        st.problem?.let { msg -> _state.update { it.copy(message = msg) }; return null }
         _state.update { it.copy(analyzing = true, message = null) }
-        viewModelScope.launch {
+        return viewModelScope.launch {
             val plies = st.checkerDepth.code
             val cubePlies = Depth(st.cubePlies).code
             val ctx = st.ctx()

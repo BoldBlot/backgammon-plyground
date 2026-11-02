@@ -123,8 +123,8 @@ data class CheckerAnalysis(
     /** The engine that analyzed it ("PureTD"); null in analyses saved before 0.7.11. */
     val engine: String? = null,
 ) {
-    /** "PureTD 3-ply, pruned" (the engine when recorded). */
-    val label: String get() = listOfNotNull(engine, plyLabel(plies)).joinToString(" ")
+    /** "PureTD 3-ply, pruned"; "Engine unknown, 3-ply, pruned" when the engine was not recorded. */
+    val label: String get() = if (engine != null) "$engine ${plyLabel(plies)}" else "$UNKNOWN_ENGINE, ${plyLabel(plies)}"
 
     val error: Float get() = (bestEquity - playedEquity).coerceAtLeast(0f)
 

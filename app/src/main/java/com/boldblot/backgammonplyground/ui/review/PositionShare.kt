@@ -151,7 +151,8 @@ fun SharePositionItems(
  */
 @Composable
 fun SharePositionItems(
-    p: StudyPosition, analysis: PositionAnalysis?, answerIndex: Int?, answerCube: DecisionKind?, capture: BoardCapture, onDone: () -> Unit,
+    p: StudyPosition, analysis: PositionAnalysis?, answerIndex: Int?, answerCube: DecisionKind?, capture: BoardCapture,
+    noAnalysis: (() -> Unit)? = null, onDone: () -> Unit,
 ) {
     val lines = analysis?.let {
         PositionShare.analysisLines(
@@ -160,7 +161,7 @@ fun SharePositionItems(
         )
     }.orEmpty()
     val label = analysis?.let { a -> a.label.ifBlank { a.checker?.label ?: a.cube?.label ?: "" } }?.ifBlank { null }
-    SharePositionItems(PositionIds.toXgid(p.setup.copy(doubled = p.doubled)), PositionShare.title(p), lines, capture, playedTag = "you", analysisLabel = label, onDone = onDone)
+    SharePositionItems(PositionIds.toXgid(p.setup.copy(doubled = p.doubled)), PositionShare.title(p), lines, capture, playedTag = "you", analysisLabel = label, noAnalysis = noAnalysis, onDone = onDone)
 }
 
 /** The share menu's entries: [xgid] as text (if any), the board picture, and the board with [lines] (if any). */
@@ -169,6 +170,8 @@ fun SharePositionItems(
     xgid: String?, title: String, lines: List<PositionShare.Line>, capture: BoardCapture, playedTag: String = "played",
     /** "PureTD 3-ply, pruned": the engine and depth of [lines], printed under them. */
     analysisLabel: String? = null,
+    /** Without [lines]: the top-5 entry still shows and calls this (analyze first, or say why not). */
+    noAnalysis: (() -> Unit)? = null,
     onDone: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -190,14 +193,13 @@ fun SharePositionItems(
             scope.launch { PositionShare.image(context, PositionShare.withAnalysis(capture.image().asAndroidBitmap(), title, emptyList(), null, unit), "board") }
         },
     )
-    if (lines.isNotEmpty()) {
+    if (lines.isNotEmpty() || noAnalysis != null) {
         DropdownMenuItem(
             text = { Text("Share board with top 5…") },
             onClick = {
                 onDone()
-                scope.launch {
-                    PositionShare.image(context, PositionShare.withAnalysis(capture.image().asAndroidBitmap(), title, lines, xgid, unit, playedTag, analysisLabel), "analysis")
-                }
+                if (lines.isEmpty()) noAnalysis?.invoke()
+                else scope.launch { PositionShare.analysisImage(context, capture, title, lines, xgid, unit, playedTag, analysisLabel) }
             },
         )
     }
@@ -230,6 +232,12 @@ object PositionShare {
         }
         context.startActivity(Intent.createChooser(send, "Share position"))
     }
+
+    /** Shares the board as [capture] shows it with [lines] (the top 5 or the cube actions) under it. */
+    suspend fun analysisImage(
+        context: Context, capture: BoardCapture, title: String, lines: List<Line>, xgid: String?, unit: ErrorUnit,
+        playedTag: String = "played", analysisLabel: String? = null,
+    ) = image(context, withAnalysis(capture.image().asAndroidBitmap(), title, lines, xgid, unit, playedTag, analysisLabel), "analysis")
 
     /** The analysis of decision [d] for a shared picture (see the other [analysisLines]). */
     fun analysisLines(d: DecisionRecord, factor: Float): List<Line> {

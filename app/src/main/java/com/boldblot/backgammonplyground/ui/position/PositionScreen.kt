@@ -30,6 +30,9 @@ import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.ui.platform.LocalClipboardManager
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.material.icons.filled.MoreVert
@@ -148,31 +151,41 @@ private fun TopRow(vm: PositionViewModel, st: PositionState, capture: com.boldbl
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
         Text("Analyze Position", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
         IconButton(onClick = vm::undo, enabled = canUndo) { Icon(Icons.AutoMirrored.Filled.Undo, "Undo") }
-        OutlinedButton(onClick = { importing = true }) {
-            Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Import")
-        }
-        // Share, as in the review and the quiz: the XGID, the board, or the board with the top 5.
+        // Share, as in the review and the quiz: the XGID, the board, or the board with the top 5
+        // (analyzed first when there is no analysis yet).
+        val context = LocalContext.current
+        val unit = com.boldblot.backgammonplyground.ui.components.LocalErrorUnit.current
+        val scope = rememberCoroutineScope()
+        fun shareTitle() = vm.study()?.let { com.boldblot.backgammonplyground.ui.review.PositionShare.title(it) } ?: "Analyze Position"
+        fun shareLines(s: PositionState) = com.boldblot.backgammonplyground.ui.review.PositionShare.analysisLines(
+            s.board, s.onRoll, s.checker, s.cubeEval, response = false, beavers = false,
+            playedIndex = null, playedKind = null, factor = XgRules.errorFactor(s.matchLength),
+        )
+        fun shareLabel(s: PositionState) = (s.checker?.label ?: s.cubeEval?.label)?.ifBlank { null }
         Box {
             IconButton(onClick = { sharing = true }) { Icon(Icons.Default.Share, "Share") }
             DropdownMenu(sharing, onDismissRequest = { sharing = false }) {
-                val study = vm.study()
-                val lines = com.boldblot.backgammonplyground.ui.review.PositionShare.analysisLines(
-                    st.board, st.onRoll, st.checker, st.cubeEval, response = false, beavers = false,
-                    playedIndex = null, playedKind = null, factor = XgRules.errorFactor(st.matchLength),
-                )
                 com.boldblot.backgammonplyground.ui.review.SharePositionItems(
-                    xgid = vm.exportId(xgid = true),
-                    title = study?.let { com.boldblot.backgammonplyground.ui.review.PositionShare.title(it) } ?: "Analyze Position",
-                    lines = lines, capture = capture,
-                    analysisLabel = (st.checker?.label ?: st.cubeEval?.label)?.ifBlank { null },
+                    xgid = vm.exportId(xgid = true), title = shareTitle(), lines = shareLines(st), capture = capture,
+                    analysisLabel = shareLabel(st),
+                    noAnalysis = {
+                        val job = vm.analyze()
+                        if (job != null) scope.launch {
+                            job.join()
+                            val s = vm.state.value
+                            val lines = shareLines(s)
+                            if (lines.isNotEmpty()) com.boldblot.backgammonplyground.ui.review.PositionShare.analysisImage(
+                                context, capture, shareTitle(), lines, vm.exportId(xgid = true), unit, analysisLabel = shareLabel(s),
+                            )
+                        }
+                    },
                 ) { sharing = false }
             }
         }
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
             DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(text = { Text("Import XGID…") }, onClick = { menu = false; importing = true })
                 DropdownMenuItem(text = { Text("Starting position") }, onClick = { menu = false; vm.startPosition() })
                 DropdownMenuItem(text = { Text("Clear board") }, onClick = { menu = false; vm.clear() })
                 DropdownMenuItem(text = { Text("Swap sides") }, onClick = { menu = false; vm.swapSides() })
@@ -186,17 +199,20 @@ private fun TopRow(vm: PositionViewModel, st: PositionState, capture: com.boldbl
         }
     }
     saving?.let { SaveToPositionsDialog(vm.app, it, "Analyze Position") { saving = null } }
-    if (importing) ImportDialog(vm, onDismiss = { importing = false })
+    if (importing) PositionIdImportDialog(onDismiss = { importing = false }, read = vm::import)
 }
 
-/** Import a position as XG or GNU Backgammon write it: an XGID, or a Position ID with its Match ID. */
+/**
+ * Import a position as XG or GNU Backgammon write it: an XGID, or a Position ID with its Match ID.
+ * [read] takes the text and returns an error message, or null when it was read (the dialog closes).
+ */
 @Composable
-private fun ImportDialog(vm: PositionViewModel, onDismiss: () -> Unit) {
+fun PositionIdImportDialog(onDismiss: () -> Unit, read: (String) -> String?) {
     val clipboard = LocalClipboardManager.current
     var text by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     fun import() {
-        error = vm.import(text)
+        error = read(text)
         if (error == null) onDismiss()
     }
     AlertDialog(

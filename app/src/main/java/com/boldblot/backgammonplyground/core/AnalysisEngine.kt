@@ -55,8 +55,11 @@ data class CubeEval(
     /** Its depth ([Depth] code); null in analyses saved before 0.7.11. */
     val plies: Int? = null,
 ) {
-    /** "PureTD 4-ply", "4-ply" or "" for what is recorded. */
-    val label: String get() = listOfNotNull(engine, plies?.let { Depth.of(it).label(cube = true) }).joinToString(" ")
+    /** "PureTD 4-ply"; "Engine unknown, 4-ply" or "Engine unknown" for what older analyses recorded. */
+    val label: String get() {
+        val depth = plies?.let { Depth.of(it).label(cube = true) }
+        return if (engine != null) listOfNotNull(engine, depth).joinToString(" ") else listOfNotNull(UNKNOWN_ENGINE, depth).joinToString(", ")
+    }
 
     /** Equity after doubling, given the opponent's best response. */
     val afterDouble: Float get() = minOf(doubleTake, doublePass)
@@ -122,6 +125,9 @@ data class Depth(val plies: Int, val filter: MoveFilter = MoveFilter.ALL) {
         }
     }
 }
+
+/** What an analysis label says when the engine was not recorded (analyses made before 0.7.11). */
+const val UNKNOWN_ENGINE = "Engine unknown"
 
 /** Label of a stored analysis depth code (see [Depth]). */
 fun plyLabel(plies: Int): String = Depth.of(plies).label()

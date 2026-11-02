@@ -76,7 +76,7 @@ class PositionsRepository(db: AppDatabase) {
 
     private fun decode(e: PositionEntity): SavedPosition? = runCatching {
         val p = StudyPosition.stored(e.xgid, e.doubled, e.beavers)
-        val a = e.analysis?.let { AppJson.decodeFromString<PositionAnalysis>(it) }
+        val a = e.analysis?.let { AppJson.decodeFromString<PositionAnalysis>(it).withRecordedEngine() }
         SavedPosition(
             e, p, a, e.myAnswer?.let { AppJson.decodeFromString<MyAnswer>(it) }, storedLabels(e.labels)?.let { Labels.withDmp(it, p.setup.matchLength, p.setup.score, p.setup.crawford) } ?: autoLabels(p, a),
             played = e.played?.let { AppJson.decodeFromString<MyAnswer>(it) } ?: playedFromAnalysis(a),

@@ -1033,6 +1033,9 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         _state.update {
             it.copy(
                 board = b, steps = steps,
+                // A hint play's arrows start from the position before the move: gone once a checker moves.
+                previewArrows = if (it.preview == null && steps.isNotEmpty()) emptyList() else it.previewArrows,
+                previewCandidate = if (it.preview == null && steps.isNotEmpty()) null else it.previewCandidate,
                 movable = if (complete) emptySet() else opts.movableFrom(steps),
                 diceDim = diceDim(opts, steps, it.diceOrder, complete), moveComplete = complete,
             )
@@ -1051,6 +1054,8 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         _state.update {
             it.copy(
                 board = b, steps = steps,
+                previewArrows = if (it.preview == null) emptyList() else it.previewArrows,
+                previewCandidate = if (it.preview == null) null else it.previewCandidate,
                 movable = opts.movableFrom(steps), diceDim = diceDim(opts, steps, it.diceOrder, false), moveComplete = false,
             )
         }
@@ -1416,6 +1421,15 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             _state.update { it.copy(board = b) }
             delay(stepDelay)
         }
+    }
+
+    /**
+     * Shows hint play [candidate]'s [arrows] on the board, which stays playable. The arrows start from
+     * the position before the move, so a partly entered move is taken back first.
+     */
+    fun showHintPlay(candidate: Int, arrows: List<MoveArrow>) {
+        if (_state.value.steps.isNotEmpty()) applySteps(emptyList())
+        _state.update { it.copy(preview = null, previewArrows = arrows, previewCandidate = candidate) }
     }
 
     fun closeHint() = _state.update { it.copy(hint = null, cubeHint = null, preview = null, previewArrows = emptyList(), previewCandidate = null) }
