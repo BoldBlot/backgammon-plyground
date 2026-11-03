@@ -5,6 +5,29 @@
 - Long evaluations in endgames: I'm hunting down the bug behind them. I think 0.7.10 fixes it
   (games lost or won whatever is played now stop at 1-ply), but it is still being tested.
 
+## 0.7.15 — 2026-11-03 (build 60, internal test)
+
+- Move arrows: a checker that hits on its way is drawn as two arrows, cut at the hit (24/18*/13).
+  One long arrow now always means no hit on the way. The computer's arrows do the same.
+- Checkers: the Domed style is gone; the new Marble style (flat, with marble veins) takes its
+  place, and anyone who had Domed now has Marble.
+- Quick quiz: a small ⚡ button beside My positions on the main screen starts a quiz right
+  away: all positions, 10 of them, in random order. In the quiz menu, "Save as quick quiz" makes
+  the menu's choices the quick quiz, and "Load quick quiz" brings them back. Settings → My
+  positions → Quick quiz puts the button on the left or the right.
+- Quiz: "Finish" in the top bar ends the quiz early and shows its summary. At the end, "Again"
+  is now "Repeat" (the same cards again), and with 10 or 20 cards "Another 10" starts a new quiz
+  with the same settings, using cards not yet asked since you opened the quiz.
+- Quiz order: "Worst blunders" next to Random and Newest first: the biggest error in the game
+  first.
+- Learned: "Delete learned positions" is now "Move to Learned". A position that reaches the
+  balance goes to My positions → Learned instead of being deleted: out of the quiz and the
+  folder counts, and you can put it back (it returns to its folders) or delete it. Learned keeps
+  the newest 50 (Settings → My positions → Quiz → "Learned keeps"). Turn "Learned" off and
+  learned positions are deleted at once, as before. Saving a learned position again puts it back.
+- New errors: saving an error to My positions from its own screen now takes it off New errors,
+  as "Add to My positions" does.
+
 ## 0.7.14 — 2026-11-02 (build 59, internal test)
 
 - My positions filters: the quiz balance options are now "≤ −3 … ≤ 0, 0, ≥ 0 … ≥ +3" and include

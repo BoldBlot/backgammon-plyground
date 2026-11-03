@@ -45,6 +45,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Add
@@ -151,6 +152,9 @@ fun HomeScreen(
     onNewMatch: () -> Unit,
     onPosition: () -> Unit,
     onMyPositions: () -> Unit = {},
+    /** The small Quick quiz button beside My positions, on its right ([quickQuizRight]) or left. */
+    onQuickQuiz: () -> Unit = {},
+    quickQuizRight: Boolean = true,
     onStats: () -> Unit,
     onHistory: () -> Unit,
     onSettings: () -> Unit,
@@ -194,7 +198,16 @@ fun HomeScreen(
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(onClick = onPosition, modifier = w) { Text("Analyze Position") }
                 Spacer(Modifier.height(10.dp))
-                OutlinedButton(onClick = onMyPositions, modifier = w) { Text("My positions (experimental)") }
+                Row(w, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val quick: @Composable () -> Unit = {
+                        OutlinedButton(onClick = onQuickQuiz, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)) {
+                            Icon(Icons.Default.Bolt, "Quick quiz")
+                        }
+                    }
+                    if (!quickQuizRight) quick()
+                    OutlinedButton(onClick = onMyPositions, modifier = Modifier.weight(1f)) { Text("My positions (experimental)") }
+                    if (quickQuizRight) quick()
+                }
                 Spacer(Modifier.height(10.dp))
 
                 OutlinedButton(onClick = onStats, modifier = w) { Text("Statistics") }
@@ -962,14 +975,30 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
     Toggle("Show the position's labels after answering", s.quizLabels) { v -> update { it.copy(quizLabels = v) } }
     Toggle("Repeat missed positions until all are right", s.quizRepeat) { v -> update { it.copy(quizRepeat = v) } }
     Note("Each position counts its right and missed answers; their balance is right minus missed. The Filter menus can pick positions by them.")
-    Toggle("Delete learned positions", s.quizAutoDelete) { v -> update { it.copy(quizAutoDelete = v) } }
-    Chips("Delete when the balance reaches", listOf(2, 3, 4, 5, 10), s.quizDeleteAt, { "+$it" }, enabled = s.quizAutoDelete) { v ->
+    Toggle("Move to Learned", s.quizAutoDelete) { v -> update { it.copy(quizAutoDelete = v) } }
+    Chips("When the balance reaches", listOf(2, 3, 4, 5, 10), s.quizDeleteAt, { "+$it" }, enabled = s.quizAutoDelete) { v ->
         update { it.copy(quizDeleteAt = v) }
     }
     Note(
-        if (s.quizAutoDelete) "A position whose balance reaches +${s.quizDeleteAt} after a right answer is deleted from My positions and all its folders."
-        else "Off: positions stay in My positions however often you answer them right.",
+        when {
+            !s.quizAutoDelete -> "Off: positions stay in My positions however often you answer them right."
+            s.quizLearned -> "A position whose balance reaches +${s.quizDeleteAt} after a right answer moves to Learned (My positions → Learned): " +
+                "out of the quiz and the folders, until you put it back."
+            else -> "A position whose balance reaches +${s.quizDeleteAt} after a right answer is deleted from My positions and all its folders."
+        },
     )
+    Toggle("Learned", s.quizLearned, enabled = s.quizAutoDelete) { v -> update { it.copy(quizLearned = v) } }
+    Chips("Learned keeps", listOf(20, 50, 100, 200, 500), s.learnedKeep, { it.toString() }, enabled = s.quizAutoDelete && s.quizLearned) { v ->
+        update { it.copy(learnedKeep = v) }
+        scope.launch { app.positions.trimLearned(v) }
+    }
+    Note(
+        "Learned is a bin for the positions the quiz has taught you: you can still put them back. It keeps the newest ${s.learnedKeep}; " +
+            "older ones are deleted. Off: learned positions are deleted at once.",
+    )
+    Header("Quick quiz")
+    Chips("Button beside My positions", listOf(false, true), s.quickQuizRight, { if (it) "Right" else "Left" }) { v -> update { it.copy(quickQuizRight = v) } }
+    Note("The ⚡ button on the main screen starts the quick quiz: all positions, 10, random, or what you saved with \"Save as quick quiz\" in the quiz menu.")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Automatic labels")
     Note(

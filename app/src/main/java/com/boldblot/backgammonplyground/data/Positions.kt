@@ -272,6 +272,8 @@ class PositionsRepository(db: AppDatabase) {
                     myAnswer = existing.myAnswer ?: answer?.let { AppJson.encodeToString(it) },
                     labels = if (had == null && labels != null) encodeLabels(labels) else existing.labels,
                     played = existing.played ?: played?.let { AppJson.encodeToString(it) },
+                    // Saved again: back out of Learned.
+                    learnedAt = null,
                 ),
             )
             existing.id
@@ -337,6 +339,28 @@ class PositionsRepository(db: AppDatabase) {
     suspend fun remove(id: Long) {
         dao.unlinkPosition(id)
         dao.deletePosition(id)
+    }
+
+    /**
+     * Moves position [id] into Learned (out of the quiz and the folders, which it keeps for [unlearn]);
+     * Learned keeps the newest [keep], the older ones are deleted.
+     */
+    suspend fun learn(id: Long, keep: Int) {
+        dao.setLearned(id, System.currentTimeMillis())
+        dao.learned().drop(keep.coerceAtLeast(0)).forEach { remove(it.id) }
+    }
+
+    /** Learned positions, the newest first. */
+    suspend fun learned(): List<SavedPosition> = dao.learned().mapNotNull(::decode)
+
+    /** Puts Learned positions [ids] back in My positions, in the folders they were in. */
+    suspend fun unlearn(ids: Collection<Long>) = ids.forEach { dao.setLearned(it, null) }
+
+    /** Trims Learned to its newest [keep] (after the setting changes); returns how many were deleted. */
+    suspend fun trimLearned(keep: Int): Int {
+        val old = dao.learned().drop(keep.coerceAtLeast(0))
+        old.forEach { remove(it.id) }
+        return old.size
     }
 
     /** Deletes position [id] (from My positions and all its folders) and returns what [restore] needs to undo it. */

@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
@@ -149,6 +150,8 @@ class MainActivity : ComponentActivity() {
             if (seen.isEmpty()) nav.navigate("welcome")
         }
 
+        val quickScope = androidx.compose.runtime.rememberCoroutineScope()
+        val quickRight by androidx.compose.runtime.remember { app.settings.settings.map { it.quickQuizRight } }.collectAsState(initial = true)
         NavHost(nav, startDestination = "home") {
             composable("home") {
                 HomeScreen(
@@ -157,6 +160,16 @@ class MainActivity : ComponentActivity() {
                     onNewMatch = { nav.navigate("new") },
                     onPosition = { nav.navigate("position") },
                     onMyPositions = { nav.navigate("positions") },
+                    quickQuizRight = quickRight,
+                    onQuickQuiz = {
+                        quickScope.launch {
+                            val s = app.settings.settings.first()
+                            val q = com.boldblot.backgammonplyground.ui.positions.QuizSpec.quick(s)
+                            // Folders deleted since the quick quiz was saved are left out.
+                            val known = app.positions.categories().map { it.id }.toSet() + com.boldblot.backgammonplyground.data.PositionsRepository.UNCATEGORIZED
+                            nav.navigate("positions/quiz/${q.copy(folders = q.folders.filter { it in known }).encode()}")
+                        }
+                    },
                     onStats = { nav.navigate("stats") },
                     onHistory = { nav.navigate("history") },
                     onSettings = { nav.navigate("settings") },
@@ -217,7 +230,11 @@ class MainActivity : ComponentActivity() {
                     onCategory = { id -> nav.navigate("positions/category/${id ?: ALL_POSITIONS}") },
                     onQuiz = { ids -> nav.navigate("quizmenu?ids=${ids.joinToString(",")}") },
                     onNewErrors = { nav.navigate("errors") },
+                    onLearned = { nav.navigate("learned") },
                 )
+            }
+            composable("learned") {
+                com.boldblot.backgammonplyground.ui.positions.LearnedScreen(app, onOpen = { p -> nav.navigate("positions/item/$p") }, onBack = { nav.popBackStack() })
             }
             composable("errors") {
                 NewErrorsScreen(app, onOpen = { id -> nav.navigate("blunder/$id") }, onBack = { nav.popBackStack() })

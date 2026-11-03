@@ -672,6 +672,7 @@ private fun BoardArea(
                 crawfordSign = st.settings.crawfordSign,
                 movable = if (interactive) st.movable else emptySet(),
                 lastCpuSteps = if (previewing) emptyList() else st.lastCpuSteps,
+                lastCpuHits = st.lastCpuHits,
                 pips = if (st.settings.showPips) listOf(showBoard.pipCount(Player.HUMAN), showBoard.pipCount(Player.CPU)) else null,
                 // A hint play's arrows go on the live board (the dice stay, and the player can move).
                 arrows = if (previewing || st.hint != null) st.previewArrows else emptyList(),

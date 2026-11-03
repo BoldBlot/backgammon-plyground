@@ -20,6 +20,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +35,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -50,17 +53,17 @@ import com.boldblot.backgammonplyground.ui.components.LabelFilterButton
 
 /**
  * What a quiz asks: the positions of [folders] (empty = all positions; [UNCATEGORIZED] for those
- * in none) that pass [filter], at most [limit] of them (0 = all), newest first or in random order.
+ * in none) that pass [filter], at most [limit] of them (0 = all), in [order].
  */
 data class QuizSpec(
     val folders: List<Long> = emptyList(),
     val filter: Set<String> = emptySet(),
     val limit: Int = 0,
-    val newestFirst: Boolean = false,
+    val order: QuizOrder = QuizOrder.RANDOM,
 ) {
-    /** For the quiz route. */
+    /** For the quiz route (and the saved quick quiz). */
     fun encode(): String = listOf(
-        folders.joinToString(","), filter.joinToString("\n"), limit.toString(), if (newestFirst) "new" else "random",
+        folders.joinToString(","), filter.joinToString("\n"), limit.toString(), order.code,
     ).joinToString(";") { Uri.encode(it) }
 
     /** The positions [all] (already those of [folders]) that the quiz asks, before [limit] and order. */
@@ -75,8 +78,30 @@ data class QuizSpec(
                 folders = p.getOrNull(0).orEmpty().split(',').mapNotNull { it.toLongOrNull() },
                 filter = p.getOrNull(1).orEmpty().split('\n').filter { it.isNotBlank() }.toSet(),
                 limit = p.getOrNull(2)?.toIntOrNull() ?: 0,
-                newestFirst = p.getOrNull(3) == "new",
+                order = QuizOrder.entries.firstOrNull { it.code == p.getOrNull(3) } ?: QuizOrder.RANDOM,
             )
+        }
+
+        /** Quick Quiz until one is saved: all positions, 10 of them, in random order. */
+        val QUICK_DEFAULT = QuizSpec(limit = 10)
+
+        /** The saved quick quiz ([Settings.quickQuiz]), or [QUICK_DEFAULT]. */
+        fun quick(s: Settings): QuizSpec = s.quickQuiz.takeIf { it.isNotBlank() }?.let(::decode) ?: QUICK_DEFAULT
+    }
+}
+
+/** The order of a quiz's questions; [code] is stored in the quiz route and the saved quick quiz. */
+enum class QuizOrder(val label: String, val code: String) {
+    RANDOM("Random", "random"), NEWEST("Newest first", "new"), WORST("Worst blunders", "worst");
+
+    /** [ps] in this order. Worst blunders: the biggest error in the game first; positions without one last, in random order. */
+    fun sort(ps: List<SavedPosition>): List<SavedPosition> = when (this) {
+        RANDOM -> ps.shuffled()
+        NEWEST -> ps.sortedByDescending { it.entity.savedAt }
+        WORST -> {
+            val err = ps.associate { sp -> sp.id to sp.played?.let { answerError(sp.position, sp.analysis, it) }?.takeIf { it > 0f } }
+            val (known, unknown) = ps.partition { err[it.id] != null }
+            known.sortedByDescending { err[it.id] } + unknown.shuffled()
         }
     }
 }
@@ -96,7 +121,9 @@ fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Uni
     var folders by rememberSaveable { mutableStateOf(preselected.toSet()) }
     var filter by rememberSaveable { mutableStateOf(preFilter) }
     var limit by rememberSaveable { mutableIntStateOf(0) }
-    var newestFirst by rememberSaveable { mutableStateOf(false) }
+    var order by rememberSaveable { mutableStateOf(QuizOrder.RANDOM) }
+    var savedNote by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     var matching by remember { mutableStateOf<Int?>(null) }
     // The positions of the ticked folders, before the filter.
     var pool by remember { mutableStateOf<List<SavedPosition>>(emptyList()) }
@@ -155,9 +182,30 @@ fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Uni
             }
             Text("Order", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(selected = !newestFirst, onClick = { newestFirst = false }, label = { Text("Random") })
-                FilterChip(selected = newestFirst, onClick = { newestFirst = true }, label = { Text("Newest first") })
+                QuizOrder.entries.forEach { o ->
+                    FilterChip(selected = order == o, onClick = { order = o }, label = { Text(o.label) })
+                }
             }
+            Text("Quick quiz", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            Text(
+                "The Quick quiz button on the main screen starts the quiz saved here (until you save one: all positions, 10, random).",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AssistChip(onClick = {
+                    val spec = QuizSpec(folders.toList(), filter, limit, order)
+                    scope.launch { app.settings.update { it.copy(quickQuiz = spec.encode()) } }
+                    savedNote = "Saved as the quick quiz."
+                }, label = { Text("Save as quick quiz") })
+                AssistChip(onClick = {
+                    val q = QuizSpec.quick(s)
+                    // Folders deleted since it was saved are left out.
+                    val known = cats.map { it.id }.toSet() + UNCATEGORIZED
+                    folders = q.folders.filter { it in known }.toSet(); filter = q.filter; limit = q.limit; order = q.order
+                    savedNote = if (s.quickQuiz.isBlank()) "No quick quiz saved yet: the default is loaded." else "Quick quiz loaded."
+                }, label = { Text("Load quick quiz") })
+            }
+            savedNote?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             Spacer(Modifier.height(12.dp))
             val n = matching
             val asked = if (n == null) null else if (limit > 0) minOf(limit, n) else n
@@ -171,7 +219,7 @@ fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Uni
                 style = MaterialTheme.typography.bodyMedium,
             )
             Button(
-                onClick = { onStart(QuizSpec(folders.toList(), filter, limit, newestFirst)) },
+                onClick = { onStart(QuizSpec(folders.toList(), filter, limit, order)) },
                 enabled = (n ?: 0) > 0, modifier = Modifier.padding(top = 8.dp),
             ) { Text("Start the quiz") }
         }

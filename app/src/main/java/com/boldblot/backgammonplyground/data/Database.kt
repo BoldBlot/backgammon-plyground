@@ -110,6 +110,8 @@ data class PositionEntity(
     /** Quiz answers so far, right and missed (schema 5); their balance is right minus missed. */
     @ColumnInfo(defaultValue = "0") val quizRight: Int = 0,
     @ColumnInfo(defaultValue = "0") val quizWrong: Int = 0,
+    /** When it went into Learned (schema 6); null = in My positions. Learned ones keep their folders but stay out of lists and counts. */
+    val learnedAt: Long? = null,
 )
 
 /** A category of My positions, in the player's order ([sort]). */
@@ -303,13 +305,13 @@ interface PositionDao {
     @Query("SELECT * FROM positions WHERE id = :id")
     suspend fun position(id: Long): PositionEntity?
 
-    @Query("SELECT * FROM positions ORDER BY savedAt DESC")
+    @Query("SELECT * FROM positions WHERE learnedAt IS NULL ORDER BY savedAt DESC")
     suspend fun all(): List<PositionEntity>
 
-    @Query("SELECT p.* FROM positions p JOIN position_categories c ON c.positionId = p.id WHERE c.categoryId = :categoryId ORDER BY p.savedAt DESC")
+    @Query("SELECT p.* FROM positions p JOIN position_categories c ON c.positionId = p.id WHERE c.categoryId = :categoryId AND p.learnedAt IS NULL ORDER BY p.savedAt DESC")
     suspend fun inCategory(categoryId: Long): List<PositionEntity>
 
-    @Query("SELECT DISTINCT p.* FROM positions p JOIN position_categories c ON c.positionId = p.id WHERE c.categoryId IN (:ids)")
+    @Query("SELECT DISTINCT p.* FROM positions p JOIN position_categories c ON c.positionId = p.id WHERE c.categoryId IN (:ids) AND p.learnedAt IS NULL")
     suspend fun inCategories(ids: List<Long>): List<PositionEntity>
 
     @Query("SELECT * FROM positions WHERE xgid = :xgid AND doubled = :doubled LIMIT 1")
@@ -324,7 +326,7 @@ interface PositionDao {
     @Query("DELETE FROM position_categories")
     suspend fun unlinkAll()
 
-    @Query("SELECT c.id, c.name, c.sort, (SELECT COUNT(*) FROM position_categories pc WHERE pc.categoryId = c.id) AS count, c.filter, c.autoAdd FROM categories c ORDER BY c.sort, c.id")
+    @Query("SELECT c.id, c.name, c.sort, (SELECT COUNT(*) FROM position_categories pc JOIN positions p ON p.id = pc.positionId WHERE pc.categoryId = c.id AND p.learnedAt IS NULL) AS count, c.filter, c.autoAdd FROM categories c ORDER BY c.sort, c.id")
     suspend fun categories(): List<CategoryCount>
 
     @Insert
@@ -366,11 +368,18 @@ interface PositionDao {
     @Query("DELETE FROM position_categories WHERE categoryId = :categoryId")
     suspend fun unlinkCategory(categoryId: Long)
 
-    @Query("SELECT COUNT(*) FROM positions p WHERE NOT EXISTS (SELECT 1 FROM position_categories c WHERE c.positionId = p.id)")
+    @Query("SELECT COUNT(*) FROM positions p WHERE p.learnedAt IS NULL AND NOT EXISTS (SELECT 1 FROM position_categories c WHERE c.positionId = p.id)")
     suspend fun uncategorized(): Int
 
-    @Query("SELECT * FROM positions p WHERE NOT EXISTS (SELECT 1 FROM position_categories c WHERE c.positionId = p.id) ORDER BY savedAt DESC")
+    @Query("SELECT * FROM positions p WHERE p.learnedAt IS NULL AND NOT EXISTS (SELECT 1 FROM position_categories c WHERE c.positionId = p.id) ORDER BY savedAt DESC")
     suspend fun uncategorizedPositions(): List<PositionEntity>
+
+    /** Learned positions, the newest first. */
+    @Query("SELECT * FROM positions WHERE learnedAt IS NOT NULL ORDER BY learnedAt DESC")
+    suspend fun learned(): List<PositionEntity>
+
+    @Query("UPDATE positions SET learnedAt = :at WHERE id = :id")
+    suspend fun setLearned(id: Long, at: Long?)
 }
 
 @Database(
@@ -378,11 +387,11 @@ interface PositionDao {
         MatchEntity::class, GameEntity::class, CurrentMatchEntity::class, BlunderEntity::class,
         PositionEntity::class, CategoryEntity::class, PositionCategoryEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
-        AutoMigration(from = 4, to = 5, spec = QuizCountsMigration::class),
+        AutoMigration(from = 4, to = 5, spec = QuizCountsMigration::class), AutoMigration(from = 5, to = 6),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

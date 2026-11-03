@@ -93,6 +93,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -166,6 +167,7 @@ private const val IMPORT_FORMATS =
 @Composable
 fun MyPositionsScreen(
     app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?) -> Unit, onQuiz: (List<Long>) -> Unit, onNewErrors: () -> Unit,
+    onLearned: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -239,7 +241,8 @@ fun MyPositionsScreen(
                 modifier = Modifier.padding(top = 6.dp),
             )
             val newErrors by produceState(0, refresh) { value = app.repository.blunderCount() }
-            Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val learned by produceState(0, refresh) { value = app.positions.learned().size }
+            FlowRow(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { onQuiz(emptyList()) }, enabled = total > 0) {
                     Icon(Icons.Default.School, null)
                     Spacer(Modifier.width(6.dp))
@@ -252,6 +255,12 @@ fun MyPositionsScreen(
                     Icon(Icons.Default.Inbox, null)
                     Spacer(Modifier.width(6.dp))
                     Text("New errors ($newErrors)")
+                }
+                // The quiz's learned positions, a bin they can be put back from.
+                if (learned > 0) OutlinedButton(onClick = onLearned) {
+                    Icon(Icons.Default.TaskAlt, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Learned ($learned)")
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -574,7 +583,7 @@ fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> 
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun PositionRow(
+internal fun PositionRow(
     p: SavedPosition, settings: Settings,
     /** Selecting: whether this position is selected (null = not selecting). */
     selection: Boolean? = null,
@@ -1021,11 +1030,15 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit = {
     val title = if (st.finished || st.total == 0) "Quiz" else "Quiz · ${st.answered + if (st.result == null) 1 else 0}"
     // In landscape the title goes into the side panel, so the board has the whole height and sits in the middle.
     val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val playing = !st.loading && st.total > 0 && !st.finished
+    // Finish: ends the quiz early with its summary.
+    val finish: @Composable () -> Unit = { if (playing && st.answered > 0) TextButton(onClick = vm::finish) { Text("Finish") } }
     val header: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
             Title(title)
             Spacer(Modifier.weight(1f))
+            finish()
             IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") }
         }
     }
@@ -1035,12 +1048,11 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit = {
             if (!landscape) TopAppBar(
                 title = { Title(title) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-                actions = { IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") } },
+                actions = { finish(); IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") } },
             )
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
-            val playing = !st.loading && st.total > 0 && !st.finished
             if (landscape && !playing) Box(Modifier.align(Alignment.TopStart)) { header() }
             Box(Modifier.fillMaxSize().padding(top = if (landscape && !playing) 48.dp else 0.dp)) {
                 when {
@@ -1058,18 +1070,20 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit = {
 private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Done", style = MaterialTheme.typography.titleLarge)
-        Text("${st.total} position${if (st.total == 1) "" else "s"}, ${st.answered} answer${if (st.answered == 1) "" else "s"}.")
+        Text(
+            "${st.total} position${if (st.total == 1) "" else "s"}, ${st.answered} answer${if (st.answered == 1) "" else "s"}" +
+                if (st.stoppedEarly) " (finished early)." else ".",
+        )
         Text("Right: ${st.right} of ${st.answered}")
         if (st.answered > 0) Text("Average error: ${errWithUnit(st.totalError.toDouble() / st.answered, LocalErrorUnit.current)}")
-        if (st.deleted > 0) Text(
-            "Deleted: ${st.deleted}" + when {
-                st.learned == 0 -> ""
-                st.learned == st.deleted -> if (st.deleted == 1) ", learned" else ", all of them learned"
-                else -> ", ${st.learned} of them learned"
-            },
-        )
+        val manual = st.deleted - st.learned
+        if (st.learned > 0) Text((if (st.settings.quizLearned) "Moved to Learned: " else "Learned and deleted: ") + st.learned)
+        if (manual > 0) Text("Deleted: $manual")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = vm::start) { Text("Again") }
+            // Repeat: the same cards; Another: as many new ones with the same settings, while there are some.
+            Button(onClick = vm::repeat) { Text("Repeat") }
+            val more = remember(st.history) { vm.anotherCount() }
+            if (more > 0) Button(onClick = vm::another) { Text("Another $more") }
             OutlinedButton(onClick = onBack) { Text("Done") }
         }
         // The quiz's positions, as a folder lists them (the last answer to each; deleted ones left out).
@@ -1259,7 +1273,8 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
             if (r.counts != null) Text("This position: ${r.counts}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (r.deleted) {
                 Text(
-                    "Learned: its balance reached the threshold, so it was deleted from My positions (Settings → My positions → Quiz).",
+                    if (st.settings.quizLearned) "Learned: its balance reached the threshold, so it moved to Learned (My positions → Learned; Settings → My positions → Quiz)."
+                    else "Learned: its balance reached the threshold, so it was deleted from My positions (Settings → My positions → Quiz).",
                     style = MaterialTheme.typography.bodyMedium, color = ArrowColors.best,
                 )
             }

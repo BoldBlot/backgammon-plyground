@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
@@ -222,6 +223,8 @@ fun BoardView(
     selected: Int? = null,
     destinations: Set<Int> = emptySet(),
     lastCpuSteps: List<Step> = emptyList(),
+    /** Points (CPU orientation) where [lastCpuSteps] hit, to cut its arrows there. */
+    lastCpuHits: Set<Int> = emptySet(),
     showNumbers: Boolean = true,
     /** Pip counts drawn on the bar: [human, computer]. */
     pips: List<Int>? = null,
@@ -342,13 +345,14 @@ fun BoardView(
         if (crawford && !cubeOffered && crawfordSign) drawCrawford(g, measurer)
         drawCheckers(g, colors, board, dragFrom, measurer)
         if (lastCpuSteps.isNotEmpty()) {
-            drawArrows(g, board, arrowsFor(Player.CPU, com.boldblot.backgammonplyground.core.Move(lastCpuSteps), colors.lastMove), postMove = true)
+            val cpu = arrowsFor(Player.CPU, com.boldblot.backgammonplyground.core.Move(lastCpuSteps), colors.lastMove)
+            drawArrows(g, board, splitAtHits(cpu) { _, p -> p in lastCpuHits }, postMove = true)
         }
         drawHighlights(g, colors, board, movable, selected, destinations)
         if (!crawford || cubeOffered) drawCube(g, colors, cube, cubeOffered, cubeAside, measurer)
         pips?.let { drawPips(g, colors, it, measurer) }
         dice.forEach { drawDice(g, colors, it) }
-        drawArrows(g, board, arrows, postMove = false)
+        drawArrows(g, board, splitAtHits(arrows, hitsOn(board)), postMove = false)
         dragFrom?.let { checker(dragPos, g.radius * 1.08f, colors.human, colors.humanRim, colors.checkerStyle) }
     }
 }
@@ -404,7 +408,7 @@ object BoardDrawing {
     fun DrawScope.checkerIcon(center: Offset, r: Float, fill: Color, rim: Color, style: CheckerStyle = CheckerStyle.RIMMED) = checker(center, r, fill, rim, style)
 }
 
-internal fun DrawScope.checker(center: Offset, r: Float, fill: Color, rim: Color, style: CheckerStyle) {
+internal fun DrawScope.checker(center: Offset, r: Float, fill: Color, rim: Color, style: CheckerStyle, seed: Int = 0) {
     when (style) {
         CheckerStyle.RIMMED -> {
             drawCircle(fill, r, center)
@@ -420,18 +424,60 @@ internal fun DrawScope.checker(center: Offset, r: Float, fill: Color, rim: Color
             drawCircle(rim, r * 0.94f, center, style = Stroke(width = r * 0.1f))
             drawCircle(rim, r * 0.64f, center, style = Stroke(width = r * 0.09f))
         }
-        CheckerStyle.DOMED -> {
-            // lit from the top left: lighter centre, darker edge
-            drawCircle(
-                Brush.radialGradient(
-                    listOf(lerp(fill, Color.White, 0.35f), fill, lerp(fill, Color.Black, 0.28f)),
-                    center = center + Offset(-r * 0.35f, -r * 0.35f), radius = r * 1.45f,
-                ),
-                r, center,
-            )
-            drawCircle(rim.copy(alpha = 0.7f), r * 0.98f, center, style = Stroke(width = r * 0.04f))
+        CheckerStyle.MARBLE -> marble(center, r, fill, rim, seed)
+    }
+}
+
+/**
+ * A flat checker with marble veins: cloudy patches, two jagged veins and a thin branch off each, in a
+ * shade of [fill] (darker on light checkers, lighter on dark ones). [seed] picks the pattern, so each
+ * slot keeps its own.
+ */
+private fun DrawScope.marble(center: Offset, r: Float, fill: Color, rim: Color, seed: Int) {
+    drawCircle(fill, r, center)
+    val light = fill.red * 0.3f + fill.green * 0.59f + fill.blue * 0.11f > 0.5f
+    val vein = if (light) lerp(fill, Color.Black, 0.45f) else lerp(fill, Color.White, 0.6f)
+    val cloud = if (light) lerp(fill, Color.Black, 0.18f) else lerp(fill, Color.White, 0.22f)
+    var x = seed * 1103515245 + 12345
+    fun rnd(): Float { x = x * 1103515245 + 12345; return ((x ushr 8) and 0xFFFF) / 65535f }
+    /** A random walk of [n] steps of [step] from [p] heading ([dx], [dy]), its sideways drift changing by up to [wobble] a step. */
+    fun walk(p: Offset, dx: Float, dy: Float, n: Int, step: Float, wobble: Float): List<Offset> {
+        val pts = mutableListOf(p)
+        var at = p
+        var off = 0f
+        repeat(n) {
+            off += (rnd() - 0.5f) * wobble
+            at += Offset(dx * step - dy * off * step, dy * step + dx * off * step)
+            pts += at
+        }
+        return pts
+    }
+    fun line(pts: List<Offset>, color: Color, width: Float) = drawPath(
+        Path().apply { moveTo(pts[0].x, pts[0].y); pts.drop(1).forEach { lineTo(it.x, it.y) } },
+        color, style = Stroke(width = width, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round),
+    )
+    clipPath(Path().apply { addOval(Rect(center, r)) }) {
+        repeat(3) {
+            val c = center + Offset((rnd() - 0.5f) * r * 1.4f, (rnd() - 0.5f) * r * 1.4f)
+            drawCircle(Brush.radialGradient(listOf(cloud.copy(alpha = 0.55f), Color.Transparent), center = c, radius = r * (0.5f + 0.4f * rnd())), r * 2f, center)
+        }
+        val angle = rnd() * Math.PI.toFloat()
+        val dx = kotlin.math.cos(angle)
+        val dy = kotlin.math.sin(angle)
+        repeat(2) { i ->
+            val shift = ((i - 0.5f) * 0.9f + (rnd() - 0.5f) * 0.5f) * r
+            val start = center + Offset(-dx * r * 1.15f - dy * shift, -dy * r * 1.15f + dx * shift)
+            val pts = walk(start, dx, dy, 12, r * 2.3f / 12, 0.9f)
+            val alpha = 0.35f + 0.25f * rnd()
+            line(pts, vein.copy(alpha = alpha * 0.35f), r * 0.09f)
+            line(pts, vein.copy(alpha = alpha), (r * 0.022f).coerceAtLeast(1f))
+            // a thin branch off the vein
+            val from = pts[3 + (rnd() * 6).toInt()]
+            val turn = angle + (0.5f + rnd() * 0.6f) * if (rnd() > 0.5f) 1f else -1f
+            line(walk(from, kotlin.math.cos(turn), kotlin.math.sin(turn), 5, r * 0.12f, 1.2f), vein.copy(alpha = alpha * 0.8f), (r * 0.014f).coerceAtLeast(1f))
         }
     }
+    drawCircle(rim.copy(alpha = 0.8f), r * 0.98f, center, style = Stroke(width = r * 0.04f))
 }
 
 private fun DrawScope.drawCheckers(g: BoardGeometry, c: BoardColors, board: Board, dragFrom: Int?, measurer: TextMeasurer) {
@@ -444,7 +490,7 @@ private fun DrawScope.drawCheckers(g: BoardGeometry, c: BoardColors, board: Boar
             if (n <= 0) continue
             val humanIdx = if (player == Player.HUMAN) idx else 23 - idx
             val shown = min(n, 5)
-            for (k in 0 until shown) checker(g.checkerCenter(humanIdx, k), g.radius, fill, rim, c.checkerStyle)
+            for (k in 0 until shown) checker(g.checkerCenter(humanIdx, k), g.radius, fill, rim, c.checkerStyle, seed = player * 1000 + humanIdx * 16 + k)
             if (n > 5) {
                 val center = g.checkerCenter(humanIdx, 4)
                 val t = measurer.measure(
@@ -456,7 +502,7 @@ private fun DrawScope.drawCheckers(g: BoardGeometry, c: BoardColors, board: Boar
         }
         var bar = board.bar(player)
         if (player == Player.HUMAN && dragFrom == BAR) bar--
-        for (k in 0 until min(bar, 4)) checker(g.barCenter(player, k), g.radius, fill, rim, c.checkerStyle)
+        for (k in 0 until min(bar, 4)) checker(g.barCenter(player, k), g.radius, fill, rim, c.checkerStyle, seed = player * 1000 + 500 + k)
         if (bar > 4) {
             val t = measurer.measure(bar.toString(), TextStyle(color = Color.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold))
             drawText(t, topLeft = g.barCenter(player, 3) - Offset(t.size.width / 2f, t.size.height / 2f))
@@ -606,11 +652,30 @@ object ArrowColors {
 }
 
 /** An arrow from [from] to [to], in [player]'s own orientation (0..23, [BAR] or [OFF]). */
-data class MoveArrow(val player: Int, val from: Int, val to: Int, val color: Color)
+data class MoveArrow(
+    val player: Int, val from: Int, val to: Int, val color: Color,
+    /** Points the checker touches down on between [from] and [to] (merged steps), in order. */
+    val via: List<Int> = emptyList(),
+)
+
+/**
+ * Cuts each arrow at the points of its [MoveArrow.via] where [hit] says the checker hit: a checker going
+ * 24/18/13 that hits on 18 is drawn as two arrows (24 -> 18, 18 -> 13): one long arrow means no hit on the way.
+ */
+fun splitAtHits(arrows: List<MoveArrow>, hit: (MoveArrow, Int) -> Boolean): List<MoveArrow> = arrows.flatMap { a ->
+    val cuts = a.via.filter { hit(a, it) }
+    if (cuts.isEmpty()) return@flatMap listOf(a)
+    val ends = listOf(a.from) + cuts + a.to
+    ends.zipWithNext().map { (f, t) -> MoveArrow(a.player, f, t, a.color, a.via.filter { it < f && it > t }) }
+}
+
+/** Pre-move hits: [board] has a lone opponent checker on the point. */
+fun hitsOn(board: Board): (MoveArrow, Int) -> Boolean = { a, p -> p in 0..23 && board.count(Player.other(a.player), 23 - p) == 1 }
 
 /**
  * Arrows for a move: consecutive steps of the same checker are merged into one arrow
- * (as in move notation), so 24/18/13 is drawn as a single arrow 24 -> 13.
+ * (as in move notation), so 24/18/13 is drawn as a single arrow 24 -> 13. The points in between
+ * are kept in [MoveArrow.via]; drawing cuts the arrow where it hits ([splitAtHits]).
  */
 fun arrowsFor(player: Int, move: com.boldblot.backgammonplyground.core.Move, color: Color): List<MoveArrow> {
     val remaining = move.steps.sortedWith(compareByDescending<Step> { it.from }.thenByDescending { it.to }).toMutableList()
@@ -618,12 +683,14 @@ fun arrowsFor(player: Int, move: com.boldblot.backgammonplyground.core.Move, col
     while (remaining.isNotEmpty()) {
         var cur = remaining.removeAt(0)
         val from = cur.from
+        val via = mutableListOf<Int>()
         while (cur.to != OFF) {
             val i = remaining.indexOfFirst { it.from == cur.to }
             if (i < 0) break
+            via += cur.to
             cur = remaining.removeAt(i)
         }
-        out += MoveArrow(player, from, cur.to, color)
+        out += MoveArrow(player, from, cur.to, color, via)
     }
     return out
 }

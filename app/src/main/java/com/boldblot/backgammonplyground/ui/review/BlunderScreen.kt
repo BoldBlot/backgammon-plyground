@@ -246,6 +246,16 @@ class BlunderViewModel(val app: PlyGroundApp, private val startId: Long) : ViewM
         return b.entity
     }
 
+    /** Saved to My positions: off New errors (as "Add to My positions" does), the next one shown. */
+    fun removeSaved(id: Long) {
+        _state.update {
+            val list = it.blunders.filter { b -> b.entity.id != id }
+            it.copy(blunders = list, index = it.index.coerceAtMost((list.size - 1).coerceAtLeast(0)), candidate = null)
+        }
+        // The app's scope: the save may finish after the screen is closed.
+        app.appScope.launch { app.repository.removeBlunder(id) }
+    }
+
     fun undoRemove(e: BlunderEntity) {
         viewModelScope.launch {
             app.repository.restoreBlunder(e)
@@ -290,7 +300,10 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
     var saving by remember { mutableStateOf(false) }
     val jacoby by produceState(true, b.entity.matchId) { value = vm.app.repository.match(b.entity.matchId)?.jacoby ?: true }
     val study = remember(b, jacoby) { StudyPosition.of(b.decision, b.entity.matchLength, jacoby) }
-    if (saving && study != null) SaveToPositionsDialog(vm.app, study, "Blunder list", b.labels, com.boldblot.backgammonplyground.core.MyAnswer.played(b.decision)) { saving = false }
+    if (saving && study != null) SaveToPositionsDialog(
+        vm.app, study, "Blunder list", b.labels, com.boldblot.backgammonplyground.core.MyAnswer.played(b.decision),
+        onSaved = { vm.removeSaved(b.entity.id) },
+    ) { saving = false }
     val onSave = { saving = true }.takeIf { study != null }
     val capture = rememberBoardCapture()
     val share: @Composable () -> Unit = {

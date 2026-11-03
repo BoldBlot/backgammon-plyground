@@ -140,6 +140,8 @@ data class GameUiState(
     val message: String? = null,
     /** CPU's last move, drawn as markers (human orientation indices). */
     val lastCpuSteps: List<Step> = emptyList(),
+    /** Points (CPU orientation) where [lastCpuSteps] hit. */
+    val lastCpuHits: Set<Int> = emptySet(),
     val gameOver: GameOverInfo? = null,
     val settings: Settings = Settings(),
     val meter: List<Float>? = null,
@@ -570,15 +572,17 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         arrowsJob?.cancel()
         var b = start
         val shown = mutableListOf<Step>()
+        val hits = mutableSetOf<Int>()
         for (s in move.steps) {
+            if (b.isHit(Player.CPU, s)) hits += s.to
             b = b.applyStep(Player.CPU, s)
             shown += s
             if (stepDelay > 0) {
-                _state.update { it.copy(board = b, lastCpuSteps = if (arrows == CpuArrows.OFF) emptyList() else shown.toList()) }
+                _state.update { it.copy(board = b, lastCpuSteps = if (arrows == CpuArrows.OFF) emptyList() else shown.toList(), lastCpuHits = hits.toSet()) }
                 delay(stepDelay)
             }
         }
-        _state.update { it.copy(lastCpuSteps = if (arrows == CpuArrows.OFF) emptyList() else move.steps) }
+        _state.update { it.copy(lastCpuSteps = if (arrows == CpuArrows.OFF) emptyList() else move.steps, lastCpuHits = hits.toSet()) }
         if (arrows == CpuArrows.ONE_SECOND && move.steps.isNotEmpty()) {
             arrowsJob = viewModelScope.launch {
                 delay(1000)

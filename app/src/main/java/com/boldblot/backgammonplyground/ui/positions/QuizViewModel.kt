@@ -61,7 +61,7 @@ data class QuizResult(
     val analysis: PositionAnalysis,
     /** The position's quiz answers with this one: "3 right, 1 missed · balance +2". */
     val counts: String? = null,
-    /** Its balance reached the threshold in Settings and it was deleted from My positions. */
+    /** Its balance reached the threshold in Settings and it left My positions (into Learned, or deleted when Learned is off). */
     val deleted: Boolean = false,
     /** Deleted with the Delete button (Undo puts it back). */
     val removed: DeletedPosition? = null,
@@ -108,6 +108,8 @@ data class QuizState(
     /** The position deleted last with Delete, for the Undo snackbar. */
     val lastRemoved: DeletedPosition? = null,
     val finished: Boolean = false,
+    /** Ended with Finish before the last card. */
+    val stoppedEarly: Boolean = false,
     val message: String? = null,
     /** Cards answered this round, oldest first. */
     val history: List<QuizCard> = emptyList(),
@@ -140,11 +142,31 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
         }
     }
 
-    /** A new round: the positions in random order (or newest first), at most [QuizSpec.limit] of them. */
-    fun start() {
-        val left = all.filter { it.id !in gone }
-        val ordered = if (spec.newestFirst) left.sortedByDescending { it.entity.savedAt } else left.shuffled()
-        val picked = if (spec.limit > 0) ordered.take(spec.limit) else ordered
+    /** The cards of the round asked last ([repeat] asks them again), and every card asked since the quiz opened ([another] leaves them out). */
+    private var round: List<SavedPosition> = emptyList()
+    private val seen = mutableSetOf<Long>()
+
+    /** A new round: the positions in [QuizSpec.order], at most [QuizSpec.limit] of them, none asked before when [fresh]. */
+    fun start() = begin(fresh = false)
+
+    /** "Another 10": a round with the same settings, of cards not asked yet since the quiz opened. */
+    fun another() = begin(fresh = true)
+
+    /** "Repeat": the same cards again (those deleted or learned left out). */
+    fun repeat() = ask(round.filter { it.id !in gone })
+
+    /** How many cards "Another" would ask (0 = none left, or the quiz asks them all). */
+    fun anotherCount(): Int = if (spec.limit <= 0) 0 else minOf(spec.limit, all.count { it.id !in gone && it.id !in seen })
+
+    private fun begin(fresh: Boolean) {
+        val left = all.filter { it.id !in gone && !(fresh && it.id in seen) }
+        val ordered = spec.order.sort(left)
+        round = if (spec.limit > 0) ordered.take(spec.limit) else ordered
+        ask(round)
+    }
+
+    private fun ask(picked: List<SavedPosition>) {
+        seen += picked.map { it.id }
         // Turned over, a double becomes the doubler's full decision (the player's own answer is about the take).
         val turn = _state.value.settings.quizTheirCube == QuizTheirCube.FLIP
         val list = picked.map { sp ->
@@ -152,6 +174,19 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
         }
         _state.update { QuizState(loading = false, settings = it.settings, queue = list, total = list.size, finished = list.isEmpty()) }
         show()
+    }
+
+    /** "Finish": ends the round now (an answered card counts) and shows the summary. */
+    fun finish() {
+        val st = _state.value
+        val cur = st.current
+        val r = st.result
+        _state.update {
+            it.copy(
+                finished = true, stoppedEarly = true, queue = emptyList(), result = null, viewing = null,
+                history = if (cur != null && r != null) it.history + QuizCard(cur, r) else it.history,
+            )
+        }
     }
 
     /** Sets up the board for the current position. */
@@ -296,7 +331,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
                     ?.let { sp.copy(entity = it) }
                 val deleted = counted != null && s.quizAutoDelete && counted.quizBalance >= s.quizDeleteAt
                 if (deleted) {
-                    app.positions.remove(sp.id)
+                    if (s.quizLearned) app.positions.learn(sp.id, s.learnedKeep) else app.positions.remove(sp.id)
                     gone += sp.id
                 }
                 val played = sp.played?.let { answerWithError(p, a, it, s.errorUnit) }

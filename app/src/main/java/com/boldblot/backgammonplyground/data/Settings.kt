@@ -128,7 +128,8 @@ enum class BoardTheme(val label: String) {
 /** Which of the board's two checker colours is the human's (the computer gets the other). */
 enum class CheckerSide { FIRST, SECOND }
 
-enum class CheckerStyle(val label: String) { RIMMED("Rimmed"), FLAT("Flat"), DOUBLE_RING("Double ring"), DOMED("Domed") }
+/** Checker looks. Marble replaced Domed in 0.7.15: a stored "DOMED" reads as [MARBLE]. */
+enum class CheckerStyle(val label: String) { RIMMED("Rimmed"), FLAT("Flat"), DOUBLE_RING("Double ring"), MARBLE("Marble") }
 
 /** A board made in the board designer; colours are ARGB. */
 @Serializable
@@ -226,9 +227,19 @@ data class Settings(
     /** Quiz answers to the player's own cube decisions, and to the opponent's doubles. */
     val quizMyCube: QuizMyCube = QuizMyCube.FULL,
     val quizTheirCube: QuizTheirCube = QuizTheirCube.TAKE_PASS,
-    /** Delete a position from My positions once its quiz balance (right minus missed) reaches [quizDeleteAt]. */
+    /**
+     * "Move to Learned": a position whose quiz balance (right minus missed) reaches [quizDeleteAt] leaves
+     * My positions: into Learned ([quizLearned]), or deleted at once when Learned is off.
+     */
     val quizAutoDelete: Boolean = false,
     val quizDeleteAt: Int = 3,
+    /** Learned positions are kept (out of the quiz and the folders) until [learnedKeep] newer ones push them out. */
+    val quizLearned: Boolean = true,
+    val learnedKeep: Int = 50,
+    /** The saved quick quiz ([com.boldblot.backgammonplyground.ui.positions.QuizSpec.encode]); blank = the default. */
+    val quickQuiz: String = "",
+    /** The Quick quiz button on the main screen: to the right of My positions (or the left). */
+    val quickQuizRight: Boolean = true,
     val boardTheme: BoardTheme = BoardTheme.GRAY,
     val checkerSide: CheckerSide = CheckerSide.FIRST,
     val checkerStyle: CheckerStyle = CheckerStyle.RIMMED,
@@ -371,6 +382,10 @@ class SettingsStore(private val context: Context) {
         val quizTheirCube = stringPreferencesKey("quiz_their_cube")
         val quizAutoDelete = booleanPreferencesKey("quiz_auto_delete")
         val quizDeleteAt = intPreferencesKey("quiz_delete_at")
+        val quizLearned = booleanPreferencesKey("quiz_learned")
+        val learnedKeep = intPreferencesKey("learned_keep")
+        val quickQuiz = stringPreferencesKey("quick_quiz")
+        val quickQuizRight = booleanPreferencesKey("quick_quiz_right")
         val theme = stringPreferencesKey("board_theme")
         val checker = stringPreferencesKey("checker_color")
         val checkerStyle = stringPreferencesKey("checker_style")
@@ -465,10 +480,14 @@ class SettingsStore(private val context: Context) {
             quizTheirCube = p.enum(Keys.quizTheirCube, d.quizTheirCube),
             quizAutoDelete = p[Keys.quizAutoDelete] ?: d.quizAutoDelete,
             quizDeleteAt = p[Keys.quizDeleteAt] ?: d.quizDeleteAt,
+            quizLearned = p[Keys.quizLearned] ?: d.quizLearned,
+            learnedKeep = p[Keys.learnedKeep] ?: d.learnedKeep,
+            quickQuiz = p[Keys.quickQuiz] ?: d.quickQuiz,
+            quickQuizRight = p[Keys.quickQuizRight] ?: d.quickQuizRight,
             boardTheme = p.enum(Keys.theme, d.boardTheme),
             // build 31 and earlier stored the grey board's colour, YELLOW (first) or RED (second)
             checkerSide = if (p[Keys.checker] in setOf("RED", "SECOND")) CheckerSide.SECOND else CheckerSide.FIRST,
-            checkerStyle = p.enum(Keys.checkerStyle, d.checkerStyle),
+            checkerStyle = if (p[Keys.checkerStyle] == "DOMED") CheckerStyle.MARBLE else p.enum(Keys.checkerStyle, d.checkerStyle),
             customBoards = p[Keys.customBoards]
                 ?.let { runCatching { AppJson.decodeFromString<List<CustomBoard?>>(it) }.getOrNull() }
                 ?.let { l -> List(CUSTOM_SLOTS) { l.getOrNull(it) } } ?: d.customBoards,
@@ -555,6 +574,10 @@ class SettingsStore(private val context: Context) {
             p[Keys.quizTheirCube] = s.quizTheirCube.name
             p[Keys.quizAutoDelete] = s.quizAutoDelete
             p[Keys.quizDeleteAt] = s.quizDeleteAt
+            p[Keys.quizLearned] = s.quizLearned
+            p[Keys.learnedKeep] = s.learnedKeep
+            p[Keys.quickQuiz] = s.quickQuiz
+            p[Keys.quickQuizRight] = s.quickQuizRight
             p[Keys.theme] = s.boardTheme.name
             p[Keys.checker] = s.checkerSide.name
             p[Keys.checkerStyle] = s.checkerStyle.name
