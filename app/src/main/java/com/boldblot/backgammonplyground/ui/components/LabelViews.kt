@@ -90,7 +90,8 @@ fun LabelFilterButton(
             },
             leadingIcon = { Icon(Icons.Default.FilterList, null) },
         )
-        DropdownMenu(open, onDismissRequest = { open = false }) {
+        val menuScroll = rememberScrollState()
+        DropdownMenu(open, onDismissRequest = { open = false }, modifier = Modifier.scrollbar(menuScroll), scrollState = menuScroll) {
             if (on.isNotEmpty()) {
                 DropdownMenuItem(text = { Text("Clear filter") }, onClick = { onChange(emptySet()); open = false })
                 HorizontalDivider()
@@ -153,7 +154,8 @@ fun LabelsDialog(keys: List<String>, initial: Set<String>, onDismiss: () -> Unit
         onDismissRequest = onDismiss,
         title = { Text("Labels") },
         text = {
-            Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+            val scroll = rememberScrollState()
+            Column(Modifier.heightIn(max = 460.dp).scrollbar(scroll).verticalScroll(scroll).padding(end = 8.dp)) {
                 keys.groupBy { Labels.group(it) }.forEach { (group, inGroup) ->
                     Text(
                         group.title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,

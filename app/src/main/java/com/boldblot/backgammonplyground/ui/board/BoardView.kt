@@ -22,7 +22,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
@@ -424,60 +423,11 @@ internal fun DrawScope.checker(center: Offset, r: Float, fill: Color, rim: Color
             drawCircle(rim, r * 0.94f, center, style = Stroke(width = r * 0.1f))
             drawCircle(rim, r * 0.64f, center, style = Stroke(width = r * 0.09f))
         }
-        CheckerStyle.MARBLE -> marble(center, r, fill, rim, seed)
-    }
-}
-
-/**
- * A flat checker with marble veins: cloudy patches, two jagged veins and a thin branch off each, in a
- * shade of [fill] (darker on light checkers, lighter on dark ones). [seed] picks the pattern, so each
- * slot keeps its own.
- */
-private fun DrawScope.marble(center: Offset, r: Float, fill: Color, rim: Color, seed: Int) {
-    drawCircle(fill, r, center)
-    val light = fill.red * 0.3f + fill.green * 0.59f + fill.blue * 0.11f > 0.5f
-    val vein = if (light) lerp(fill, Color.Black, 0.45f) else lerp(fill, Color.White, 0.6f)
-    val cloud = if (light) lerp(fill, Color.Black, 0.18f) else lerp(fill, Color.White, 0.22f)
-    var x = seed * 1103515245 + 12345
-    fun rnd(): Float { x = x * 1103515245 + 12345; return ((x ushr 8) and 0xFFFF) / 65535f }
-    /** A random walk of [n] steps of [step] from [p] heading ([dx], [dy]), its sideways drift changing by up to [wobble] a step. */
-    fun walk(p: Offset, dx: Float, dy: Float, n: Int, step: Float, wobble: Float): List<Offset> {
-        val pts = mutableListOf(p)
-        var at = p
-        var off = 0f
-        repeat(n) {
-            off += (rnd() - 0.5f) * wobble
-            at += Offset(dx * step - dy * off * step, dy * step + dx * off * step)
-            pts += at
-        }
-        return pts
-    }
-    fun line(pts: List<Offset>, color: Color, width: Float) = drawPath(
-        Path().apply { moveTo(pts[0].x, pts[0].y); pts.drop(1).forEach { lineTo(it.x, it.y) } },
-        color, style = Stroke(width = width, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round),
-    )
-    clipPath(Path().apply { addOval(Rect(center, r)) }) {
-        repeat(3) {
-            val c = center + Offset((rnd() - 0.5f) * r * 1.4f, (rnd() - 0.5f) * r * 1.4f)
-            drawCircle(Brush.radialGradient(listOf(cloud.copy(alpha = 0.55f), Color.Transparent), center = c, radius = r * (0.5f + 0.4f * rnd())), r * 2f, center)
-        }
-        val angle = rnd() * Math.PI.toFloat()
-        val dx = kotlin.math.cos(angle)
-        val dy = kotlin.math.sin(angle)
-        repeat(2) { i ->
-            val shift = ((i - 0.5f) * 0.9f + (rnd() - 0.5f) * 0.5f) * r
-            val start = center + Offset(-dx * r * 1.15f - dy * shift, -dy * r * 1.15f + dx * shift)
-            val pts = walk(start, dx, dy, 12, r * 2.3f / 12, 0.9f)
-            val alpha = 0.35f + 0.25f * rnd()
-            line(pts, vein.copy(alpha = alpha * 0.35f), r * 0.09f)
-            line(pts, vein.copy(alpha = alpha), (r * 0.022f).coerceAtLeast(1f))
-            // a thin branch off the vein
-            val from = pts[3 + (rnd() * 6).toInt()]
-            val turn = angle + (0.5f + rnd() * 0.6f) * if (rnd() > 0.5f) 1f else -1f
-            line(walk(from, kotlin.math.cos(turn), kotlin.math.sin(turn), 5, r * 0.12f, 1.2f), vein.copy(alpha = alpha * 0.8f), (r * 0.014f).coerceAtLeast(1f))
+        CheckerStyle.CATALIN, CheckerStyle.SWIRL -> {
+            val size = kotlin.math.ceil(2 * r).toInt()
+            drawImage(CheckerPatterns.image(style, fill, rim, size, CheckerPatterns.patternOf(seed)), center - Offset(size / 2f, size / 2f))
         }
     }
-    drawCircle(rim.copy(alpha = 0.8f), r * 0.98f, center, style = Stroke(width = r * 0.04f))
 }
 
 private fun DrawScope.drawCheckers(g: BoardGeometry, c: BoardColors, board: Board, dragFrom: Int?, measurer: TextMeasurer) {

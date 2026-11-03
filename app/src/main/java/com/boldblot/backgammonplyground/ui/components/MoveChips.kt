@@ -22,12 +22,7 @@ import androidx.compose.ui.unit.dp
  */
 @Composable
 fun MoveChips(canUndo: Boolean, canDone: Boolean, onUndo: () -> Unit, onDone: () -> Unit, modifier: Modifier = Modifier) {
-    val scheme = MaterialTheme.colorScheme
-    val colors = AssistChipDefaults.assistChipColors(
-        containerColor = scheme.inverseSurface, labelColor = scheme.inverseOnSurface, leadingIconContentColor = scheme.inverseOnSurface,
-        disabledContainerColor = scheme.inverseSurface.copy(alpha = 0.25f),
-        disabledLabelColor = scheme.onSurface.copy(alpha = 0.45f), disabledLeadingIconContentColor = scheme.onSurface.copy(alpha = 0.45f),
-    )
+    val colors = negativeChipColors()
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         AssistChip(
             onClick = onUndo, enabled = canUndo, label = { Text("Undo", maxLines = 1) }, colors = colors, border = null,
@@ -38,4 +33,15 @@ fun MoveChips(canUndo: Boolean, canDone: Boolean, onUndo: () -> Unit, onDone: ()
             leadingIcon = { Icon(Icons.Default.Check, null, Modifier.size(AssistChipDefaults.IconSize)) },
         )
     }
+}
+
+/** Chip colours in negative (as Undo and Done): dark with light text in light mode, bright with dark text in dark mode. */
+@Composable
+fun negativeChipColors(): androidx.compose.material3.ChipColors {
+    val scheme = MaterialTheme.colorScheme
+    return AssistChipDefaults.assistChipColors(
+        containerColor = scheme.inverseSurface, labelColor = scheme.inverseOnSurface, leadingIconContentColor = scheme.inverseOnSurface,
+        disabledContainerColor = scheme.inverseSurface.copy(alpha = 0.25f),
+        disabledLabelColor = scheme.onSurface.copy(alpha = 0.45f), disabledLeadingIconContentColor = scheme.onSurface.copy(alpha = 0.45f),
+    )
 }

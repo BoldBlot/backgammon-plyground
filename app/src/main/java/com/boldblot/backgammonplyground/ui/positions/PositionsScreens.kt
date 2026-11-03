@@ -65,6 +65,7 @@ import com.boldblot.backgammonplyground.core.Labels
 import com.boldblot.backgammonplyground.core.Move
 import com.boldblot.backgammonplyground.ui.components.LabelFilterButton
 import com.boldblot.backgammonplyground.ui.components.LabelTags
+import com.boldblot.backgammonplyground.ui.components.scrollbar
 import com.boldblot.backgammonplyground.ui.components.LabelsDialog
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material.icons.filled.School
@@ -141,18 +142,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
 
-/** A screen title with an "Experimental" tag. */
+/** A My positions screen title (one line). */
 @Composable
 internal fun Title(text: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = MaterialTheme.shapes.small, modifier = Modifier.padding(start = 8.dp)) {
-            Text(
-                "Experimental", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            )
-        }
-    }
+    Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 /** What My positions can import (⋮ → Import a file…, or a file opened or shared with PlyGround). */
@@ -231,7 +224,7 @@ fun MyPositionsScreen(
                 return@Column
             }
             Text(
-                "Experimental: this part of the app may still change. Save positions from New errors, a game " +
+                "Save positions from New errors, a game " +
                     "review or Analyze Position (\"Save to My positions\"), or import a file, then quiz yourself on them.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -764,6 +757,21 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                         leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, null, Modifier.size(18.dp)) },
                         label = { Text("Labels", maxLines = 1, softWrap = false) },
                     )
+                    // Learned: on for the positions in Learned. Turning it on sends the position there (out of the quiz and
+                    // the folder counts); turning it off puts it back in My positions, in the folders it was in.
+                    val learned = cur.entity.learnedAt != null
+                    FilterChip(
+                        selected = learned,
+                        onClick = {
+                            scope.launch {
+                                if (learned) app.positions.unlearn(listOf(cur.id)) else app.positions.learn(cur.id, settings.learnedKeep)
+                                refresh++
+                            }
+                            Toast.makeText(context, if (learned) "Back in My positions" else "Moved to Learned", Toast.LENGTH_SHORT).show()
+                        },
+                        leadingIcon = { Icon(Icons.Default.TaskAlt, null, Modifier.size(18.dp)) },
+                        label = { Text("Learned", maxLines = 1, softWrap = false) },
+                    )
                 }
                 LabelTags(settings.visible(cur.labels), Modifier.padding(bottom = 4.dp)) { labelling = true }
                 when {
@@ -893,7 +901,8 @@ private fun AnswerDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            val scroll = rememberScrollState()
+            Column(Modifier.heightIn(max = 420.dp).scrollbar(scroll).verticalScroll(scroll).padding(end = 8.dp)) {
                 Text(help, style = MaterialTheme.typography.bodySmall)
                 if (p.dice != null) {
                     plays.forEachIndexed { i, m ->
@@ -954,7 +963,8 @@ private fun CategoriesDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+            val scroll = rememberScrollState()
+            Column(Modifier.heightIn(max = 460.dp).scrollbar(scroll).verticalScroll(scroll).padding(end = 8.dp)) {
                 cats.forEach { c -> CheckRow(c.name, c.id in chosen) { chosen = if (c.id in chosen) chosen - c.id else chosen + c.id } }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
@@ -1155,7 +1165,10 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
                     style = MaterialTheme.typography.labelMedium,
                 )
                 IconButton(onClick = vm::forward, enabled = st.viewing != null) { Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next card") }
-                if (st.viewing != null) TextButton(onClick = { repeat(st.history.size) { vm.forward() } }) { Text("Back to the quiz") }
+                if (st.viewing != null) androidx.compose.material3.AssistChip(
+                    onClick = { repeat(st.history.size) { vm.forward() } }, label = { Text("Back to the quiz", maxLines = 1) },
+                    colors = com.boldblot.backgammonplyground.ui.components.negativeChipColors(), border = null,
+                )
             }
         }
         // The position's labels, after the answer (some, like Blunder, would give it away).

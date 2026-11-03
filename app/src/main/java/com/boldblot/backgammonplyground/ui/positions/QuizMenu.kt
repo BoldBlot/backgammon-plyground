@@ -142,6 +142,12 @@ fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Uni
             TopAppBar(
                 title = { Title("Quiz") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                actions = {
+                    Button(
+                        onClick = { onStart(QuizSpec(folders.toList(), filter, limit, order)) },
+                        enabled = (matching ?: 0) > 0, modifier = Modifier.padding(end = 8.dp),
+                    ) { Text("Start") }
+                },
             )
         },
     ) { padding ->
@@ -218,10 +224,7 @@ fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Uni
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Button(
-                onClick = { onStart(QuizSpec(folders.toList(), filter, limit, order)) },
-                enabled = (n ?: 0) > 0, modifier = Modifier.padding(top = 8.dp),
-            ) { Text("Start the quiz") }
+
         }
     }
 }

@@ -128,8 +128,12 @@ enum class BoardTheme(val label: String) {
 /** Which of the board's two checker colours is the human's (the computer gets the other). */
 enum class CheckerSide { FIRST, SECOND }
 
-/** Checker looks. Marble replaced Domed in 0.7.15: a stored "DOMED" reads as [MARBLE]. */
-enum class CheckerStyle(val label: String) { RIMMED("Rimmed"), FLAT("Flat"), DOUBLE_RING("Double ring"), MARBLE("Marble") }
+/**
+ * Checker looks. [CATALIN] (veined) and [SWIRL] (swirled resin) are flat with a pattern per checker
+ * ([com.boldblot.backgammonplyground.ui.board.CheckerPatterns]). Catalin replaced Marble (0.7.15, internal)
+ * and Domed: a stored "MARBLE" or "DOMED" reads as [CATALIN].
+ */
+enum class CheckerStyle(val label: String) { RIMMED("Rimmed"), FLAT("Flat"), DOUBLE_RING("Double ring"), CATALIN("Catalin"), SWIRL("Swirl") }
 
 /** A board made in the board designer; colours are ARGB. */
 @Serializable
@@ -487,7 +491,7 @@ class SettingsStore(private val context: Context) {
             boardTheme = p.enum(Keys.theme, d.boardTheme),
             // build 31 and earlier stored the grey board's colour, YELLOW (first) or RED (second)
             checkerSide = if (p[Keys.checker] in setOf("RED", "SECOND")) CheckerSide.SECOND else CheckerSide.FIRST,
-            checkerStyle = if (p[Keys.checkerStyle] == "DOMED") CheckerStyle.MARBLE else p.enum(Keys.checkerStyle, d.checkerStyle),
+            checkerStyle = if (p[Keys.checkerStyle] in setOf("DOMED", "MARBLE")) CheckerStyle.CATALIN else p.enum(Keys.checkerStyle, d.checkerStyle),
             customBoards = p[Keys.customBoards]
                 ?.let { runCatching { AppJson.decodeFromString<List<CustomBoard?>>(it) }.getOrNull() }
                 ?.let { l -> List(CUSTOM_SLOTS) { l.getOrNull(it) } } ?: d.customBoards,

@@ -200,12 +200,16 @@ fun HomeScreen(
                 Spacer(Modifier.height(10.dp))
                 Row(w, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val quick: @Composable () -> Unit = {
-                        OutlinedButton(onClick = onQuickQuiz, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp)) {
-                            Icon(Icons.Default.Bolt, "Quick quiz")
-                        }
+                        // In negative, as the Undo and Done chips: it stands out beside the outlined buttons.
+                        Button(
+                            onClick = onQuickQuiz, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.inverseSurface, contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                            ),
+                        ) { Icon(Icons.Default.Bolt, "Quick quiz") }
                     }
                     if (!quickQuizRight) quick()
-                    OutlinedButton(onClick = onMyPositions, modifier = Modifier.weight(1f)) { Text("My positions (experimental)") }
+                    OutlinedButton(onClick = onMyPositions, modifier = Modifier.weight(1f)) { Text("My positions") }
                     if (quickQuizRight) quick()
                 }
                 Spacer(Modifier.height(10.dp))

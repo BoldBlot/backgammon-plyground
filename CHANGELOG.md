@@ -5,6 +5,21 @@
 - Long evaluations in endgames: I'm hunting down the bug behind them. I think 0.7.10 fixes it
   (games lost or won whatever is played now stop at 1-ply), but it is still being tested.
 
+## 0.7.16 — 2026-11-03 (build 61, internal test)
+
+- Checkers: two new styles, flat with a pattern of their own on every checker. Catalin has soft
+  forking veins in a deeper shade of the checker's colour (tan on white and ivory), like old
+  catalin checkers; Swirl has smoky folds, like swirled resin. Catalin replaces Marble: if you
+  had Marble or Domed, you now have Catalin.
+- A saved position: a Learned chip next to Labels sends it to Learned (the chip lights up) and,
+  pressed again, puts it back in My positions, in the folders it was in. It is lit on every
+  position in Learned.
+- My positions: the Experimental tags are gone.
+- Quiz menu: "Start the quiz" is now Start, in the top bar.
+- Quiz: "Back to the quiz" is a chip, in negative colours like Undo and Done.
+- The ⚡ Quick quiz button is in negative colours too.
+- The Labels and Folders lists, and the label filter menu, show a scroll bar when they scroll.
+
 ## 0.7.15 — 2026-11-03 (build 60, internal test)
 
 - Move arrows: a checker that hits on its way is drawn as two arrows, cut at the hit (24/18*/13).
