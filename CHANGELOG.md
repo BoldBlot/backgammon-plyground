@@ -5,7 +5,7 @@
 - Long evaluations in endgames: I'm hunting down the bug behind them. I think 0.7.10 fixes it
   (games lost or won whatever is played now stop at 1-ply), but it is still being tested.
 
-## 0.8.0 — 2026-11-03 (build 63, internal test)
+## 0.8.0 — 2026-11-03 (build 63)
 
 - The first closed-test (alpha) release since 0.7.10: everything from 0.7.11 to 0.7.17 below.
   The app is the same as 0.7.17; only the version number changed.
