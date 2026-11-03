@@ -5,6 +5,11 @@
 - Long evaluations in endgames: I'm hunting down the bug behind them. I think 0.7.10 fixes it
   (games lost or won whatever is played now stop at 1-ply), but it is still being tested.
 
+## 0.7.17 — 2026-11-03 (build 62, internal test)
+
+- Quiz: the chip back from the answered cards is now "Back to Quiz", so it fits.
+- A folder's Quiz button (top right) is a chip in negative colours, like Undo and Done.
+
 ## 0.7.16 — 2026-11-03 (build 61, internal test)
 
 - Checkers: two new styles, flat with a pattern of their own on every checker. Catalin has soft

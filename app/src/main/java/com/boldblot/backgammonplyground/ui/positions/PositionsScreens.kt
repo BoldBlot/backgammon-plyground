@@ -531,7 +531,11 @@ fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> 
                         settings.labelKeys, filter, { filter = it }, compact = true, quiz = true,
                         count = { f -> shown.count { passesFilter(it, f, settings) } }, total = shown.size,
                     )
-                    if (!shown.isNullOrEmpty()) TextButton(onClick = { onQuiz(listOfNotNull(categoryId), filter) }) { Text("Quiz") }
+                    if (!shown.isNullOrEmpty()) androidx.compose.material3.AssistChip(
+                        onClick = { onQuiz(listOfNotNull(categoryId), filter) }, label = { Text("Quiz") },
+                        colors = com.boldblot.backgammonplyground.ui.components.negativeChipColors(), border = null,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
                 },
             )
         },
@@ -1166,7 +1170,7 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
                 )
                 IconButton(onClick = vm::forward, enabled = st.viewing != null) { Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next card") }
                 if (st.viewing != null) androidx.compose.material3.AssistChip(
-                    onClick = { repeat(st.history.size) { vm.forward() } }, label = { Text("Back to the quiz", maxLines = 1) },
+                    onClick = { repeat(st.history.size) { vm.forward() } }, label = { Text("Back to Quiz", maxLines = 1) },
                     colors = com.boldblot.backgammonplyground.ui.components.negativeChipColors(), border = null,
                 )
             }
