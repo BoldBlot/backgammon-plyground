@@ -17,9 +17,12 @@
 #       "internal test" marker from CHANGELOG.md, uploads the notes (en-CA, max 500 chars), commits,
 #       tags v<version>, pushes main and the tag, then deploys and commits the website. Update the
 #       manual (MANUAL_BODY in website/tools/make_pages.py) first; --manual-done confirms that.
+#       The version named in the manual's intro is set here, so leave that sentence alone.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SITE=${BOLDBLOT_SITE:-$HOME/code/BoldBlot}
+MAKE_PAGES=$SITE/website/tools/make_pages.py
+MANUAL_VERSION_RE='It describes version [0-9.]+ \(build [0-9]+\)\.'
 GRADLE=$ROOT/app/build.gradle.kts
 CHANGELOG=$ROOT/CHANGELOG.md
 AAB=$ROOT/app/build/outputs/bundle/release/app-release.aab
@@ -159,6 +162,7 @@ alpha)
   [ "$manual_done" = 1 ] || die "update the manual (MANUAL_BODY in $SITE/website/tools/make_pages.py), then pass --manual-done"
   notes=$(cat "$notes_file")
   [ "${#notes}" -le 500 ] || die "notes are ${#notes} characters; Play allows 500"
+  grep -qE "$MANUAL_VERSION_RE" "$MAKE_PAGES" || die "the manual's version sentence is not in $MAKE_PAGES (expected: $MANUAL_VERSION_RE)"
   check_repo
   name=$(cur_name); code=$(cur_code)
   head=$(top_heading)
@@ -181,6 +185,9 @@ alpha)
     run push git -C "$ROOT" push -q origin main "v$name"
     echo "  $(git -C "$ROOT" log --oneline -1)"
   fi
+
+  step "Manual: says $name (build $code)"
+  [ "$DRY" = 1 ] || sed -i -E "s/$MANUAL_VERSION_RE/It describes version $name (build $code)./" "$MAKE_PAGES"
 
   website "Website: PlyGround $name (build $code) on alpha: changelog and manual"
   echo "Done: $name (build $code) on alpha (in Google's review)."
