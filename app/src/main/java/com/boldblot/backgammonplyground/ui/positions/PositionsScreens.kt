@@ -95,6 +95,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.TaskAlt
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -159,7 +161,7 @@ private const val IMPORT_FORMATS =
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MyPositionsScreen(
-    app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?) -> Unit, onQuiz: (List<Long>) -> Unit, onNewErrors: () -> Unit,
+    app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?) -> Unit, onQuiz: (List<Long>) -> Unit, onNewErrors: () -> Unit, onNewMarked: () -> Unit,
     onLearned: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
@@ -234,6 +236,7 @@ fun MyPositionsScreen(
                 modifier = Modifier.padding(top = 6.dp),
             )
             val newErrors by produceState(0, refresh) { value = app.repository.blunderCount() }
+            val newMarked by produceState(0, refresh) { value = app.repository.markedCount() }
             val learned by produceState(0, refresh) { value = app.positions.learned().size }
             FlowRow(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { onQuiz(emptyList()) }, enabled = total > 0) {
@@ -248,6 +251,12 @@ fun MyPositionsScreen(
                     Icon(Icons.Default.Inbox, null)
                     Spacer(Modifier.width(6.dp))
                     Text("New errors ($newErrors)")
+                }
+                // The positions marked while playing, waiting to be added to a folder or deleted.
+                if (newMarked > 0) FilledTonalButton(onClick = onNewMarked) {
+                    Icon(com.boldblot.backgammonplyground.ui.components.BlotIcon, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("New Marked ($newMarked)")
                 }
                 // The quiz's learned positions, a bin they can be put back from.
                 if (learned > 0) OutlinedButton(onClick = onLearned) {
@@ -270,14 +279,15 @@ fun MyPositionsScreen(
             CategoryRow("All positions", total, onClick = { onCategory(null) })
             cats.forEachIndexed { i, c ->
                 CategoryRow(c.name, c.count, onClick = { onCategory(c.id) }) { close ->
-                    DropdownMenuItem(text = { Text("Rename") }, onClick = { close(); renaming = c })
+                    val favourites = c.filter == com.boldblot.backgammonplyground.data.PositionsRepository.FAVOURITES
+                    if (!favourites) DropdownMenuItem(text = { Text("Rename") }, onClick = { close(); renaming = c })
                     DropdownMenuItem(
                         text = { Text("Analyze again") }, enabled = folderRun == null && c.count > 0,
                         onClick = { close(); analyzingFolder = c },
                     )
                     if (i > 0) DropdownMenuItem(text = { Text("Move up") }, onClick = { close(); scope.launch { app.positions.moveCategory(c.id, -1); refresh++ } })
                     if (i < cats.lastIndex) DropdownMenuItem(text = { Text("Move down") }, onClick = { close(); scope.launch { app.positions.moveCategory(c.id, 1); refresh++ } })
-                    DropdownMenuItem(text = { Text("Delete") }, onClick = { close(); deleting = c })
+                    if (!favourites) DropdownMenuItem(text = { Text("Delete") }, onClick = { close(); deleting = c })
                 }
             }
             if (uncategorized > 0) CategoryRow("No folder", uncategorized, onClick = { onCategory(UNCATEGORIZED) })
@@ -585,6 +595,8 @@ internal fun PositionRow(
     /** Selecting: whether this position is selected (null = not selecting). */
     selection: Boolean? = null,
     onLongClick: (() -> Unit)? = null,
+    /** In a quiz's results: whether the last answer to it was right (a green check or a red X on the right). */
+    quizAnswer: Boolean? = null,
     onClick: () -> Unit,
 ) {
     val sp = p.position
@@ -613,6 +625,12 @@ internal fun PositionRow(
                 if (p.entity.quizRight + p.entity.quizWrong > 0) {
                     Text("Quiz: ${quizCountText(p)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+            quizAnswer?.let { right ->
+                Icon(
+                    if (right) Icons.Default.Check else Icons.Default.Close, if (right) "Right" else "Missed",
+                    Modifier.padding(start = 6.dp).size(28.dp), tint = if (right) ArrowColors.best else MaterialTheme.colorScheme.error,
+                )
             }
         }
     }
@@ -761,11 +779,19 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                         leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, null, Modifier.size(18.dp)) },
                         label = { Text("Labels", maxLines = 1, softWrap = false) },
                     )
+                    // The star: in Favourites, which keeps it out of Learned.
+                    val favourite by produceState(false, cur.id, refresh) { value = app.positions.isFavourite(cur.id) }
+                    FilterChip(
+                        selected = favourite,
+                        onClick = { scope.launch { app.positions.setFavourite(cur.id, !favourite); refresh++ } },
+                        leadingIcon = { Icon(if (favourite) Icons.Default.Star else Icons.Default.StarBorder, null, Modifier.size(18.dp)) },
+                        label = { Text("Favourite", maxLines = 1, softWrap = false) },
+                    )
                     // Learned: on for the positions in Learned. Turning it on sends the position there (out of the quiz and
                     // the folder counts); turning it off puts it back in My positions, in the folders it was in.
                     val learned = cur.entity.learnedAt != null
                     FilterChip(
-                        selected = learned,
+                        selected = learned, enabled = !favourite,
                         onClick = {
                             scope.launch {
                                 if (learned) app.positions.unlearn(listOf(cur.id)) else app.positions.learn(cur.id, settings.learnedKeep)
@@ -1046,7 +1072,7 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit = {
     val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val playing = !st.loading && st.total > 0 && !st.finished
     // Finish: ends the quiz early with its summary.
-    val finish: @Composable () -> Unit = { if (playing && st.answered > 0) TextButton(onClick = vm::finish) { Text("Finish") } }
+    val finish: @Composable () -> Unit = { if (playing && st.answered > 0) FilterChip(selected = false, onClick = vm::finish, label = { Text("Finish") }) }
     val header: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
@@ -1091,7 +1117,11 @@ private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit, on
         Text("Right: ${st.right} of ${st.answered}")
         if (st.answered > 0) Text("Average error: ${errWithUnit(st.totalError.toDouble() / st.answered, LocalErrorUnit.current)}")
         val manual = st.deleted - st.learned
-        if (st.learned > 0) Text((if (st.settings.quizLearned) "Moved to Learned: " else "Learned and deleted: ") + st.learned)
+        // The Learned chip always moves a position to Learned; the balance threshold may delete it instead (Settings).
+        val byHand = st.history.count { it.result.learnedByHand }
+        val moved = if (st.settings.quizLearned) st.learned else byHand
+        if (moved > 0) Text("Moved to Learned: $moved")
+        if (st.learned - moved > 0) Text("Learned and deleted: ${st.learned - moved}")
         if (manual > 0) Text("Deleted: $manual")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // Repeat: the same cards; Another: as many new ones with the same settings, while there are some.
@@ -1104,7 +1134,7 @@ private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit, on
         val cards = st.history.reversed().distinctBy { it.position.id }.reversed().filter { !it.result.deleted && it.result.removed == null }
         if (cards.isNotEmpty()) {
             Text("Positions in this quiz", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
-            cards.forEach { c -> PositionRow(c.position, st.settings) { onOpen(c.position.id) } }
+            cards.forEach { c -> PositionRow(c.position, st.settings, quizAnswer = c.result.right) { onOpen(c.position.id) } }
         }
     }
 }
@@ -1148,6 +1178,7 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
             dice = listOfNotNull(p.dice?.takeIf { afterMove == null }?.let { DiceView(Player.HUMAN, diceOrder, if (r != null) diceOrder.map { 0f } else st.diceDim, error = st.diceError) }),
             cube = p.setup.cube, cubeOffered = p.doubled,
             crawford = p.setup.crawford, crawfordSign = st.settings.crawfordSign,
+            dmp = com.boldblot.backgammonplyground.core.Scoring.isDmp(p.setup.matchLength, p.setup.score, p.setup.crawford),
             movable = if (interactive) st.movable else emptySet(),
             pips = listOf(shown.pipCount(Player.HUMAN), shown.pipCount(Player.CPU)),
             arrows = arrows,
@@ -1277,6 +1308,20 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
                 if (!readOnly && !r.deleted && r.removed == null) IconButton(onClick = vm::deleteCurrent) { Icon(Icons.Default.Delete, "Delete from My positions") }
                 if (!readOnly) Button(onClick = vm::next) { Text("Next") }
             }
+            if (!readOnly && r.removed == null && (!r.deleted || r.learnedByHand)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = r.learnedByHand, onClick = vm::toggleLearned, enabled = !r.favourite,
+                        leadingIcon = { Icon(Icons.Default.TaskAlt, null, Modifier.size(18.dp)) },
+                        label = { Text("Learned", maxLines = 1, softWrap = false) },
+                    )
+                    FilterChip(
+                        selected = r.favourite, onClick = vm::toggleFavourite,
+                        leadingIcon = { Icon(if (r.favourite) Icons.Default.Star else Icons.Default.StarBorder, null, Modifier.size(18.dp)) },
+                        label = { Text("Favourite", maxLines = 1, softWrap = false) },
+                    )
+                }
+            }
             val you = r.youText ?: r.cubeAnswer?.label ?: decisionText(p, r.move, r.cube)
             Text("You: $you", style = MaterialTheme.typography.bodyMedium)
             if (r.doubleClaim != null) {
@@ -1288,7 +1333,9 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
                 )
             }
             if (r.counts != null) Text("This position: ${r.counts}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (r.deleted) {
+            if (r.learnedByHand) {
+                Text("Moved to Learned.", style = MaterialTheme.typography.bodyMedium, color = ArrowColors.best)
+            } else if (r.deleted) {
                 Text(
                     if (st.settings.quizLearned) "Learned: its balance reached the threshold, so it moved to Learned (My positions → Learned; Settings → My positions → Quiz)."
                     else "Learned: its balance reached the threshold, so it was deleted from My positions (Settings → My positions → Quiz).",

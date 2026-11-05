@@ -63,6 +63,10 @@ data class QuizResult(
     val counts: String? = null,
     /** Its balance reached the threshold in Settings and it left My positions (into Learned, or deleted when Learned is off). */
     val deleted: Boolean = false,
+    /** Moved to Learned with the Learned chip after the answer ([deleted] is on too). */
+    val learnedByHand: Boolean = false,
+    /** In Favourites: it can't move to Learned. */
+    val favourite: Boolean = false,
     /** Deleted with the Delete button (Undo puts it back). */
     val removed: DeletedPosition? = null,
     /** The answer and the engine's as the quiz asked them ("Double" when the opponent's answer wasn't asked). */
@@ -329,7 +333,8 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
                 val result = judged.withAsked(p, a, s, cubeAnswer.takeIf { partial }, claim)
                 val counted = app.positions.setResult(sp.id, result.right, MyAnswer(move = move, cube = cube))
                     ?.let { sp.copy(entity = it) }
-                val deleted = counted != null && s.quizAutoDelete && counted.quizBalance >= s.quizDeleteAt
+                val favourite = app.positions.isFavourite(sp.id)
+                val deleted = counted != null && s.quizAutoDelete && counted.quizBalance >= s.quizDeleteAt && !favourite
                 if (deleted) {
                     if (s.quizLearned) app.positions.learn(sp.id, s.learnedKeep) else app.positions.remove(sp.id)
                     gone += sp.id
@@ -337,7 +342,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
                 val played = sp.played?.let { answerWithError(p, a, it, s.errorUnit) }
                 _state.update {
                     it.copy(
-                        busy = false, result = result.copy(played = played, counts = counted?.let(::quizCountText), deleted = deleted), answered = it.answered + 1, right = it.right + if (result.right) 1 else 0,
+                        busy = false, result = result.copy(played = played, counts = counted?.let(::quizCountText), deleted = deleted, favourite = favourite), answered = it.answered + 1, right = it.right + if (result.right) 1 else 0,
                         totalError = it.totalError + result.error / factor,
                         deleted = it.deleted + if (deleted) 1 else 0, learned = it.learned + if (deleted) 1 else 0,
                         board = p.board,
@@ -360,6 +365,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
     ): QuizResult {
         val p = sp.position
         val factor = factorOf(p)
+        val average = if (s.quizCorrect == QuizCorrect.ADAPTIVE) libraryAverageError(app) else null
         return if (move != null) {
             val c = a.checker!!
             val best = c.candidates.firstOrNull()
@@ -371,8 +377,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
             val mine = sp.answer?.move
             val right = when {
                 mine != null -> p.board.applyMove(Player.HUMAN, mine) == p.board.applyMove(Player.HUMAN, move)
-                s.quizCorrect == QuizCorrect.BEST_ONLY -> err < 0.0005f
-                else -> !XgRules.severity(err).atLeast(Severity.ERROR)
+                else -> s.quizRight(err, average)
             }
             QuizResult(
                 right, err, XgRules.severity(err), move = move, bestMove = best?.move,
@@ -384,8 +389,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
             val mine = sp.answer?.cube
             val right = when {
                 mine != null -> mine == cube
-                s.quizCorrect == QuizCorrect.BEST_ONLY -> err < 0.0005f
-                else -> !XgRules.severity(err).atLeast(Severity.ERROR)
+                else -> s.quizRight(err, average)
             }
             val bestAnswer = if (cubeAnswer != null) bestCubeAnswer(p, a) else null
             QuizResult(
@@ -513,6 +517,51 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
                 it.copy(
                     result = if (it.current?.id == sp.id) it.result?.copy(removed = d) else it.result,
                     deleted = it.deleted + 1, lastRemoved = d,
+                )
+            }
+        }
+    }
+
+    /** The Learned chip on the result: into Learned, or (tapped again) back. A favourite stays out of Learned. */
+    fun toggleLearned() {
+        val st = _state.value
+        val r = st.result ?: return
+        val sp = st.current ?: return
+        if (r.removed != null || r.favourite || (r.deleted && !r.learnedByHand)) return
+        viewModelScope.launch {
+            val back = r.learnedByHand
+            if (back) {
+                app.positions.unlearn(listOf(sp.id))
+                gone -= sp.id
+            } else {
+                app.positions.learn(sp.id, st.settings.learnedKeep)
+                gone += sp.id
+            }
+            val by = if (back) -1 else 1
+            _state.update {
+                it.copy(
+                    result = it.result?.copy(deleted = !back, learnedByHand = !back),
+                    deleted = it.deleted + by, learned = it.learned + by,
+                )
+            }
+        }
+    }
+
+    /** The star on the result: into Favourites (out of Learned, if the Learned chip just sent it there), or out. */
+    fun toggleFavourite() {
+        val st = _state.value
+        val r = st.result ?: return
+        val sp = st.current ?: return
+        if (r.removed != null || (r.deleted && !r.learnedByHand)) return
+        viewModelScope.launch {
+            app.positions.setFavourite(sp.id, !r.favourite)
+            val backFromLearned = r.learnedByHand
+            if (backFromLearned) gone -= sp.id
+            val by = if (backFromLearned) 1 else 0
+            _state.update {
+                it.copy(
+                    result = it.result?.copy(favourite = !r.favourite, deleted = false, learnedByHand = false),
+                    deleted = it.deleted - by, learned = it.learned - by,
                 )
             }
         }

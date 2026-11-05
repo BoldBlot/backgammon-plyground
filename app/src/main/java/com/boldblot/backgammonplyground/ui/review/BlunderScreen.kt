@@ -184,7 +184,7 @@ data class BlunderState(
     val factor: Float get() = XgRules.errorFactor(current?.entity?.matchLength ?: 0)
 }
 
-class BlunderViewModel(val app: PlyGroundApp, private val startId: Long) : ViewModel() {
+class BlunderViewModel(val app: PlyGroundApp, private val startId: Long, private val marked: Boolean = false) : ViewModel() {
 
     private val _state = MutableStateFlow(BlunderState())
     val state: StateFlow<BlunderState> = _state.asStateFlow()
@@ -192,7 +192,7 @@ class BlunderViewModel(val app: PlyGroundApp, private val startId: Long) : ViewM
     init {
         viewModelScope.launch {
             val s = app.settings.settings.first()
-            val list = app.repository.blunders(s.blunderSort, s.visible(s.blunderFilter))
+            val list = app.repository.blunders(s.blunderSort, s.visible(s.blunderFilter), marked)
             val i = list.indexOfFirst { it.entity.id == startId }.coerceAtLeast(0)
             _state.update { it.copy(loading = false, blunders = list, index = i) }
         }
@@ -260,7 +260,7 @@ class BlunderViewModel(val app: PlyGroundApp, private val startId: Long) : ViewM
         viewModelScope.launch {
             app.repository.restoreBlunder(e)
             val s = _state.value.settings
-            val list = app.repository.blunders(s.blunderSort, s.visible(s.blunderFilter))
+            val list = app.repository.blunders(s.blunderSort, s.visible(s.blunderFilter), marked)
             _state.update { s -> s.copy(blunders = list, index = list.indexOfFirst { it.entity.id == e.id }.coerceAtLeast(0)) }
         }
     }
@@ -372,6 +372,7 @@ private fun Board(st: BlunderState, d: DecisionRecord, modifier: Modifier) {
         cubeOffered = decisionCube(d).second,
         crawford = d.crawford,
         crawfordSign = st.settings.crawfordSign,
+        dmp = com.boldblot.backgammonplyground.core.Scoring.isDmp(st.current?.entity?.matchLength ?: 0, d.score, d.crawford),
         pips = listOf(board.pipCount(Player.HUMAN), board.pipCount(Player.CPU)),
         arrows = if (st.view == ReviewView.ARROWS) decisionArrows(d, st.candidate, st.factor) else emptyList(),
     )

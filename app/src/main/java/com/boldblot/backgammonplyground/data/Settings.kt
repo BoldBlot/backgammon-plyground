@@ -75,7 +75,18 @@ enum class QuickCubeCheck(val label: String, val plies: Int) { OFF("Off", 0), ON
 /** How errors (equity lost) are shown everywhere: equity (-0.026) or thousandths of it (-26.0 mEq). */
 enum class ErrorUnit(val label: String) { EQ("Eq (0.026)"), MEQ("mEq (26.0)") }
 
-enum class QuizCorrect(val label: String) { NOT_ERROR("Not an error"), BEST_ONLY("Best play only") }
+enum class QuizCorrect(val label: String) { NOT_ERROR("Not an error"), BEST_ONLY("Best play only"), FIXED("Fixed level"), ADAPTIVE("Adaptive") }
+
+/**
+ * Sets the level of errors kept for My positions and the level the quiz accepts, both to [level].
+ * [CUSTOM] leaves them to their own settings.
+ */
+enum class TrainingPlan(val label: String, val level: Float?) {
+    ERROR("Error", XgRulesDefaults.ERROR),
+    BLUNDER("Blunder", XgRulesDefaults.BLUNDER),
+    BIG_BLUNDER("Big blunder", 0.12f),
+    CUSTOM("Custom", null),
+}
 
 /** The quiz's answers to the player's own cube decisions. */
 enum class QuizMyCube(val label: String) {
@@ -226,6 +237,11 @@ data class Settings(
     val topXFiled: Set<String> = emptySet(),
     val errorsSort: ErrorsSort = ErrorsSort.SPLIT,
     val quizCorrect: QuizCorrect = QuizCorrect.NOT_ERROR,
+    /** [QuizCorrect.FIXED]: an answer costing up to this is right. */
+    val quizFixedError: Float = 0.04f,
+    /** [QuizCorrect.ADAPTIVE]: an answer costing up to this share of My positions' average error is right (never below the error threshold). */
+    val quizAdaptiveRatio: Float = 0.9f,
+    val trainingPlan: TrainingPlan = TrainingPlan.CUSTOM,
     /** The quiz brings missed positions back until each has been answered right. */
     val quizRepeat: Boolean = false,
     /** Quiz answers to the player's own cube decisions, and to the opponent's doubles. */
@@ -293,6 +309,28 @@ data class Settings(
 
     /** [keys] without the labels turned off or deleted. */
     fun visible(keys: Set<String>): Set<String> = keys.intersect(labelKeys.toSet())
+
+    /**
+     * These settings under [plan]. A plan's level becomes the minimum error and the quiz's fixed level; Adaptive
+     * and Top X would treat it as a mere floor, so they give way to the fixed threshold. Custom changes nothing else.
+     */
+    fun withPlan(plan: TrainingPlan): Settings {
+        val level = plan.level ?: return copy(trainingPlan = plan)
+        return copy(
+            trainingPlan = plan, errorMin = level, quizCorrect = QuizCorrect.FIXED, quizFixedError = level,
+            errorsMode = if (errorsMode == ErrorsMode.MANUAL) ErrorsMode.MANUAL else ErrorsMode.AUTOMATIC,
+        )
+    }
+
+    /** Whether an answer costing [error] (after the 1-point factor) is right; [average] is My positions' average error (Adaptive). */
+    fun quizRight(error: Float, average: Float?): Boolean = when (quizCorrect) {
+        QuizCorrect.NOT_ERROR -> !com.boldblot.backgammonplyground.core.XgRules.severity(error).atLeast(com.boldblot.backgammonplyground.core.Severity.ERROR)
+        QuizCorrect.BEST_ONLY -> error < 0.0005f
+        QuizCorrect.FIXED -> error <= quizFixedError
+        QuizCorrect.ADAPTIVE -> error <= com.boldblot.backgammonplyground.core.NewErrors.adaptiveThreshold(
+            com.boldblot.backgammonplyground.core.NewErrors.MIN_ERROR, quizAdaptiveRatio, average,
+        )
+    }
 
     /** What a new error must cost to enter New errors: the minimum with Manual; any error with the automatic methods (kept on a rolling list). */
     val newErrorsMin: Float get() = if (errorsMode == ErrorsMode.MANUAL) errorMin else XgRulesDefaults.ERROR
@@ -381,6 +419,9 @@ class SettingsStore(private val context: Context) {
         val topXFiled = androidx.datastore.preferences.core.stringSetPreferencesKey("top_x_filed")
         val errorsSort = stringPreferencesKey("errors_sort")
         val quizCorrect = stringPreferencesKey("quiz_correct")
+        val quizFixedError = floatPreferencesKey("quiz_fixed_error")
+        val quizAdaptiveRatio = floatPreferencesKey("quiz_adaptive_ratio")
+        val trainingPlan = stringPreferencesKey("training_plan")
         val quizRepeat = booleanPreferencesKey("quiz_repeat")
         val quizMyCube = stringPreferencesKey("quiz_my_cube")
         val quizTheirCube = stringPreferencesKey("quiz_their_cube")
@@ -479,6 +520,9 @@ class SettingsStore(private val context: Context) {
             topXFiled = p[Keys.topXFiled] ?: d.topXFiled,
             errorsSort = p.enum(Keys.errorsSort, d.errorsSort),
             quizCorrect = p.enum(Keys.quizCorrect, d.quizCorrect),
+            quizFixedError = p[Keys.quizFixedError] ?: d.quizFixedError,
+            quizAdaptiveRatio = p[Keys.quizAdaptiveRatio] ?: d.quizAdaptiveRatio,
+            trainingPlan = p.enum(Keys.trainingPlan, d.trainingPlan),
             quizRepeat = p[Keys.quizRepeat] ?: d.quizRepeat,
             quizMyCube = p.enum(Keys.quizMyCube, d.quizMyCube),
             quizTheirCube = p.enum(Keys.quizTheirCube, d.quizTheirCube),
@@ -573,6 +617,9 @@ class SettingsStore(private val context: Context) {
             p[Keys.topXFiled] = s.topXFiled
             p[Keys.errorsSort] = s.errorsSort.name
             p[Keys.quizCorrect] = s.quizCorrect.name
+            p[Keys.quizFixedError] = s.quizFixedError
+            p[Keys.quizAdaptiveRatio] = s.quizAdaptiveRatio
+            p[Keys.trainingPlan] = s.trainingPlan.name
             p[Keys.quizRepeat] = s.quizRepeat
             p[Keys.quizMyCube] = s.quizMyCube.name
             p[Keys.quizTheirCube] = s.quizTheirCube.name

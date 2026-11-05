@@ -4,7 +4,7 @@ package com.boldblot.backgammonplyground.core
 /** [allOf]: the group's labels can all be true at once, so an autofilter needs each one it names ([Labels.matchesAll]). */
 enum class LabelGroup(val title: String, val allOf: Boolean = false) {
     DECISION("Decision"), CUBE_SIDE("Cube side"), POSITION("Position"), GAME("Game"), SIZE("Size"),
-    STAGE("Stage", true), STAKES("Stakes", true), WHOSE("Whose"),
+    STAGE("Stage", true), STAKES("Stakes", true), WHOSE("Whose"), MARKED("Marked"),
     THEMES("Themes (rule of thumb)", true),
     /** The player's own labels. */
     MINE("My labels", true),
@@ -33,6 +33,7 @@ enum class AutoLabel(val title: String, val group: LabelGroup, val description: 
     GAMMONISH("Gammonish", LabelGroup.STAKES, "Either side wins a gammon at least 20% of the time."),
     MINE("Mine", LabelGroup.WHOSE, "Your own mistake."),
     OPPONENTS("Opponent's", LabelGroup.WHOSE, "The opponent's mistake (imported matches)."),
+    MARKED("Marked", LabelGroup.MARKED, "You marked it while playing."),
     ON_THE_BAR("On the bar", LabelGroup.THEMES, "The deciding player has a checker on the bar."),
     HIT("Hit", LabelGroup.THEMES, "The best play or the play made hits."),
     PRIME_VS_PRIME("Prime vs prime", LabelGroup.THEMES, "Both sides have a prime of four points or more."),

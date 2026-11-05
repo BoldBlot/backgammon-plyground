@@ -83,6 +83,10 @@ object Scoring {
         return GameResult(winner, type, cube.value * type.multiplier)
     }
 
+    /** Double match point: both players need one point (a 1-point match too). */
+    fun isDmp(matchLength: Int, score: List<Int>, crawford: Boolean): Boolean =
+        matchLength > 0 && !crawford && score.all { it == matchLength - 1 }
+
     /**
      * Whether [player] may offer a double now (before rolling).
      * Doubling is pointless and disallowed once the player already wins the

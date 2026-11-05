@@ -218,6 +218,8 @@ fun BoardView(
     /** Crawford game: no cube can be turned, so a vertical "CRAWFORD" sign stands on the bar instead ([crawfordSign]; otherwise nothing). */
     crawford: Boolean = false,
     crawfordSign: Boolean = true,
+    /** Double match point: the cube is dead, so a "DMP" sign stands on the bar like the Crawford one (same setting). */
+    dmp: Boolean = false,
     movable: Set<Int> = emptySet(),
     selected: Int? = null,
     destinations: Set<Int> = emptySet(),
@@ -341,14 +343,14 @@ fun BoardView(
         drawBoard(g, colors, measurer, showNumbers)
         drawFlags(g, flagged)
         // The Crawford sign lies under the checkers: a checker on the bar may cover it.
-        if (crawford && !cubeOffered && crawfordSign) drawCrawford(g, measurer)
+        if ((crawford || dmp) && !cubeOffered && crawfordSign) drawBarSign(g, measurer, if (crawford) "CRAWFORD" else "DMP")
         drawCheckers(g, colors, board, dragFrom, measurer)
         if (lastCpuSteps.isNotEmpty()) {
             val cpu = arrowsFor(Player.CPU, com.boldblot.backgammonplyground.core.Move(lastCpuSteps), colors.lastMove)
             drawArrows(g, board, splitAtHits(cpu) { _, p -> p in lastCpuHits }, postMove = true)
         }
         drawHighlights(g, colors, board, movable, selected, destinations)
-        if (!crawford || cubeOffered) drawCube(g, colors, cube, cubeOffered, cubeAside, measurer)
+        if ((!crawford && !dmp) || cubeOffered) drawCube(g, colors, cube, cubeOffered, cubeAside, measurer)
         pips?.let { drawPips(g, colors, it, measurer) }
         dice.forEach { drawDice(g, colors, it) }
         drawArrows(g, board, splitAtHits(arrows, hitsOn(board)), postMove = false)
@@ -516,10 +518,10 @@ private fun DrawScope.drawCube(g: BoardGeometry, c: BoardColors, cube: CubeState
     drawText(t, topLeft = Offset(x + (s - t.size.width) / 2, y + (s - t.size.height) / 2))
 }
 
-/** The Crawford sign: the word written upwards on a cube-coloured strip in the middle of the bar. */
-private fun DrawScope.drawCrawford(g: BoardGeometry, measurer: TextMeasurer) {
+/** The Crawford or DMP sign: [text] written upwards on a cube-coloured strip in the middle of the bar. */
+private fun DrawScope.drawBarSign(g: BoardGeometry, measurer: TextMeasurer, text: String) {
     val w = g.cubeSize * 0.72f
-    val t = measurer.measure("CRAWFORD", TextStyle(color = Color(0xFF222222), fontSize = (w / density * 0.5f).sp,
+    val t = measurer.measure(text, TextStyle(color = Color(0xFF222222), fontSize = (w / density * 0.5f).sp,
         fontWeight = FontWeight.Bold, letterSpacing = (w / density * 0.08f).sp))
     val h = t.size.width + w * 0.9f
     val cx = g.barCenterX

@@ -5,6 +5,37 @@
 - Long evaluations in endgames: I'm hunting down the bug behind them. I think 0.7.10 fixes it
   (games lost or won whatever is played now stop at 1-ply), but it is still being tested.
 
+## 0.8.1 — 2026-11-05 (build 64, internal test)
+
+- Winning chances bar: fixed. It always worked out the chances as if you were on roll, so during
+  the computer's turn it was wrong (it could call you the favourite when the computer was doubling
+  in a bearoff it was winning). It now evaluates whoever is on roll and, once the dice are down,
+  the best play of that roll, so it matches the review.
+- Marked positions: a blot chip next to Undo and Done marks your next decision (roll or double,
+  take or pass, or a move).
+  - The game and match summary has "Review marked" next to Review, showing only the marked
+    positions: that game's, or the whole match's at its end.
+  - Review has a Marked chip, on when you open it from the summary. With All, every decision
+    stays listed and Next mistake also stops at marked ones. With Mine or My mistakes, or on its
+    own, only marked positions are listed. Opening a finished match later from the Match Library
+    has no Marked chip.
+  - My positions has a New Marked button, between New errors and Learned. Marked positions wait
+    there instead of in New errors, even when they weren't errors, and are not filed
+    automatically. Saved from there or from the review, they keep a Marked label.
+- Training plan (Settings → My positions): Error (0.02+), Blunder (0.08+) or Big blunder (0.12+)
+  set both the level for My positions and what the quiz accepts. Custom, the default, keeps your
+  settings and sets them separately.
+- Quiz: a right answer can now also be a Fixed level, or Adaptive: a share of My positions'
+  average error, never below 0.02.
+- Favourites: a star on a saved position, and on the quiz card after answering, puts it in a
+  Favourites folder. A favourite does not move to Learned.
+- Quiz: a Learned chip on the card after answering, Finish is a chip, and the results show a green
+  check or a red X on each position.
+- Double match point: a DMP sign stands on the bar instead of the cube, like the Crawford sign
+  (the same setting turns both off).
+- Played and Best chips in review: moves are no longer cut short ("Doubl…"). When they don't fit
+  side by side, the chips stack.
+
 ## 0.8.0 — 2026-11-03 (build 63)
 
 - The first closed-test (alpha) release since 0.7.10: everything from 0.7.11 to 0.7.17 below.

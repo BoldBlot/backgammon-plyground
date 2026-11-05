@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.boldblot.backgammonplyground.BuildConfig
 import com.boldblot.backgammonplyground.PlyGroundApp
 import com.boldblot.backgammonplyground.core.AnalysisSettings
+import com.boldblot.backgammonplyground.core.WinningChances
 import com.boldblot.backgammonplyground.core.BAR
 import com.boldblot.backgammonplyground.core.MaxBearOff
 import com.boldblot.backgammonplyground.core.Board
@@ -86,6 +87,10 @@ data class GameOverInfo(
     val reviewGame: Int = gameNumber,
     /** Played without analysis ([AnalysisTiming.NONE]): the summary offers to analyze the match now. */
     val offerAnalysis: Boolean = false,
+    /** Marked positions "Review marked" shows: in this game, or in the whole match when it is over. */
+    val marked: Int = 0,
+    /** The game "Review marked" opens on (the first with a marked position). */
+    val markedGame: Int = gameNumber,
     /** Decisions left unanalyzed by Stop: PR and mistakes count only the analyzed ones. */
     val notAnalyzed: Int = 0,
 )
@@ -137,6 +142,8 @@ data class GameUiState(
     val hint: CheckerAnalysis? = null,
     val cubeHint: CubeEval? = null,
     val hinted: Boolean = false,
+    /** The mark is on: the player's next decision will be marked. */
+    val marking: Boolean = false,
     val message: String? = null,
     /** CPU's last move, drawn as markers (human orientation indices). */
     val lastCpuSteps: List<Step> = emptyList(),
@@ -396,11 +403,14 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         if (settings.meter != MeterMode.OFF) updateMeter(m)
     }
 
+    private var meterJob: kotlinx.coroutines.Job? = null
+
     private fun updateMeter(m: MatchState) {
+        meterJob?.cancel()
         if (m.game.phase == Phase.OVER) return
-        viewModelScope.launch {
-            val eval = engineService.run { cubeDecision(m.game.board, m.ctx(Player.HUMAN), 0) }
-            _state.update { it.copy(meter = eval.probs) }
+        meterJob = viewModelScope.launch {
+            val probs = engineService.run { WinningChances.forHuman(this, m) }
+            _state.update { it.copy(meter = probs) }
         }
     }
 
@@ -744,6 +754,9 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         val afterMatch = settings.trainingMode == TrainingMode.AFTER_GAME && next.isOver
         val (matchMistakes, firstMistake) = if (afterMatch) repo.humanMistakes(m.id) else 0 to null
         val report = runCatching { repo.matchReport(m.id) }.getOrNull()
+        // The game's marked positions; at the end of the match, those of all its games.
+        val markedGames = if (next.isOver) repo.games(m.id).filter { it.second.marked.isNotEmpty() }.map { it.first.number to it.second.marked.size }
+            else listOf(m.gameNumber to m.game.marked.size).filter { it.second > 0 }
         _state.update {
             it.copy(
                 notice = null,
@@ -755,6 +768,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                     mistakes = if (afterMatch) matchMistakes else mistakes, afterMatch = afterMatch,
                     reviewGame = firstMistake ?: m.gameNumber,
                     offerAnalysis = settings.quietPlay && settings.analysisTiming == AnalysisTiming.NONE,
+                    marked = markedGames.sumOf { g -> g.second }, markedGame = markedGames.firstOrNull()?.first ?: m.gameNumber,
                 ),
             )
         }
@@ -764,7 +778,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     fun nextGame() {
         val next = pendingNext ?: return
         pendingNext = null
-        _state.update { it.copy(gameOver = null, lastCpuSteps = emptyList(), hinted = false) }
+        _state.update { it.copy(gameOver = null, lastCpuSteps = emptyList(), hinted = false, marking = false) }
         if (next.isOver) {
             _state.update { GameUiState(loading = false, settings = it.settings) }
             return
@@ -805,7 +819,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     }
 
     /** A decision being tried again: the position before it, its first try and the tries since. */
-    private data class Retry(val base: MatchState, val first: FirstTry, val retries: Int = 0, val tried: List<Move> = emptyList())
+    private data class Retry(val base: MatchState, val first: FirstTry, val retries: Int = 0, val tried: List<Move> = emptyList(), val marked: Boolean = false)
 
     private var retry: Retry? = null
 
@@ -817,6 +831,13 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     private fun applyHuman(result: Pair<MatchState, Feedback?>, message: String? = null, before: MatchState) {
         var (next, fb) = result
         var r = retry?.takeIf { it.base === before }
+        // The mark goes on the first decision the player made here (a decision tried again keeps it).
+        val markAt = if (_state.value.marking || r?.marked == true) {
+            (before.game.decisions.size until next.game.decisions.size).firstOrNull { i ->
+                next.game.decisions[i].let { it.player == Player.HUMAN && !it.auto }
+            }
+        } else null
+        if (markAt != null) next = next.copy(game = next.game.copy(marked = next.game.marked + markAt))
         if (r != null) {
             // The record of this decision follows the decisions made before it.
             val i = before.game.decisions.size
@@ -828,15 +849,20 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                 // If this try is taken back too, it joins the tries in between.
                 d.move?.let { m -> r = r!!.copy(tried = r!!.tried + m) }
             }
-        } else {
+        } else if (markAt == null) {
             saveBlunder(next, fb)
+        }
+        if (markAt != null) {
+            val marked = next
+            viewModelScope.launch { repo.saveMarked(marked, markAt) }
+            _state.update { it.copy(marking = false) }
         }
         val show = shouldShow(fb)
         val tryAgain = show && settings.trainingMode == TrainingMode.TRY_AGAIN && autoMode == null
         retry = when {
             !tryAgain -> null
             r != null -> r
-            else -> fb!!.decision.let { d -> Retry(before, FirstTry(d.kind, d.move, d.error, d.counted)) }
+            else -> fb!!.decision.let { d -> Retry(before, FirstTry(d.kind, d.move, d.error, d.counted), marked = markAt != null) }
         }
         val text = when {
             r == null || show -> message
@@ -1130,6 +1156,9 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         _state.update { it.copy(keepRolling = on) }
         if (on) continueFlow()
     }
+
+    /** The mark: on, it goes on the player's next decision; tapped again, it comes off. */
+    fun toggleMark() = _state.update { it.copy(marking = !it.marking) }
 
     /** The meter's numbers in [MeterMode.BAR], until the human's next decision. */
     fun toggleMeterNumbers() = _state.update { it.copy(meterNumbers = !it.meterNumbers) }

@@ -169,6 +169,8 @@ data class BlunderEntity(
     val record: String,
     /** The opponent's mistake (imported matches; schema 3). */
     @ColumnInfo(defaultValue = "0") val opponent: Boolean = false,
+    /** Marked by the player while playing: it waits in New Marked instead of New errors, and is never filed automatically (schema 7). */
+    @ColumnInfo(defaultValue = "0") val marked: Boolean = false,
 )
 
 @Dao
@@ -269,16 +271,22 @@ interface MatchDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertBlunder(b: BlunderEntity): Long
 
-    @Query("SELECT * FROM blunders ORDER BY playedAt DESC, matchId DESC, gameNumber DESC, decisionIndex DESC")
-    suspend fun blunders(): List<BlunderEntity>
+    @Query("SELECT * FROM blunders WHERE marked = :marked ORDER BY playedAt DESC, matchId DESC, gameNumber DESC, decisionIndex DESC")
+    suspend fun blunders(marked: Boolean = false): List<BlunderEntity>
 
-    @Query("SELECT COUNT(*) FROM blunders")
-    suspend fun blunderCount(): Int
+    @Query("SELECT * FROM blunders WHERE matchId = :matchId AND gameNumber = :gameNumber AND decisionIndex = :index")
+    suspend fun blunderAt(matchId: Long, gameNumber: Int, index: Int): BlunderEntity?
+
+    @Query("UPDATE blunders SET marked = 1, error = :error, record = :record WHERE id = :id")
+    suspend fun setMarkedBlunder(id: Long, error: Float, record: String)
+
+    @Query("SELECT COUNT(*) FROM blunders WHERE marked = :marked")
+    suspend fun blunderCount(marked: Boolean = false): Int
 
     @Query("DELETE FROM blunders WHERE id = :id")
     suspend fun deleteBlunder(id: Long)
 
-    @Query("DELETE FROM blunders")
+    @Query("DELETE FROM blunders WHERE marked = 0")
     suspend fun deleteAllBlunders()
 
     @Query("DELETE FROM blunders WHERE id IN (:ids)")
@@ -338,6 +346,9 @@ interface PositionDao {
     @Query("UPDATE categories SET autoAdd = :on WHERE id = :id")
     suspend fun setAutoAdd(id: Long, on: Boolean)
 
+    @Query("UPDATE categories SET filter = :filter WHERE id = :id")
+    suspend fun setCategoryFilter(id: Long, filter: String)
+
     @Query("UPDATE categories SET filter = NULL, autoAdd = 0 WHERE id = :id")
     suspend fun unlinkFolder(id: Long)
 
@@ -387,11 +398,11 @@ interface PositionDao {
         MatchEntity::class, GameEntity::class, CurrentMatchEntity::class, BlunderEntity::class,
         PositionEntity::class, CategoryEntity::class, PositionCategoryEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
-        AutoMigration(from = 4, to = 5, spec = QuizCountsMigration::class), AutoMigration(from = 5, to = 6),
+        AutoMigration(from = 4, to = 5, spec = QuizCountsMigration::class), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

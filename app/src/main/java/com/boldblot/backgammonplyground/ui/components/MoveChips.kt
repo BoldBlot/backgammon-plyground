@@ -35,6 +35,49 @@ fun MoveChips(canUndo: Boolean, canDone: Boolean, onUndo: () -> Unit, onDone: ()
     }
 }
 
+/** The mark for a position: on, the player's next decision is marked for review. */
+@Composable
+fun MarkChip(on: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    androidx.compose.material3.FilterChip(
+        selected = on, onClick = onClick, enabled = enabled, modifier = modifier,
+        label = { Icon(BlotIcon, if (on) "Marked" else "Mark this position", Modifier.size(AssistChipDefaults.IconSize)) },
+    )
+}
+
+/** A blot, the mark on a position: a round splash with two drops beside it. */
+val BlotIcon: androidx.compose.ui.graphics.vector.ImageVector by lazy {
+    androidx.compose.ui.graphics.vector.ImageVector.Builder("Blot", 24.dp, 24.dp, 24f, 24f).apply {
+        addPath(
+            pathData = androidx.compose.ui.graphics.vector.PathData {
+                val lobes = 7
+                val cx = 11f
+                val cy = 13f
+                fun at(angle: Double, r: Float) = (cx + r * kotlin.math.cos(angle)).toFloat() to (cy + r * kotlin.math.sin(angle)).toFloat()
+                val step = 2 * Math.PI / lobes
+                val (sx, sy) = at(0.0, 5.6f)
+                moveTo(sx, sy)
+                for (i in 0 until lobes) {
+                    val a = i * step
+                    val (c1x, c1y) = at(a + step * 0.18, 11.5f)
+                    val (c2x, c2y) = at(a + step * 0.82, 11.5f)
+                    val (ex, ey) = at(a + step, 5.6f)
+                    curveTo(c1x, c1y, c2x, c2y, ex, ey)
+                }
+                close()
+                moveTo(21.4f, 5f)
+                arcToRelative(1.4f, 1.4f, 0f, true, true, -2.8f, 0f)
+                arcToRelative(1.4f, 1.4f, 0f, true, true, 2.8f, 0f)
+                close()
+                moveTo(22.6f, 20.5f)
+                arcToRelative(1f, 1f, 0f, true, true, -2f, 0f)
+                arcToRelative(1f, 1f, 0f, true, true, 2f, 0f)
+                close()
+            },
+            fill = androidx.compose.ui.graphics.SolidColor(androidx.compose.ui.graphics.Color.Black),
+        )
+    }.build()
+}
+
 /** Chip colours in negative (as Undo and Done): dark with light text in light mode, bright with dark text in dark mode. */
 @Composable
 fun negativeChipColors(): androidx.compose.material3.ChipColors {

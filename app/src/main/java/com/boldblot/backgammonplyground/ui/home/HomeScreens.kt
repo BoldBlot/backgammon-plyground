@@ -638,7 +638,7 @@ fun HistoryScreen(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Unit) {
+fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Unit, /** New Marked: the positions marked while playing. */ marked: Boolean = false) {
     var errors by remember { mutableStateOf<List<SavedBlunder>?>(null) }
     var selected by remember { mutableStateOf<Set<Long>?>(null) }
     var clear by remember { mutableStateOf<ClearKind?>(null) }
@@ -651,7 +651,7 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
     val filter = settings?.let { it.visible(it.blunderFilter) } ?: emptySet()
     val shown = errors?.filter { filter.isEmpty() || Labels.matches(it.labels, filter) }
     val scope = rememberCoroutineScope()
-    suspend fun reload() { errors = app.repository.blunders(sort) }
+    suspend fun reload() { errors = app.repository.blunders(sort, marked = marked) }
     LaunchedEffect(sort) { reload() }
     Scaffold(
         topBar = {
@@ -667,17 +667,17 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
                     IconButton(onClick = { deleting = true }, enabled = sel.isNotEmpty()) { Icon(Icons.Default.Delete, "Delete") }
                 },
             ) else TopAppBar(
-                title = { Text("New errors" + (shown?.let { " (${it.size})" } ?: "")) },
+                title = { Text((if (marked) "New Marked" else "New errors") + (shown?.let { " (${it.size})" } ?: "")) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
                     // Clears what the list shows (with a filter on, only the errors that pass it).
                     TextButton(
-                        onClick = { if (filter.isEmpty()) clear = ClearKind.BLUNDERS else clearShown = true },
+                        onClick = { if (filter.isEmpty() && !marked) clear = ClearKind.BLUNDERS else clearShown = true },
                         enabled = !shown.isNullOrEmpty(),
                     ) {
                         Icon(Icons.Default.DeleteSweep, null)
                         Spacer(Modifier.width(4.dp))
-                        Text(if (filter.isEmpty()) ClearKind.BLUNDERS.button else "Clear ${shown?.size ?: 0}")
+                        Text(if (filter.isEmpty() && !marked) ClearKind.BLUNDERS.button else "Clear ${shown?.size ?: 0}")
                     }
                 },
             )
@@ -725,7 +725,8 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
             title = { Text("Delete $n error${if (n == 1) "" else "s"}?") },
             text = {
                 Text(
-                    if (deleting) "The selected errors are removed from New errors. This cannot be undone."
+                    if (marked) "The ${if (deleting) "selected" else "listed"} positions are removed from New Marked. This cannot be undone."
+                    else if (deleting) "The selected errors are removed from New errors. This cannot be undone."
                     else "The errors the filter shows are removed from New errors; the others stay. This cannot be undone.",
                 )
             },
@@ -963,9 +964,54 @@ private fun TrainingSettings(s: Settings, update: (f: (Settings) -> Settings) ->
 @Composable
 private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) -> Settings) -> Unit, onClear: (ClearKind) -> Unit) {
     val scope = rememberCoroutineScope()
+    val unit = LocalErrorUnit.current
+    val custom = s.trainingPlan == com.boldblot.backgammonplyground.data.TrainingPlan.CUSTOM
+    Header("Training plan")
+    Chips("Plan", com.boldblot.backgammonplyground.data.TrainingPlan.entries, s.trainingPlan, { it.label }) { v -> update { it.withPlan(v) } }
+    Note(
+        s.trainingPlan.level?.let { level ->
+            val l = errWithUnit(level.toDouble(), unit)
+            "Mistakes of at least $l are kept for My positions, and a quiz answer costing up to $l counts as right."
+        } ?: "Set the level for New errors and the level for the quiz separately, below.",
+    )
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Quiz")
-    Chips("A right answer is", QuizCorrect.entries, s.quizCorrect, { it.label }) { v -> update { it.copy(quizCorrect = v) } }
-    Note("Not an error: anything within 0.020 of the best play (or your own answer, when you set one).")
+    if (custom) {
+        Chips("A right answer is", QuizCorrect.entries, s.quizCorrect, { it.label }) { v -> update { it.copy(quizCorrect = v) } }
+        when (s.quizCorrect) {
+            QuizCorrect.NOT_ERROR -> Note("Anything within ${errWithUnit(XgRules.ERROR_THRESHOLD.toDouble(), unit)} of the best play.")
+            QuizCorrect.BEST_ONLY -> Note("Only the best play.")
+            QuizCorrect.FIXED -> {
+                Text(
+                    "Fixed level: ${errWithUnit(s.quizFixedError.toDouble(), unit)}",
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp),
+                )
+                Slider(
+                    value = s.quizFixedError, valueRange = NewErrors.MIN_ERROR..NewErrors.MAX_ERROR, steps = 95,
+                    onValueChange = { v -> update { it.copy(quizFixedError = (Math.round(v * 200) / 200f).coerceIn(NewErrors.MIN_ERROR, NewErrors.MAX_ERROR)) } },
+                )
+                Note("An answer costing up to this much is right.")
+            }
+            QuizCorrect.ADAPTIVE -> {
+                val average by produceState<Float?>(null, s.quizCorrect) { value = libraryAverageError(app) }
+                Text(
+                    "Share of the library's average: ${Math.round(s.quizAdaptiveRatio * 100)}%",
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp),
+                )
+                Slider(
+                    value = s.quizAdaptiveRatio, valueRange = 0.5f..1.5f, steps = 19,
+                    onValueChange = { v -> update { it.copy(quizAdaptiveRatio = Math.round(v * 20) / 20f) } },
+                )
+                val now = NewErrors.adaptiveThreshold(NewErrors.MIN_ERROR, s.quizAdaptiveRatio, average)
+                Note(
+                    "An answer is right when it costs up to this share of the average error in My positions, and never less than " +
+                        "${errWithUnit(NewErrors.MIN_ERROR.toDouble(), unit)}. Library average now: " +
+                        (average?.let { errWithUnit(it.toDouble(), unit) } ?: "no errors yet") + " · level now: ${errWithUnit(now.toDouble(), unit)}.",
+                )
+            }
+        }
+    }
+    Note("Your own saved answer, when you set one, decides instead.")
     Chips("My cube decisions", com.boldblot.backgammonplyground.data.QuizMyCube.entries, s.quizMyCube, { it.label }) { v -> update { it.copy(quizMyCube = v) } }
     Note("Full decision: no double, too good, double/take or double/pass. With fewer answers the opponent's answer to the double isn't asked.")
     Chips("When I'm doubled", com.boldblot.backgammonplyground.data.QuizTheirCube.entries, s.quizTheirCube, { it.label }) { v -> update { it.copy(quizTheirCube = v) } }
@@ -1089,10 +1135,11 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
     }
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("New errors")
-    Chips("Method", ErrorsMode.entries, s.errorsMode, { it.label }) { v -> update { it.copy(errorsMode = v) } }
+    // A plan fixes the level: only the methods that use it as it is.
+    val methods = if (custom) ErrorsMode.entries else listOf(ErrorsMode.MANUAL, ErrorsMode.AUTOMATIC)
+    Chips("Method", methods, s.errorsMode, { it.label }) { v -> update { it.copy(errorsMode = v) } }
     // The minimum, in the error unit of Settings → Display: up to 0.5, only enormous blunders.
-    val unit = LocalErrorUnit.current
-    Text(
+    if (custom) Text(
         "Minimum error: ${errWithUnit(s.errorMin.toDouble(), unit)}" + when {
             s.errorMin <= XgRules.ERROR_THRESHOLD + 0.0001f -> " (every error)"
             s.errorMin <= XgRules.BLUNDER_THRESHOLD + 0.0001f && s.errorMin >= XgRules.BLUNDER_THRESHOLD - 0.0001f -> " (blunders)"
@@ -1100,7 +1147,7 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
         },
         style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp),
     )
-    Slider(
+    if (custom) Slider(
         value = s.errorMin, valueRange = NewErrors.MIN_ERROR..NewErrors.MAX_ERROR, steps = 95,
         onValueChange = { v -> update { it.copy(errorMin = (Math.round(v * 200) / 200f).coerceIn(NewErrors.MIN_ERROR, NewErrors.MAX_ERROR)) } },
     )
@@ -1154,7 +1201,7 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
             "count as either.",
     )
     var filters by remember { mutableStateOf<List<CategoryCount>>(emptyList()) }
-    suspend fun reload() { filters = app.positions.categories().filter { it.filter != null && !app.positions.isSortFolder(it.filter) } }
+    suspend fun reload() { filters = app.positions.categories().filter { it.filter != null && !app.positions.isSortFolder(it.filter) && it.filter != com.boldblot.backgammonplyground.data.PositionsRepository.FAVOURITES } }
     LaunchedEffect(Unit) { reload() }
     var ending by remember { mutableStateOf<CategoryCount?>(null) }
     filters.forEach { c ->
@@ -1426,8 +1473,8 @@ private fun DisplaySettings(s: Settings, update: (f: (Settings) -> Settings) -> 
     Note("Your chances on the left, the computer's on the right; the darker parts are gammons and backgammons. With Bar, tap it to see the numbers.")
     Chips("Arrows for the computer's move", CpuArrows.entries, s.cpuArrows, { it.label }) { v -> update { it.copy(cpuArrows = v) } }
     Chips("Computer move animation", AnimationSpeed.entries, s.animation, { it.label }) { a -> update { it.copy(animation = a) } }
-    Toggle("Crawford sign", s.crawfordSign) { v -> update { it.copy(crawfordSign = v) } }
-    Note("In the Crawford game nobody may double, so a CRAWFORD sign stands on the bar instead of the cube. Off: the bar is left empty.")
+    Toggle("Crawford and DMP sign", s.crawfordSign) { v -> update { it.copy(crawfordSign = v) } }
+    Note("In the Crawford game and at double match point nobody can double, so a CRAWFORD or DMP sign stands on the bar instead of the cube. Off: the bar is left empty.")
     Chips("Errors in", ErrorUnit.entries, s.errorUnit, { it.label }) { v -> update { it.copy(errorUnit = v) } }
     Note("How much equity a play or cube action loses, everywhere in the app: in equity (Eq) or in thousandths of it (mEq, as some programs show).")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))

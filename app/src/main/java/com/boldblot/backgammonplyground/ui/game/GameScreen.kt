@@ -156,6 +156,7 @@ fun GameScreen(
     onReview: (matchId: Long) -> Unit,
     /** Opens the review on [gameNumber]'s errors and blunders. */
     onReviewMistakes: (matchId: Long, gameNumber: Int) -> Unit = { id, _ -> onReview(id) },
+    onReviewMarked: (matchId: Long, gameNumber: Int) -> Unit = { id, _ -> onReview(id) },
     /** Opens Settings; Back returns to the match. */
     onSettings: () -> Unit = {},
 ) {
@@ -226,7 +227,7 @@ fun GameScreen(
     }
 
     st.gameOver?.let { info ->
-        key(summaryKey) { GameOverDialog(info, st.inStats, st.settings.gameSummary, st.analysisLeft, st.analysisEta, vm, onReview, onReviewMistakes, onBack) {
+        key(summaryKey) { GameOverDialog(info, st.inStats, st.settings.gameSummary, st.analysisLeft, st.analysisEta, vm, onReview, onReviewMistakes, onReviewMarked, onBack) {
             endSession(info.matchId, true, vm::endSession)
         } }
     }
@@ -670,6 +671,7 @@ private fun BoardArea(
                 cubeAside = passShown(st, m),
                 crawford = g.crawford,
                 crawfordSign = st.settings.crawfordSign,
+                dmp = com.boldblot.backgammonplyground.core.Scoring.isDmp(m.rules.length, m.score, g.crawford),
                 movable = if (interactive) st.movable else emptySet(),
                 lastCpuSteps = if (previewing) emptyList() else st.lastCpuSteps,
                 lastCpuHits = st.lastCpuHits,
@@ -1151,18 +1153,30 @@ private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical:
     val sideButtons = !vertical || !st.settings.onBoardMoveButtons
     // Undo and Done: chips beside the board (landscape) or under it (portrait), always there during
     // play and greyed out when they can't be used, so nothing jumps about.
+    // The mark sits with them, for any decision of the player's: to roll or double, to take or pass, to move.
+    val myDecision = st.gameOver == null && !st.busy && when (g.phase) {
+        Phase.PRE_ROLL, Phase.MOVING, Phase.BEAVERED -> g.turn == Player.HUMAN
+        Phase.DOUBLED -> g.responder == Player.HUMAN
+        else -> false
+    }
+    val markChip: @Composable () -> Unit = {
+        com.boldblot.backgammonplyground.ui.components.MarkChip(on = st.marking, enabled = myDecision, onClick = vm::toggleMark)
+    }
     val moveChips: @Composable () -> Unit = {
-        com.boldblot.backgammonplyground.ui.components.MoveChips(
-            canUndo = moving && st.steps.isNotEmpty(), canDone = moving && st.moveComplete,
-            onUndo = vm::undo, onDone = vm::confirmMove,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            com.boldblot.backgammonplyground.ui.components.MoveChips(
+                canUndo = moving && st.steps.isNotEmpty(), canDone = moving && st.moveComplete,
+                onUndo = vm::undo, onDone = vm::confirmMove,
+            )
+            markChip()
+        }
     }
     if (vertical) {
         Column(
             Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (sideButtons) moveChips()
+            if (sideButtons) moveChips() else markChip()
             GameChips(st, m, vm, canHint, onResign)
         }
     } else {
@@ -1366,10 +1380,12 @@ private fun TryAgainCard(fb: Feedback, vm: GameViewModel) {
  * so far (a switch at the top; the match is shown first once it is over). The body scrolls,
  * so nothing is cut off in landscape or with a large font; the buttons always stay visible.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun GameOverDialog(
     info: GameOverInfo, inStats: Boolean, gameSummary: Boolean, analysisLeft: Int, analysisEta: Long?, vm: GameViewModel, onReview: (Long) -> Unit,
-    onReviewMistakes: (matchId: Long, gameNumber: Int) -> Unit, onBack: () -> Unit, onEndSession: () -> Unit,
+    onReviewMistakes: (matchId: Long, gameNumber: Int) -> Unit, onReviewMarked: (matchId: Long, gameNumber: Int) -> Unit,
+    onBack: () -> Unit, onEndSession: () -> Unit,
 ) {
     val won = info.result.winner == Player.HUMAN
     val kind = when (info.result.type) {
@@ -1543,7 +1559,7 @@ private fun GameOverDialog(
                     vm.app, info.matchId, onDismiss = { deleting = false },
                     onConfirm = { errors -> deleting = false; vm.deleteMatch(info.matchId, errors) { onBack() } },
                 ) {}
-                Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.End) {
+                androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.End) {
                     // The match's summary can delete it (history, statistics, Match Library; its errors too).
                     if (info.matchOver) TextButton(onClick = { deleting = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
                     if (info.afterMatch && (info.mistakes > 0 || analysisLeft > 0)) {
@@ -1551,6 +1567,7 @@ private fun GameOverDialog(
                     } else {
                         TextButton(onClick = { onReview(info.matchId) }) { Text("Review") }
                     }
+                    if (info.marked > 0) TextButton(onClick = { onReviewMarked(info.matchId, info.markedGame) }) { Text("Review marked") }
                     if (info.isMoney && !info.matchOver) {
                         TextButton(onClick = onEndSession) { Text("End session") }
                     }

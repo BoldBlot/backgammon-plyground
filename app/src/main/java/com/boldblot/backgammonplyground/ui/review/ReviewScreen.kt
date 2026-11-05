@@ -131,7 +131,15 @@ data class ReviewState(
     val match: MatchEntity? = null,
     val games: List<Pair<GameEntity, GameState>> = emptyList(),
     val gameIndex: Int = 0,
-    val filter: ReviewFilter = ReviewFilter.ALL,
+    /** Null: Marked alone ([marked] is on). */
+    val filter: ReviewFilter? = ReviewFilter.ALL,
+    /** The match being finished has marked positions, so the Marked chip shows. */
+    val hasMarks: Boolean = false,
+    /**
+     * The Marked chip. With All, every decision stays in the list and "Next mistake" also stops at the marked
+     * ones; with any other filter (or alone) the list holds only the marked ones and "Next mistake" stops at those.
+     */
+    val marked: Boolean = false,
     /** Index into the filtered decision list. */
     val position: Int = 0,
     /** Candidate whose arrow is shown; null = played and best together. */
@@ -158,11 +166,13 @@ data class ReviewState(
     val decisions: List<IndexedValue<DecisionRecord>>
         get() {
             // Obvious, error-free "no double" decisions (not counted by XG) are left out of the list.
-            val all = game?.decisions?.withIndex()?.filterNot { (_, d) ->
-                d.kind == DecisionKind.NO_DOUBLE && !d.counted && (d.error ?: 0f) < 0.0005f
+            val marks = game?.marked.orEmpty()
+            val all = game?.decisions?.withIndex()?.filterNot { (i, d) ->
+                i !in marks && d.kind == DecisionKind.NO_DOUBLE && !d.counted && (d.error ?: 0f) < 0.0005f
             } ?: return emptyList()
+            if (onlyMarked) return all.filter { it.index in marks }
             return when (filter) {
-                ReviewFilter.ALL -> all
+                ReviewFilter.ALL, null -> all
                 ReviewFilter.MINE -> all.filter { it.value.player == Player.HUMAN }
                 ReviewFilter.MISTAKES -> all.filter {
                     it.value.player == Player.HUMAN && severityOf(it.value).atLeast(Severity.ERROR)
@@ -172,19 +182,31 @@ data class ReviewState(
 
     val current: DecisionRecord? get() = decisions.getOrNull(position)?.value
 
+    /** Only the marked decisions are listed. */
+    val onlyMarked: Boolean get() = hasMarks && marked && filter != ReviewFilter.ALL
+
+    /** Whether the decision shown is marked (only while the match's marks count). */
+    val currentMarked: Boolean get() = hasMarks && decisions.getOrNull(position)?.index?.let { it in game?.marked.orEmpty() } == true
+
     /** A decision tried again is graded by its first try. */
     fun severityOf(d: DecisionRecord): Severity = XgRules.severity((d.scoredError ?: 0f) * factor)
 
     private fun isMistake(d: DecisionRecord) = d.player == Player.HUMAN && severityOf(d).atLeast(Severity.ERROR)
 
-    /** The human's next error or blunder (game index, list position): later in this game, or in a later game of the match. */
+    /** Where "Next mistake" stops in [g]: at mistakes, also at marked decisions with Marked on, and only at those when only they are listed. */
+    private fun isStop(g: GameState?, d: IndexedValue<DecisionRecord>): Boolean {
+        val isMarked = hasMarks && marked && d.index in g?.marked.orEmpty()
+        return isMarked || (!onlyMarked && isMistake(d.value))
+    }
+
+    /** The next stop of "Next mistake" (game index, list position): later in this game, or in a later game of the match. */
     val nextMistake: Pair<Int, Int>?
         get() {
             val list = decisions
-            (position + 1 until list.size).firstOrNull { isMistake(list[it].value) }?.let { return gameIndex to it }
+            (position + 1 until list.size).firstOrNull { isStop(game, list[it]) }?.let { return gameIndex to it }
             for (gi in gameIndex + 1 until games.size) {
                 val other = copy(gameIndex = gi, position = 0).decisions
-                other.indices.firstOrNull { isMistake(other[it].value) }?.let { return gi to it }
+                other.indices.firstOrNull { isStop(games[gi].second, other[it]) }?.let { return gi to it }
             }
             return null
         }
@@ -208,7 +230,11 @@ class ReviewViewModel(
     /** Game to open (its number); null = the last one. */
     private val startGame: Int? = null,
     /** Open on "My mistakes". */
-    mistakesOnly: Boolean = false,
+    private val mistakesOnly: Boolean = false,
+    /** Opened from the summary of a game or match just played: its marked positions still count. */
+    private val marksCount: Boolean = false,
+    /** "Review marked": open on the marked positions alone. */
+    private val markedOnly: Boolean = false,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ReviewState(filter = if (mistakesOnly) ReviewFilter.MISTAKES else ReviewFilter.ALL))
@@ -219,7 +245,14 @@ class ReviewViewModel(
             val match = app.repository.match(matchId)
             val games = app.repository.games(matchId)
             val index = games.indexOfFirst { it.first.number == startGame }.takeIf { it >= 0 } ?: (games.size - 1).coerceAtLeast(0)
-            _state.update { it.copy(loading = false, match = match, games = games, gameIndex = index) }
+            // Review opens with Marked on (Review my mistakes keeps to the mistakes; the chip can add them).
+            val hasMarks = marksCount && games.any { it.second.marked.isNotEmpty() }
+            _state.update {
+                it.copy(
+                    loading = false, match = match, games = games, gameIndex = index, hasMarks = hasMarks,
+                    marked = hasMarks && !mistakesOnly, filter = if (hasMarks && markedOnly) null else it.filter,
+                )
+            }
             loadLibrary()
         }
         viewModelScope.launch { app.settings.settings.collect { s -> _state.update { it.copy(settings = s) } } }
@@ -249,7 +282,18 @@ class ReviewViewModel(
     private fun severityAtLeastError(w: Float) = XgRules.severity(w).atLeast(Severity.ERROR)
 
     fun selectGame(i: Int) = _state.update { it.copy(gameIndex = i, position = 0, candidate = null, collapsed = false, cubeShown = false, turnCube = null) }
-    fun setFilter(f: ReviewFilter) = _state.update { it.copy(filter = f, position = 0, candidate = null, collapsed = false, cubeShown = false, turnCube = null) }
+    fun setFilter(f: ReviewFilter) = _state.update {
+        // Marked would hide what Mine or My mistakes are asked to show.
+        it.copy(filter = f, marked = it.marked && f == ReviewFilter.ALL, position = 0, candidate = null, collapsed = false, cubeShown = false, turnCube = null)
+    }
+
+    /** The Marked chip. Turned off when it was alone, every decision shows again. */
+    fun toggleMarked() = _state.update {
+        it.copy(
+            marked = !it.marked, filter = it.filter ?: ReviewFilter.ALL,
+            position = 0, candidate = null, collapsed = false, cubeShown = false, turnCube = null,
+        )
+    }
     fun go(pos: Int) = _state.update {
         it.copy(position = pos.coerceIn(0, (it.decisions.size - 1).coerceAtLeast(0)), candidate = null, collapsed = false, cubeShown = false, turnCube = null)
     }
@@ -468,6 +512,11 @@ private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, cap
     val chipsScroll = rememberScrollState()
     Row(Modifier.horizontalScroll(chipsScroll), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         if (st.games.size > 1) GamePicker(st, vm)
+        // First, so a phone shows it without scrolling the row.
+        if (st.hasMarks) FilterChip(
+            selected = st.marked, onClick = vm::toggleMarked, label = { Text("Marked") },
+            leadingIcon = { Icon(com.boldblot.backgammonplyground.ui.components.BlotIcon, null, Modifier.size(18.dp)) },
+        )
         FilterChip(
             selected = false, onClick = { summary = true }, label = { Text("Summary") },
             leadingIcon = { Icon(Icons.Default.BarChart, null, Modifier.size(18.dp)) },
@@ -612,6 +661,7 @@ private fun ReviewBoard(st: ReviewState, modifier: Modifier) {
         cubeOffered = d?.let { decisionCube(it).second } ?: false,
         crawford = d?.crawford ?: st.game?.crawford ?: false,
         crawfordSign = st.settings.crawfordSign,
+        dmp = d != null && com.boldblot.backgammonplyground.core.Scoring.isDmp(st.match?.length ?: 0, d.score, d.crawford),
         pips = listOf(board.pipCount(Player.HUMAN), board.pipCount(Player.CPU)),
         arrows = if (st.view == ReviewView.ARROWS) arrowsOf(st) else emptyList(),
     )
@@ -625,6 +675,8 @@ private fun ReviewTools(st: ReviewState, vm: ReviewViewModel, modifier: Modifier
     val study = remember(d, st.match) { st.match?.let { m -> StudyPosition.of(d, m.length, m.jacoby) } }
     if (saving && study != null) {
         val labels = com.boldblot.backgammonplyground.core.Labels.of(d, st.match?.length ?: 0, opponent = d.player != Player.HUMAN).mapTo(HashSet()) { it.name }
+        // A marked position keeps the mark as a label.
+        if (st.currentMarked) labels += com.boldblot.backgammonplyground.core.AutoLabel.MARKED.name
         SaveToPositionsDialog(vm.app, study, "Game review", labels, com.boldblot.backgammonplyground.core.MyAnswer.played(d)) { saving = false }
     }
     ReviewViewChips(st.view, d.move != null, vm::setView, { saving = true }.takeIf { study != null }, modifier)
@@ -698,7 +750,11 @@ private fun DecisionList(st: ReviewState, vm: ReviewViewModel, modifier: Modifie
         if (st.decisions.isEmpty()) {
             item {
                 Text(
-                    if (st.filter == ReviewFilter.MISTAKES) "No errors or blunders in this game. Well played!" else "No decisions.",
+                    when {
+                        st.onlyMarked -> "No marked positions in this game."
+                        st.filter == ReviewFilter.MISTAKES -> "No errors or blunders in this game. Well played!"
+                        else -> "No decisions."
+                    },
                     Modifier.padding(10.dp),
                 )
             }
@@ -727,6 +783,9 @@ private fun DecisionList(st: ReviewState, vm: ReviewViewModel, modifier: Modifie
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                     )
+                    if (st.hasMarks && st.decisions[pos].index in st.game?.marked.orEmpty()) {
+                        Icon(com.boldblot.backgammonplyground.ui.components.BlotIcon, "Marked", Modifier.padding(horizontal = 4.dp).size(16.dp))
+                    }
                     val scored = d.scoredError
                     // In My positions (filled folder), or going there at the end of the match with Top X (outlined).
                     val inLibrary = d.player == Player.HUMAN && st.match != null && sev.atLeast(Severity.ERROR) &&

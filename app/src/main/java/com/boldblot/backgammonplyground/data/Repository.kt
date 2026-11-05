@@ -1,5 +1,6 @@
 package com.boldblot.backgammonplyground.data
 
+import com.boldblot.backgammonplyground.core.AutoLabel
 import com.boldblot.backgammonplyground.core.Blunders
 import com.boldblot.backgammonplyground.core.CpuLevel
 import com.boldblot.backgammonplyground.core.DecisionRecord
@@ -93,7 +94,9 @@ data class MatchReport(
 /** A saved blunder with its decision decoded. */
 data class SavedBlunder(val entity: BlunderEntity, val decision: DecisionRecord) {
     /** Its labels' keys (all of them; Settings may hide some). */
-    val labels: Set<String> by lazy { Labels.of(decision, entity.matchLength, entity.opponent).mapTo(HashSet()) { it.name } }
+    val labels: Set<String> by lazy {
+        Labels.of(decision, entity.matchLength, entity.opponent).mapTo(HashSet()) { it.name }.also { if (entity.marked) it += AutoLabel.MARKED.name }
+    }
 }
 
 class Repository(private val db: AppDatabase) {
@@ -177,7 +180,7 @@ class Repository(private val db: AppDatabase) {
     suspend fun matchOver(id: Long): Boolean = dao.match(id)?.let { it.status != MatchStatus.IN_PROGRESS } ?: true
 
     /** The errors of match [matchId] waiting in New errors (the human's). */
-    suspend fun blundersOf(matchId: Long): List<SavedBlunder> = dao.blundersOfMatch(matchId).filter { !it.opponent }.mapNotNull { e ->
+    suspend fun blundersOf(matchId: Long): List<SavedBlunder> = dao.blundersOfMatch(matchId).filter { !it.opponent && !it.marked }.mapNotNull { e ->
         runCatching { SavedBlunder(e, AppJson.decodeFromString<DecisionRecord>(e.record)) }.getOrNull()
     }
 
@@ -327,6 +330,20 @@ class Repository(private val db: AppDatabase) {
 
     // ---- blunder list ----------------------------------------------------------------
 
+    /** Puts the decision the player marked (at [index] of [m]'s current game) in New Marked; analyzed later, if it isn't yet. */
+    suspend fun saveMarked(m: MatchState, index: Int) {
+        val rec = m.game.decisions.getOrNull(index)?.turned() ?: return
+        val error = (rec.error ?: 0f) * XgRules.errorFactor(m.rules.length)
+        val record = AppJson.encodeToString(rec)
+        val id = dao.insertBlunder(
+            BlunderEntity(
+                matchId = m.id, gameNumber = m.gameNumber, decisionIndex = index, playedAt = System.currentTimeMillis(),
+                matchLength = m.rules.length, cpuLevel = m.opponentKey, error = error, record = record, marked = true,
+            ),
+        )
+        if (id <= 0) dao.blunderAt(m.id, m.gameNumber, index)?.let { dao.setMarkedBlunder(it.id, error, record) }
+    }
+
     /** Saves the decision at [index] of [m]'s current game if it is one of the human's mistakes of at least [min]. */
     suspend fun saveIfBlunder(m: MatchState, index: Int, min: Severity = Severity.BLUNDER, minError: Float = 0f) {
         val d = m.game.decisions.getOrNull(index) ?: return
@@ -345,6 +362,11 @@ class Repository(private val db: AppDatabase) {
     ) {
         if (opponent == (d.player == Player.HUMAN)) return
         val rec = d.turned()
+        // Marked: it waits in New Marked whatever it cost, now with its analysis.
+        dao.blunderAt(matchId, gameNumber, index)?.takeIf { it.marked }?.let { e ->
+            rec.error?.let { dao.setMarkedBlunder(e.id, it * XgRules.errorFactor(matchLength), AppJson.encodeToString(rec)) }
+            return
+        }
         val error = (rec.error ?: return) * XgRules.errorFactor(matchLength)
         if (!Blunders.isBlunder(rec, error, min) || error < minError) return
         val e = BlunderEntity(
@@ -392,8 +414,8 @@ class Repository(private val db: AppDatabase) {
     }
 
     /** The saved blunders that pass [filter] (label keys), in [sort] order (newest first within equal errors). */
-    suspend fun blunders(sort: BlunderSort, filter: Set<String> = emptySet()): List<SavedBlunder> {
-        val list = dao.blunders().mapNotNull { e ->
+    suspend fun blunders(sort: BlunderSort, filter: Set<String> = emptySet(), marked: Boolean = false): List<SavedBlunder> {
+        val list = dao.blunders(marked).mapNotNull { e ->
             runCatching { SavedBlunder(e, AppJson.decodeFromString<DecisionRecord>(e.record)) }.getOrNull()
         }.filter { filter.isEmpty() || Labels.matches(it.labels, filter) }
         return when (sort) {
@@ -415,7 +437,7 @@ class Repository(private val db: AppDatabase) {
             g.decisions.filter { d -> XgRules.severity((d.scoredError ?: 0f) * factor).atLeast(min) }
                 .mapNotNull { d -> StudyPosition.of(d, m.length, m.jacoby) }
         }
-        val waiting = dao.blundersOfMatch(matchId).mapNotNull { e ->
+        val waiting = dao.blundersOfMatch(matchId).filter { !it.marked }.mapNotNull { e ->
             runCatching { AppJson.decodeFromString<DecisionRecord>(e.record) }.getOrNull()?.let { StudyPosition.of(it, e.matchLength, m.jacoby) }
         }
         return (fromGames + waiting).distinctBy { it.xgid to it.doubled }
@@ -426,6 +448,9 @@ class Repository(private val db: AppDatabase) {
 
     /** How many errors wait in New errors. */
     suspend fun blunderCount(): Int = dao.blunderCount()
+
+    /** How many marked positions wait in New Marked. */
+    suspend fun markedCount(): Int = dao.blunderCount(marked = true)
 
     /** Puts back a removed blunder (undo). */
     suspend fun restoreBlunder(e: BlunderEntity) {

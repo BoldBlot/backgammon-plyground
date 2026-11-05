@@ -185,23 +185,28 @@ class MainActivity : ComponentActivity() {
             composable("game") {
                 GameScreen(
                     gameVm, onBack = { nav.popBackStack("home", inclusive = false) },
-                    onReview = { id -> nav.navigate("review/$id") },
-                    onReviewMistakes = { id, game -> nav.navigate("review/$id?game=$game&mistakes=true") },
+                    onReview = { id -> nav.navigate("review/$id?marks=true") },
+                    onReviewMistakes = { id, game -> nav.navigate("review/$id?game=$game&mistakes=true&marks=true") },
+                    onReviewMarked = { id, game -> nav.navigate("review/$id?game=$game&marks=true&markedOnly=true") },
                     onSettings = { nav.navigate("settings") },
                 )
             }
             composable(
-                "review/{id}?game={game}&mistakes={mistakes}",
+                "review/{id}?game={game}&mistakes={mistakes}&marks={marks}&markedOnly={markedOnly}",
                 arguments = listOf(
                     navArgument("id") { type = NavType.LongType },
                     navArgument("game") { type = NavType.IntType; defaultValue = 0 },
                     navArgument("mistakes") { type = NavType.BoolType; defaultValue = false },
+                    navArgument("marks") { type = NavType.BoolType; defaultValue = false },
+                    navArgument("markedOnly") { type = NavType.BoolType; defaultValue = false },
                 ),
             ) { entry ->
                 val id = entry.arguments?.getLong("id") ?: 0L
                 val game = entry.arguments?.getInt("game")?.takeIf { it > 0 }
                 val mistakes = entry.arguments?.getBoolean("mistakes") ?: false
-                val vm: ReviewViewModel = viewModel(key = "review-$id-$game-$mistakes", factory = factory { ReviewViewModel(app, id, game, mistakes) })
+                val marks = entry.arguments?.getBoolean("marks") ?: false
+                val markedOnly = entry.arguments?.getBoolean("markedOnly") ?: false
+                val vm: ReviewViewModel = viewModel(key = "review-$id-$game-$mistakes-$marks-$markedOnly", factory = factory { ReviewViewModel(app, id, game, mistakes, marks, markedOnly) })
                 ReviewScreen(vm, onBack = { nav.popBackStack() })
             }
             composable("stats") {
@@ -216,9 +221,13 @@ class MainActivity : ComponentActivity() {
                     onImported = gameVm::queueAnalysis,
                 )
             }
-            composable("blunder/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
+            composable(
+                "blunder/{id}?marked={marked}",
+                arguments = listOf(navArgument("id") { type = NavType.LongType }, navArgument("marked") { type = NavType.BoolType; defaultValue = false }),
+            ) { entry ->
                 val id = entry.arguments?.getLong("id") ?: 0L
-                val vm: BlunderViewModel = viewModel(key = "blunder-$id", factory = factory { BlunderViewModel(app, id) })
+                val marked = entry.arguments?.getBoolean("marked") ?: false
+                val vm: BlunderViewModel = viewModel(key = "blunder-$id-$marked", factory = factory { BlunderViewModel(app, id, marked) })
                 BlunderScreen(vm, onBack = { nav.popBackStack() })
             }
             composable("position") {
@@ -230,6 +239,7 @@ class MainActivity : ComponentActivity() {
                     onCategory = { id -> nav.navigate("positions/category/${id ?: ALL_POSITIONS}") },
                     onQuiz = { ids -> nav.navigate("quizmenu?ids=${ids.joinToString(",")}") },
                     onNewErrors = { nav.navigate("errors") },
+                    onNewMarked = { nav.navigate("errors/marked") },
                     onLearned = { nav.navigate("learned") },
                 )
             }
@@ -238,6 +248,9 @@ class MainActivity : ComponentActivity() {
             }
             composable("errors") {
                 NewErrorsScreen(app, onOpen = { id -> nav.navigate("blunder/$id") }, onBack = { nav.popBackStack() })
+            }
+            composable("errors/marked") {
+                NewErrorsScreen(app, onOpen = { id -> nav.navigate("blunder/$id?marked=true") }, onBack = { nav.popBackStack() }, marked = true)
             }
             composable("positions/category/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
                 val id = entry.arguments?.getLong("id")?.takeIf { it != ALL_POSITIONS }

@@ -133,6 +133,34 @@ class PositionsRepository(db: AppDatabase) {
 
     suspend fun setAutoAdd(id: Long, on: Boolean) = dao.setAutoAdd(id, on)
 
+    /**
+     * The Favourites folder, which the star puts positions in: an ordinary folder that the player can't rename
+     * or delete. One of that name without a filter (a restored backup, the player's own) becomes it.
+     */
+    suspend fun favouritesFolder(create: Boolean): Long? {
+        val cats = dao.categories()
+        cats.firstOrNull { it.filter == FAVOURITES }?.let { return it.id }
+        cats.firstOrNull { it.filter == null && it.name.equals(FAVOURITES_NAME, ignoreCase = true) }?.let {
+            dao.setCategoryFilter(it.id, FAVOURITES)
+            return it.id
+        }
+        if (!create) return null
+        val sort = (cats.maxOfOrNull { it.sort } ?: 0) + 1
+        return dao.insertCategory(CategoryEntity(name = FAVOURITES_NAME, sort = sort, filter = FAVOURITES))
+    }
+
+    suspend fun isFavourite(id: Long): Boolean = favouritesFolder(create = false)?.let { it in dao.categoriesOf(id) } == true
+
+    /** Stars position [id] or takes the star off. A starred position never stays in Learned. */
+    suspend fun setFavourite(id: Long, on: Boolean) {
+        if (on) {
+            dao.link(PositionCategoryEntity(id, favouritesFolder(create = true)!!))
+            dao.setLearned(id, null)
+        } else {
+            favouritesFolder(create = false)?.let { dao.unlink(id, it) }
+        }
+    }
+
     /** The Checker and Cube folders new errors are sorted into ([fileErrors]): not autofilters. */
     fun isSortFolder(filter: String?): Boolean =
         filter == Labels.encode(setOf(AutoLabel.CHECKER.name)) || filter == Labels.encode(setOf(AutoLabel.CUBE.name))
@@ -463,6 +491,10 @@ class PositionsRepository(db: AppDatabase) {
     companion object {
         /** Stands for "in no category" in lists and quizzes. */
         const val UNCATEGORIZED = -1L
+
+        /** [CategoryEntity.filter] of the Favourites folder ([favouritesFolder]). */
+        const val FAVOURITES = "favourites"
+        private const val FAVOURITES_NAME = "Favourites"
 
         /** The analysis label of positions added from the blunder list (the game's own analysis). */
         const val GAME_ANALYSIS = "Game analysis"

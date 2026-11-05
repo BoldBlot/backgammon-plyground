@@ -110,6 +110,8 @@ data class GameState(
     val cube: CubeState = CubeState(),
     val crawford: Boolean = false,
     val decisions: List<DecisionRecord> = emptyList(),
+    /** The indices in [decisions] of those the player marked while playing. */
+    val marked: Set<Int> = emptySet(),
     val rolls: List<RollRecord> = emptyList(),
     val result: GameResult? = null,
     /** True while the first move of the game (made with the opening roll) is pending. */

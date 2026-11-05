@@ -141,6 +141,9 @@ interface AnalysisEngine {
     val name: String get() = ""
     fun rankMoves(board: Board, ctx: CubeContext, d1: Int, d2: Int, plies: Int, played: Move?): RankResult
     fun chooseMove(board: Board, ctx: CubeContext, d1: Int, d2: Int, level: CpuLevel): Move
+    /** The best play of this roll at 1-ply: its mover's cubeless chances, or null without a legal move. */
+    fun bestPlayChances(board: Board, ctx: CubeContext, d1: Int, d2: Int): List<Float>? =
+        rankMoves(board, ctx, d1, d2, 0, null).candidates.firstOrNull()?.probs
     fun cubeDecision(board: Board, ctx: CubeContext, plies: Int): CubeEval
     fun cubeDecisionAtLevel(board: Board, ctx: CubeContext, level: CpuLevel): CubeEval
     /** [cubeDecision] if it was the engine's last cube evaluation (free), otherwise null. */

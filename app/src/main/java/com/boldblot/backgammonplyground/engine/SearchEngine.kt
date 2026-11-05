@@ -67,6 +67,10 @@ abstract class SearchEngine : AnalysisEngine {
         return rank(board, ctx, d1, d2, plies, played).also { cacheKey = key; cached = it }
     }
 
+    /** Leaves the ranking cache alone: the bar must not cost the deep ranking done ahead of a move. */
+    override fun bestPlayChances(board: Board, ctx: CubeContext, d1: Int, d2: Int): List<Float>? =
+        rank(board, ctx, d1, d2, 0, null).candidates.firstOrNull()?.probs
+
     private fun rank(board: Board, ctx: CubeContext, d1: Int, d2: Int, plies: Int, played: Move?): RankResult {
         val mover = ctx.onRoll
         val moves = MoveGenerator.legalMoves(board, mover, d1, d2)

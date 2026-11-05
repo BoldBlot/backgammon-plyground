@@ -1,6 +1,7 @@
 package com.boldblot.backgammonplyground.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -344,16 +345,36 @@ fun PlayedBestBar(
 ) {
     val playedValue = playedError?.let { if (it > 0.0005f) "(${errText(-it)})" else "" } ?: ""
     val bestValue = bestEquity?.let { eq(it) } ?: ""
-    if (stacked) {
-        Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            BarChip(playedText, "PLAYED", severityColor(playedSeverity), playedValue, Modifier.fillMaxWidth(), onPlayed)
-            BarChip(bestText, "BEST", severityColor(Severity.NONE), bestValue, Modifier.fillMaxWidth(), onBest)
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth()) {
+        // Side by side only while neither chip would have to cut its text ("Doubl…").
+        val half = (maxWidth - 8.dp) / 2
+        val fits = barChipFits(playedText, "PLAYED", playedValue, half) && barChipFits(bestText, "BEST", bestValue, half)
+        if (stacked || !fits) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                BarChip(playedText, "PLAYED", severityColor(playedSeverity), playedValue, Modifier.fillMaxWidth(), onPlayed)
+                BarChip(bestText, "BEST", severityColor(Severity.NONE), bestValue, Modifier.fillMaxWidth(), onBest)
+            }
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                BarChip(playedText, "PLAYED", severityColor(playedSeverity), playedValue, Modifier.weight(1f), onPlayed)
+                BarChip(bestText, "BEST", severityColor(Severity.NONE), bestValue, Modifier.weight(1f), onBest)
+            }
         }
-    } else {
-        Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            BarChip(playedText, "PLAYED", severityColor(playedSeverity), playedValue, Modifier.weight(1f), onPlayed)
-            BarChip(bestText, "BEST", severityColor(Severity.NONE), bestValue, Modifier.weight(1f), onBest)
-        }
+    }
+}
+
+/** Whether a [BarChip]'s text, tag and value fit in [width] on one line. */
+@Composable
+private fun barChipFits(text: String, tag: String, value: String, width: androidx.compose.ui.unit.Dp): Boolean {
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val typography = MaterialTheme.typography
+    return remember(text, tag, value, width, density, typography) {
+        val px = measurer.measure(text, typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)).size.width +
+            measurer.measure(tag, typography.labelSmall.copy(fontWeight = FontWeight.Bold)).size.width +
+            measurer.measure(value, typography.bodySmall.copy(fontFamily = FontFamily.Monospace)).size.width
+        // The chip's padding (10 + 10), the gap before the tag (6), the tag's padding (5 + 5) and a little air before the value (8).
+        with(density) { px.toDp() } + 44.dp <= width
     }
 }
 
@@ -366,14 +387,16 @@ private fun BarChip(text: String, tag: String, dot: Color, value: String, modifi
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1,
-            overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        Spacer(Modifier.width(6.dp))
-        Text(
-            tag, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-            modifier = Modifier.background(dot.copy(alpha = 0.25f), RoundedCornerShape(6.dp)).padding(horizontal = 5.dp, vertical = 1.dp),
-        )
-        Spacer(Modifier.weight(1f))
+        // The text and its tag take all the room the value leaves: a spacer of equal weight would halve it ("Doubl…").
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(text, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                tag, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                modifier = Modifier.background(dot.copy(alpha = 0.25f), RoundedCornerShape(6.dp)).padding(horizontal = 5.dp, vertical = 1.dp),
+            )
+        }
         Text(value, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
     }
 }
