@@ -187,6 +187,8 @@ data class Settings(
     /** Cube analysis depth (XG plies 1-4); 4-ply halves the cube error of 3-ply against XG. */
     val cubePlies: Int = 4,
     val blunderSort: BlunderSort = BlunderSort.BIGGEST,
+    /** The order of a My positions folder: newest saved, or the biggest error made in the game (positions without one last). */
+    val positionsSort: BlunderSort = BlunderSort.NEWEST,
     val autoFinishSpeed: AutoFinishSpeed = AutoFinishSpeed.S03,
     val autoFinishDepth: AutoFinishDepth = AutoFinishDepth.ONE,
     /** Every roll (both sides' and the opening roll) is entered by the player instead of rolled. */
@@ -387,6 +389,7 @@ class SettingsStore(private val context: Context) {
         val mistakeCubePlies = intPreferencesKey("mistake_cube_plies")
         val maxMistake = floatPreferencesKey("mistake_max")
         val blunderSort = stringPreferencesKey("blunder_sort")
+        val positionsSort = stringPreferencesKey("positions_sort")
         val autoFinish = stringPreferencesKey("autofinish_speed")
         val autoFinishDepth = stringPreferencesKey("autofinish_depth")
         val intuitionDepth = stringPreferencesKey("intuition_depth")
@@ -488,6 +491,7 @@ class SettingsStore(private val context: Context) {
             cubePlies = (p[Keys.cubePlies] ?: d.cubePlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
             welcomeSeen = p[Keys.welcomeSeen] ?: d.welcomeSeen,
             blunderSort = p.enum(Keys.blunderSort, d.blunderSort),
+            positionsSort = p.enum(Keys.positionsSort, d.positionsSort),
             autoFinishSpeed = p.enum(Keys.autoFinish, d.autoFinishSpeed),
             autoFinishDepth = p.enum(Keys.autoFinishDepth, d.autoFinishDepth),
             intuitionDepth = p.enum(Keys.intuitionDepth, d.intuitionDepth),
@@ -587,6 +591,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.welcomeSeen] = s.welcomeSeen
             p[Keys.cubePlies] = s.cubePlies
             p[Keys.blunderSort] = s.blunderSort.name
+            p[Keys.positionsSort] = s.positionsSort.name
             p[Keys.autoFinish] = s.autoFinishSpeed.name
             p[Keys.autoFinishDepth] = s.autoFinishDepth.name
             p[Keys.intuitionDepth] = s.intuitionDepth.name

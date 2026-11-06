@@ -84,6 +84,8 @@ import com.boldblot.backgammonplyground.ui.board.boardColorsFor
 import com.boldblot.backgammonplyground.ui.components.CandidateList
 import com.boldblot.backgammonplyground.ui.components.CubeTable
 import com.boldblot.backgammonplyground.ui.components.PlayedBestBar
+import com.boldblot.backgammonplyground.core.AutoLabel
+import com.boldblot.backgammonplyground.ui.components.bestCubeLabel
 import com.boldblot.backgammonplyground.ui.components.SeverityBadge
 import com.boldblot.backgammonplyground.ui.components.decisionCube
 import com.boldblot.backgammonplyground.ui.components.describeAction
@@ -248,12 +250,29 @@ class BlunderViewModel(val app: PlyGroundApp, private val startId: Long, private
 
     /** Saved to My positions: off New errors (as "Add to My positions" does), the next one shown. */
     fun removeSaved(id: Long) {
-        _state.update {
-            val list = it.blunders.filter { b -> b.entity.id != id }
-            it.copy(blunders = list, index = it.index.coerceAtMost((list.size - 1).coerceAtLeast(0)), candidate = null)
-        }
+        dropFromList(id)
         // The app's scope: the save may finish after the screen is closed.
         app.appScope.launch { app.repository.removeBlunder(id) }
+    }
+
+    /** Keep: the shown error goes into My positions by the automatic sorting rules (Settings → Sort into), off New errors. */
+    fun keep() {
+        val b = _state.value.current ?: return
+        val split = _state.value.settings.errorsSort == com.boldblot.backgammonplyground.data.ErrorsSort.SPLIT
+        dropFromList(b.entity.id)
+        // The app's scope: the filing may finish after the screen is closed.
+        app.appScope.launch {
+            val jacoby: suspend (Long) -> Boolean = { id -> app.repository.match(id)?.jacoby ?: true }
+            val sortable = AutoLabel.CHECKER.name in b.labels || AutoLabel.CUBE.name in b.labels
+            if (split && !sortable) app.positions.addBlunders(listOf(b), com.boldblot.backgammonplyground.data.PositionsRepository.UNCATEGORIZED, jacoby)
+            else app.positions.fileErrors(listOf(b), split, jacoby)
+            app.repository.removeBlunder(b.entity.id)
+        }
+    }
+
+    private fun dropFromList(id: Long) = _state.update {
+        val list = it.blunders.filter { b -> b.entity.id != id }
+        it.copy(blunders = list, index = it.index.coerceAtMost((list.size - 1).coerceAtLeast(0)), candidate = null)
     }
 
     fun undoRemove(e: BlunderEntity) {
@@ -315,14 +334,14 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
             }
         }
     }
-    // Keep: on to the next error (back to the list after the last one).
-    val onKeep = { if (st.index < st.blunders.size - 1) vm.go(st.index + 1) else onBack() }
+    // Keep: filed into My positions, the next error shown.
+    val onKeep = { vm.keep() }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth > maxHeight) {
             val sideWidth = minOf(390.dp, maxWidth * 0.42f)
             Row(Modifier.fillMaxSize().padding(6.dp)) {
                 Column(Modifier.width(sideWidth).fillMaxHeight()) {
-                    TopRow(onBack, onRemove, share)
+                    TopRow(onBack, share)
                     ReviewViewChips(st.view, b.decision.move != null, vm::setView, onSave, Modifier.fillMaxWidth().padding(bottom = 4.dp))
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { Detail(st, b, vm) }
                 }
@@ -331,14 +350,14 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         Board(st, b.decision, Modifier.aspectRatio(1.38f).then(capture.modifier))
                     }
-                    Bar(st, b.decision, vm, onKeep, onSave, landscape = true)
+                    Bar(st, b.decision, vm, onKeep, onRemove, onSave, landscape = true)
                 }
             }
         } else {
             Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
-                TopRow(onBack, onRemove, share)
+                TopRow(onBack, share)
                 Board(st, b.decision, Modifier.fillMaxWidth().aspectRatio(1.38f).then(capture.modifier))
-                Bar(st, b.decision, vm, onKeep, onSave, landscape = false)
+                Bar(st, b.decision, vm, onKeep, onRemove, onSave, landscape = false)
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { Detail(st, b, vm) }
             }
         }
@@ -346,16 +365,11 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
 }
 
 @Composable
-private fun TopRow(onBack: () -> Unit, onRemove: () -> Unit, share: @Composable () -> Unit) {
+private fun TopRow(onBack: () -> Unit, share: @Composable () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
         Text("New errors", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
         share()
-        OutlinedButton(onClick = onRemove) {
-            Icon(Icons.Default.Delete, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("Delete")
-        }
     }
 }
 
@@ -380,7 +394,7 @@ private fun Board(st: BlunderState, d: DecisionRecord, modifier: Modifier) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKeep: () -> Unit, onSave: (() -> Unit)?, landscape: Boolean) {
+private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKeep: () -> Unit, onRemove: () -> Unit, onSave: (() -> Unit)?, landscape: Boolean) {
     val a = d.checker
     if (a != null && a.candidates.isNotEmpty()) {
         val played = a.candidates.getOrNull(a.playedIndex)
@@ -393,8 +407,14 @@ private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKee
             onPlayed = { vm.selectCandidate(a.playedIndex) },
             onBest = { vm.selectCandidate(0) },
         )
-    } else if (landscape) {
-        KeepRoom(false) { EmptyPlayedBestBar() }
+    } else {
+        // Cube errors and errors not analyzed keep the bar too, so the board and the buttons don't jump.
+        PlayedBestBar(
+            playedText = describeAction(d.kind, d.board, d.player, d.move),
+            playedError = d.error, playedSeverity = st.severity,
+            bestText = d.cubeEval?.let { bestCubeLabel(it, d.kind, d.beavers) } ?: "[n/a]", bestEquity = null,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
     FlowRow(
         Modifier.fillMaxWidth(), itemVerticalAlignment = Alignment.CenterVertically,
@@ -406,7 +426,13 @@ private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKee
             IconButton(onClick = { vm.go(st.index + 1) }, enabled = st.index < st.blunders.size - 1) {
                 Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next")
             }
-            Button(onClick = onKeep) { Text(if (st.index < st.blunders.size - 1) "Keep, next" else "Keep") }
+            // Keep files it into My positions as the automatic methods would (Settings → Sort into); Delete drops it.
+            Button(onClick = onKeep, modifier = Modifier.padding(start = 4.dp)) { Text("Keep") }
+            OutlinedButton(onClick = onRemove, modifier = Modifier.padding(start = 6.dp)) {
+                Icon(Icons.Default.Delete, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Delete")
+            }
         }
         if (!landscape) ReviewViewChips(st.view, d.move != null, vm::setView, onSave)
     }

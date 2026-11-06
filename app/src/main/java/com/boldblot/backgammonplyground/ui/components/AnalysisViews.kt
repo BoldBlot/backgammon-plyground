@@ -31,6 +31,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.foundation.text.appendInlineContent
@@ -329,7 +331,11 @@ private fun OddsChip(color: Color, rim: Color, text: String) {
     }
 }
 
-/** Galaxy-style summary under the board: the played move and the best move. [playedError] is the plain equity lost (no 1-point factor). */
+/**
+ * Galaxy-style summary under the board: the played move and the best move, each in a box with its small
+ * label (PLAYED, BEST) on a line above. [playedError] is the plain equity lost (no 1-point factor).
+ * The bar always has the same height: long text shrinks a little, then is cut, but never wraps.
+ */
 @Composable
 fun PlayedBestBar(
     playedText: String,
@@ -338,66 +344,63 @@ fun PlayedBestBar(
     bestText: String,
     bestEquity: Float?,
     modifier: Modifier = Modifier,
-    /** Stack the two chips (for narrow panels). */
+    /** Stack the two boxes (for narrow panels). */
     stacked: Boolean = false,
     onPlayed: (() -> Unit)? = null,
     onBest: (() -> Unit)? = null,
 ) {
     val playedValue = playedError?.let { if (it > 0.0005f) "(${errText(-it)})" else "" } ?: ""
     val bestValue = bestEquity?.let { eq(it) } ?: ""
-    androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth()) {
-        // Side by side only while neither chip would have to cut its text ("Doubl…").
-        val half = (maxWidth - 8.dp) / 2
-        val fits = barChipFits(playedText, "PLAYED", playedValue, half) && barChipFits(bestText, "BEST", bestValue, half)
-        if (stacked || !fits) {
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                BarChip(playedText, "PLAYED", severityColor(playedSeverity), playedValue, Modifier.fillMaxWidth(), onPlayed)
-                BarChip(bestText, "BEST", severityColor(Severity.NONE), bestValue, Modifier.fillMaxWidth(), onBest)
-            }
-        } else {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BarChip(playedText, "PLAYED", severityColor(playedSeverity), playedValue, Modifier.weight(1f), onPlayed)
-                BarChip(bestText, "BEST", severityColor(Severity.NONE), bestValue, Modifier.weight(1f), onBest)
-            }
+    if (stacked) {
+        Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            BarChip(playedText, "PLAYED", severityColor(playedSeverity), playedValue, Modifier.fillMaxWidth(), onPlayed)
+            BarChip(bestText, "BEST", severityColor(Severity.NONE), bestValue, Modifier.fillMaxWidth(), onBest)
+        }
+    } else {
+        Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            BarChip(playedText, "PLAYED", severityColor(playedSeverity), playedValue, Modifier.weight(1f), onPlayed)
+            BarChip(bestText, "BEST", severityColor(Severity.NONE), bestValue, Modifier.weight(1f), onBest)
         }
     }
 }
 
-/** Whether a [BarChip]'s text, tag and value fit in [width] on one line. */
-@Composable
-private fun barChipFits(text: String, tag: String, value: String, width: androidx.compose.ui.unit.Dp): Boolean {
-    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val typography = MaterialTheme.typography
-    return remember(text, tag, value, width, density, typography) {
-        val px = measurer.measure(text, typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)).size.width +
-            measurer.measure(tag, typography.labelSmall.copy(fontWeight = FontWeight.Bold)).size.width +
-            measurer.measure(value, typography.bodySmall.copy(fontFamily = FontFamily.Monospace)).size.width
-        // The chip's padding (10 + 10), the gap before the tag (6), the tag's padding (5 + 5) and a little air before the value (8).
-        with(density) { px.toDp() } + 44.dp <= width
-    }
-}
-
+/** One box of the bar: [tag] and its colour dot on a small line above, then [text] and [value] on one line. */
 @Composable
 private fun BarChip(text: String, tag: String, dot: Color, value: String, modifier: Modifier, onClick: (() -> Unit)?) {
-    Row(
-        modifier
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(10.dp))
-            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // The text and its tag take all the room the value leaves: a spacer of equal weight would halve it ("Doubl…").
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            Text(text, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1,
-                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            Spacer(Modifier.width(6.dp))
+    Column(modifier) {
+        Row(Modifier.padding(start = 4.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(7.dp).background(dot, CircleShape))
+            Spacer(Modifier.width(4.dp))
             Text(
                 tag, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-                modifier = Modifier.background(dot.copy(alpha = 0.25f), RoundedCornerShape(6.dp)).padding(horizontal = 5.dp, vertical = 1.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
             )
         }
-        Text(value, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+        androidx.compose.foundation.layout.BoxWithConstraints(
+            Modifier.fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(10.dp))
+                .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+        ) {
+            val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val typography = MaterialTheme.typography
+            val valueStyle = typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+            // The text gets what the value leaves; below 14sp it shrinks (down to 11sp) before it is cut.
+            val size = remember(text, value, maxWidth, density, typography) {
+                val room = with(density) { maxWidth.toPx() } - measurer.measure(value, valueStyle).size.width - with(density) { 8.dp.toPx() }
+                listOf(14, 13, 12, 11).firstOrNull { sp ->
+                    measurer.measure(text, typography.bodyMedium.copy(fontSize = sp.sp, fontWeight = FontWeight.SemiBold)).size.width <= room
+                } ?: 11
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text, Modifier.weight(1f), style = typography.bodyMedium.copy(fontSize = size.sp), fontWeight = FontWeight.SemiBold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                Text(value, fontFamily = FontFamily.Monospace, style = typography.bodySmall, maxLines = 1, softWrap = false)
+            }
+        }
     }
 }
 

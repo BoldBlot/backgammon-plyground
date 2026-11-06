@@ -49,6 +49,8 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -171,6 +173,7 @@ fun MyPositionsScreen(
     var uncategorized by remember { mutableIntStateOf(0) }
     var total by remember { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
+    var help by rememberSaveable { mutableStateOf(false) }
     var newCategory by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<CategoryCount?>(null) }
     var deleting by remember { mutableStateOf<CategoryCount?>(null) }
@@ -206,6 +209,7 @@ fun MyPositionsScreen(
                 title = { Title("My positions") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
+                    IconButton(onClick = { help = !help }) { Icon(Icons.AutoMirrored.Filled.HelpOutline, "Help") }
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -225,16 +229,18 @@ fun MyPositionsScreen(
                 CircularProgressIndicator()
                 return@Column
             }
-            Text(
-                "Save positions from New errors, a game " +
-                    "review or Analyze Position (\"Save to My positions\"), or import a file, then quiz yourself on them.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                IMPORT_FORMATS,
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 6.dp),
-            )
+            if (help) {
+                Text(
+                    "Save positions from New errors, a game " +
+                        "review or Analyze Position (\"Save to My positions\"), or import a file, then quiz yourself on them.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    IMPORT_FORMATS,
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
             val newErrors by produceState(0, refresh) { value = app.repository.blunderCount() }
             val newMarked by produceState(0, refresh) { value = app.repository.markedCount() }
             val learned by produceState(0, refresh) { value = app.positions.learned().size }
@@ -256,13 +262,13 @@ fun MyPositionsScreen(
                 if (newMarked > 0) FilledTonalButton(onClick = onNewMarked) {
                     Icon(com.boldblot.backgammonplyground.ui.components.BlotIcon, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("New Marked ($newMarked)")
+                    Text("Marked ($newMarked)", maxLines = 1, softWrap = false)
                 }
                 // The quiz's learned positions, a bin they can be put back from.
                 if (learned > 0) OutlinedButton(onClick = onLearned) {
                     Icon(Icons.Default.TaskAlt, null)
                     Spacer(Modifier.width(6.dp))
-                    Text("Learned ($learned)")
+                    Text("Learned ($learned)", maxLines = 1, softWrap = false)
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -507,7 +513,13 @@ fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> 
         }
         all = app.positions.positions(categoryId)
     }
-    val list = all?.filter { passesFilter(it, filter, settings) }
+    var sortMenu by remember { mutableStateOf(false) }
+    val list = all?.filter { passesFilter(it, filter, settings) }?.let { l ->
+        // Newest is the stored order; Biggest puts the largest error made in the game first, positions without one last (newest first).
+        if (settings.positionsSort == com.boldblot.backgammonplyground.data.BlunderSort.BIGGEST) {
+            l.sortedByDescending { sp -> sp.played?.let { answerError(sp.position, sp.analysis, it) } ?: -1f }
+        } else l
+    }
     Scaffold(
         topBar = {
             val sel = selected
@@ -537,6 +549,18 @@ fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> 
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
                     val shown = all
+                    if (!shown.isNullOrEmpty()) Box {
+                        IconButton(onClick = { sortMenu = true }) { Icon(Icons.Default.SwapVert, "Sort order") }
+                        DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                            com.boldblot.backgammonplyground.data.BlunderSort.entries.forEach { o ->
+                                DropdownMenuItem(
+                                    text = { Text(o.label) },
+                                    leadingIcon = { if (settings.positionsSort == o) Icon(Icons.Default.Check, null) },
+                                    onClick = { sortMenu = false; scope.launch { app.settings.update { it.copy(positionsSort = o) } } },
+                                )
+                            }
+                        }
+                    }
                     if (!shown.isNullOrEmpty()) LabelFilterButton(
                         settings.labelKeys, filter, { filter = it }, compact = true, quiz = true,
                         count = { f -> shown.count { passesFilter(it, f, settings) } }, total = shown.size,

@@ -5,6 +5,22 @@
 - Long evaluations in endgames: I'm hunting down the bug behind them. I think 0.7.10 fixes it
   (games lost or won whatever is played now stop at 1-ply), but it is still being tested.
 
+## 0.8.2 — 2026-11-06 (build 65, internal test)
+
+- Played and Best in review: always two boxes side by side, so the board and buttons no longer
+  jump. Their small labels sit on a line above each box, and long moves shrink a little before
+  they are cut.
+- Review: Next mistake is now Next, with a Previous beside it. Both stop at your mistakes (and
+  marked positions); the arrows step through every decision.
+- New errors and New Marked: cube errors, and errors without analysis, show Played and Best too.
+- New errors: Keep and Delete replace "Keep, next". Keep files the error into My positions the way
+  the automatic methods do (Settings → Sort into: no folder, or the Checker and Cube folders) and
+  shows the next one; Delete removes it.
+- My positions: the New Marked and Learned buttons stay on one line (Marked, Learned). A ? button
+  shows or hides the help text.
+- Folders in My positions have a sort button: Newest first, or Biggest first (the error you made in
+  the game; positions without one come last).
+
 ## 0.8.1 — 2026-11-05 (build 64, internal test)
 
 - Winning chances bar: fixed. It always worked out the chances as if you were on roll, so during

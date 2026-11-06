@@ -136,8 +136,8 @@ data class ReviewState(
     /** The match being finished has marked positions, so the Marked chip shows. */
     val hasMarks: Boolean = false,
     /**
-     * The Marked chip. With All, every decision stays in the list and "Next mistake" also stops at the marked
-     * ones; with any other filter (or alone) the list holds only the marked ones and "Next mistake" stops at those.
+     * The Marked chip. With All, every decision stays in the list and "Next" also stops at the marked
+     * ones; with any other filter (or alone) the list holds only the marked ones and "Next" stops at those.
      */
     val marked: Boolean = false,
     /** Index into the filtered decision list. */
@@ -193,13 +193,13 @@ data class ReviewState(
 
     private fun isMistake(d: DecisionRecord) = d.player == Player.HUMAN && severityOf(d).atLeast(Severity.ERROR)
 
-    /** Where "Next mistake" stops in [g]: at mistakes, also at marked decisions with Marked on, and only at those when only they are listed. */
+    /** Where "Next" stops in [g]: at mistakes, also at marked decisions with Marked on, and only at those when only they are listed. */
     private fun isStop(g: GameState?, d: IndexedValue<DecisionRecord>): Boolean {
         val isMarked = hasMarks && marked && d.index in g?.marked.orEmpty()
         return isMarked || (!onlyMarked && isMistake(d.value))
     }
 
-    /** The next stop of "Next mistake" (game index, list position): later in this game, or in a later game of the match. */
+    /** The next stop of "Next" (game index, list position): later in this game, or in a later game of the match. */
     val nextMistake: Pair<Int, Int>?
         get() {
             val list = decisions
@@ -207,6 +207,18 @@ data class ReviewState(
             for (gi in gameIndex + 1 until games.size) {
                 val other = copy(gameIndex = gi, position = 0).decisions
                 other.indices.firstOrNull { isStop(games[gi].second, other[it]) }?.let { return gi to it }
+            }
+            return null
+        }
+
+    /** The previous stop (game index, list position): earlier in this game, or in an earlier game of the match. */
+    val previousMistake: Pair<Int, Int>?
+        get() {
+            val list = decisions
+            (position - 1 downTo 0).firstOrNull { isStop(game, list[it]) }?.let { return gameIndex to it }
+            for (gi in gameIndex - 1 downTo 0) {
+                val other = copy(gameIndex = gi, position = 0).decisions
+                other.indices.lastOrNull { isStop(games[gi].second, other[it]) }?.let { return gi to it }
             }
             return null
         }
@@ -412,6 +424,12 @@ class ReviewViewModel(
     /** Next decision of the human with an error or blunder, in a later game of the match after this game's last. */
     fun nextMistake() {
         val (game, pos) = _state.value.nextMistake ?: return
+        _state.update { it.copy(gameIndex = game, position = pos, candidate = null, collapsed = false) }
+    }
+
+    /** The decision of the human with an error or blunder (or a marked one) before this one, in an earlier game after this game's first. */
+    fun previousMistake() {
+        val (game, pos) = _state.value.previousMistake ?: return
         _state.update { it.copy(gameIndex = game, position = pos, candidate = null, collapsed = false) }
     }
 }
@@ -720,11 +738,13 @@ private fun BottomBar(st: ReviewState, vm: ReviewViewModel, landscape: Boolean) 
         horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // Previous and Next: the mistakes (and marked positions); the arrows step through every decision.
+            TextButton(onClick = vm::previousMistake, enabled = st.previousMistake != null) { Text("Previous") }
             // At either end of a game the arrows go on into the previous or next game.
             IconButton(onClick = vm::previous, enabled = st.position > 0 || st.gameIndex > 0) { Icon(Icons.AutoMirrored.Filled.NavigateBefore, "Previous") }
             Text(if (n == 0) "0 / 0" else "${st.position + 1} / $n", style = MaterialTheme.typography.titleSmall)
             IconButton(onClick = vm::next, enabled = st.position < n - 1 || st.gameIndex < st.games.size - 1) { Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next") }
-            TextButton(onClick = vm::nextMistake, enabled = st.nextMistake != null) { Text("Next mistake") }
+            TextButton(onClick = vm::nextMistake, enabled = st.nextMistake != null) { Text("Next") }
         }
         if (!landscape) ReviewTools(st, vm)
     }
