@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.4 — 2026-11-06 (build 67, internal test)
+
+- Fixed a crash in 0.8.3: starting a match closed the app whenever the Match Library held fewer
+  games than its limit (the limit check counted a negative number of games to delete).
+
 ## 0.8.3 — 2026-11-06 (build 66, internal test)
 
 - Game: before your roll, the Undo and Done chips become Roll and Double (the buttons that are

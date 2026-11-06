@@ -122,8 +122,7 @@ class Repository(private val db: AppDatabase) {
      */
     suspend fun enforceLibraryLimit(): Int {
         val max = libraryMax?.invoke()?.takeIf { it > 0 } ?: return 0
-        val all = dao.history()
-        val old = all.filter { it.status != MatchStatus.IN_PROGRESS }.sortedBy { it.startedAt }.take(all.size - max)
+        val old = matchesOverLimit(dao.history(), max)
         old.forEach { dao.deleteMatchWithGames(it.id) }
         return old.size
     }
@@ -558,3 +557,7 @@ class Repository(private val db: AppDatabase) {
         )
     }
 }
+
+/** The oldest finished matches of [all] that go to bring the Match Library down to [max] (none while it is within the limit). */
+fun matchesOverLimit(all: List<MatchEntity>, max: Int): List<MatchEntity> =
+    all.filter { it.status != MatchStatus.IN_PROGRESS }.sortedBy { it.startedAt }.take((all.size - max).coerceAtLeast(0))
