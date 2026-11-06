@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.6 — 2026-11-06 (build 69, internal test)
+## 0.8.6 — 2026-11-06 (build 69)
 
 - Landscape game screen: Max Bearoff (without its icon here) and Keep rolling now share one row.
 - My positions: the cog is gone from the top bar. The shortcut to Settings → My positions is now
