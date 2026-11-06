@@ -604,7 +604,7 @@ private fun PlayerCard(st: GameUiState, m: MatchState, player: Int) {
             Box(Modifier.size(14.dp).background(if (player == Player.HUMAN) colors.human else colors.cpu, RoundedCornerShape(7.dp)))
             Spacer(Modifier.width(6.dp))
             Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = if (toAct) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f))
-            Text(scoreText(m, player), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(scoreText(m, player, st.settings.scoreAway), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -616,10 +616,10 @@ private fun toAct(m: MatchState, player: Int): Boolean = when (m.game.phase) {
     else -> m.game.turn == player
 }
 
-private fun scoreText(m: MatchState, player: Int): String = if (m.rules.isMoney) {
+private fun scoreText(m: MatchState, player: Int, away: Boolean = false): String = if (m.rules.isMoney) {
     val net = m.score[player] - m.score[Player.other(player)]
     "${if (net > 0) "+" else ""}$net"
-} else "${m.score[player]}/${m.rules.length}"
+} else if (away) "${m.rules.length - m.score[player]}-away" else "${m.score[player]}/${m.rules.length}"
 
 @Composable
 private fun PlayerStrip(st: GameUiState, m: MatchState, player: Int) {
@@ -635,7 +635,7 @@ private fun PlayerStrip(st: GameUiState, m: MatchState, player: Int) {
         )
         if (toAct) Text("  ●", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.weight(1f))
-        Text(scoreText(m, player), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Text(scoreText(m, player, st.settings.scoreAway), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -718,9 +718,9 @@ private fun BoardArea(
                 val otherLeft = if (mirrored) margin + tray + pointW * 6 + bar else margin
                 Box(Modifier.offset(x = otherLeft).width(pointW * 6).fillMaxHeight(), contentAlignment = Alignment.Center) {
                     Button(
-                        onClick = vm::backToGame, modifier = Modifier.width(pointW * 3).height(buttonH),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 0.dp),
-                    ) { Text("Back to game", style = buttonLabel(pointW), maxLines = 1) }
+                        onClick = vm::backToGame, modifier = Modifier.widthIn(min = pointW * 3).height(buttonH),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                    ) { Text("Back to game", style = buttonLabel(pointW), maxLines = 1, softWrap = false) }
                 }
             }
             if (onBoardMoveButtons) MoveButtonsOnBoard(st, vm, w, maxHeight, mirrored, pointW, buttonH, interactive)
@@ -1192,7 +1192,7 @@ private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical:
         if (st.settings.pastPositions) {
             com.boldblot.backgammonplyground.ui.components.ViewArrows(
                 canBack = st.canView && viewList.any { viewing == null || it < viewing }, canForward = viewing != null,
-                onBack = vm::viewBack, onForward = vm::viewForward,
+                onBack = vm::viewBack, onForward = vm::viewForward, size = if (vertical) 30.dp else 36.dp,
             )
         }
     }
@@ -1228,10 +1228,9 @@ private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical:
             Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // The side column is narrow: the arrows have a line above the chips.
-            arrows()
             if (sideButtons || preRoll || viewing != null) moveChips() else markChip()
-            GameChips(st, m, vm, canHint, onResign)
+            // The side column: Resign takes Keep rolling's place and the arrows sit by it, so nothing needs scrolling.
+            GameChips(st, m, vm, canHint, onResign, sideArrows = arrows)
         }
     } else {
         Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) { moveChips() }
@@ -1252,32 +1251,38 @@ private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical:
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun GameChips(st: GameUiState, m: MatchState, vm: GameViewModel, canHint: Boolean, onResign: () -> Unit) {
+private fun GameChips(
+    st: GameUiState, m: MatchState, vm: GameViewModel, canHint: Boolean, onResign: () -> Unit,
+    /** The side column (landscape): Hint, Resign and these arrows share a row, then Max Bearoff and Keep rolling. */
+    sideArrows: (@Composable () -> Unit)? = null,
+) {
     val g = m.game
     val inPlay = st.gameOver == null && g.phase != Phase.OVER && g.phase != Phase.OPENING
     // Keep rolling makes sense while the human may double this game (or to switch it off).
     val keepRollingOn = st.keepRolling || (inPlay && Scoring.mayDouble(m.rules, g.cube, Player.HUMAN, m.score, g.crawford))
     val queued = st.queuedResign != null
-    FlowRow(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-        verticalArrangement = Arrangement.spacedBy(0.dp),
-    ) {
+    val hint: @Composable () -> Unit = {
         FilterChip(
             selected = false, onClick = vm::hint, enabled = canHint,
             leadingIcon = { Icon(Icons.Default.Lightbulb, null, Modifier.size(18.dp)) },
             label = { Text("Hint", maxLines = 1) },
         )
+    }
+    val keepRolling: @Composable () -> Unit = {
         FilterChip(
             selected = st.keepRolling, onClick = vm::toggleKeepRolling, enabled = keepRollingOn,
             label = { Text("Keep rolling", maxLines = 1) },
         )
-        // Autofinish stays in the ⋮ menu.
+    }
+    // Autofinish stays in the ⋮ menu.
+    val maxBearOff: @Composable () -> Unit = {
         FilterChip(
             selected = st.maxBearOff, onClick = vm::toggleMaxBearOff, enabled = inPlay || st.maxBearOff,
             leadingIcon = { Icon(Icons.Default.FastForward, null, Modifier.size(18.dp)) },
             label = { Text("Max Bearoff", maxLines = 1) },
         )
+    }
+    val resign: @Composable () -> Unit = {
         FilterChip(
             selected = queued, onClick = { if (queued) vm.cancelQueuedResign() else onResign() },
             enabled = queued || st.canResign || st.canQueueResign,
@@ -1285,6 +1290,22 @@ private fun GameChips(st: GameUiState, m: MatchState, vm: GameViewModel, canHint
             label = { Text(if (queued) "Resigning at my turn" else "Resign", maxLines = 1) },
         )
     }
+    if (sideArrows != null) {
+        FlowRow(
+            Modifier.fillMaxWidth(), maxItemsInEachRow = 3, itemVerticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(0.dp),
+        ) { hint(); resign(); sideArrows() }
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(0.dp),
+        ) { maxBearOff(); keepRolling() }
+        return
+    }
+    FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+    ) { hint(); keepRolling(); maxBearOff(); resign() }
 }
 
 /**

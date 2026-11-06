@@ -243,6 +243,7 @@ class MainActivity : ComponentActivity() {
                     onNewErrors = { nav.navigate("errors") },
                     onNewMarked = { nav.navigate("errors/marked") },
                     onLearned = { nav.navigate("learned") },
+                    onSettings = { nav.navigate("settings/POSITIONS") },
                 )
             }
             composable("learned") {

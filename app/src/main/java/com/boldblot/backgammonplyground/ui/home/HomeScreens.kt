@@ -1099,7 +1099,6 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
             "Mistakes of at least $l are kept for My positions, and a quiz answer costing up to $l counts as right."
         } ?: "Set the level for New errors and the level for the quiz separately, below.",
     )
-    Text("Method", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
     // A plan fixes the level: only the methods that use it as it is.
     val methods = if (custom) ErrorsMode.entries else listOf(ErrorsMode.MANUAL, ErrorsMode.AUTOMATIC)
     Chips("Method", methods, s.errorsMode, { it.label }) { v -> update { it.copy(errorsMode = v) } }

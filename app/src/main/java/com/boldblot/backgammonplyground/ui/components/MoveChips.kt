@@ -73,12 +73,16 @@ fun BackToGameChip(onClick: () -> Unit, modifier: Modifier = Modifier) {
  * can't be used), so they never move when pressed.
  */
 @Composable
-fun ViewArrows(canBack: Boolean, canForward: Boolean, onBack: () -> Unit, onForward: () -> Unit, modifier: Modifier = Modifier) {
+fun ViewArrows(
+    canBack: Boolean, canForward: Boolean, onBack: () -> Unit, onForward: () -> Unit, modifier: Modifier = Modifier,
+    /** Each button's size: smaller in the landscape side column, where they share a row with chips. */
+    size: androidx.compose.ui.unit.Dp = 36.dp,
+) {
     Row(modifier) {
-        androidx.compose.material3.IconButton(onClick = onBack, enabled = canBack, modifier = Modifier.size(36.dp)) {
+        androidx.compose.material3.IconButton(onClick = onBack, enabled = canBack, modifier = Modifier.size(size)) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Previous position")
         }
-        androidx.compose.material3.IconButton(onClick = onForward, enabled = canForward, modifier = Modifier.size(36.dp)) {
+        androidx.compose.material3.IconButton(onClick = onForward, enabled = canForward, modifier = Modifier.size(size)) {
             Icon(Icons.AutoMirrored.Filled.ArrowForward, "Next position")
         }
     }

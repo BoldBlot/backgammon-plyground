@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.5 — 2026-11-06 (build 68, internal test)
+
+- Landscape game screen: the side panel no longer needs scrolling. Resign takes Keep rolling's
+  place beside Hint, the back and forward arrows sit at the end of that row (under the blot), and
+  Max Bearoff and Keep rolling share the row below.
+- Game: the "Back to game" button on the board is wider, so its text is no longer cut.
+- Game: with "Match score as away" on (Settings → Display), the players' scores read 2-away,
+  3-away during play too.
+- My positions: a cog in the top bar opens Settings → My positions.
+- Settings → My positions: the duplicate "Method" heading in New errors is gone.
+
 ## 0.8.4 — 2026-11-06 (build 67, internal test)
 
 - Fixed a crash in 0.8.3: starting a match closed the app whenever the Match Library held fewer
