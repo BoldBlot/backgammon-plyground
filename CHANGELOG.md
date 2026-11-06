@@ -1,10 +1,5 @@
 # Changelog
 
-## Known issues
-
-- Long evaluations in endgames: I'm hunting down the bug behind them. I think 0.7.10 fixes it
-  (games lost or won whatever is played now stop at 1-ply), but it is still being tested.
-
 ## 0.8.2 — 2026-11-06 (build 65)
 
 - Played and Best in review: always two boxes side by side, so the board and buttons no longer
