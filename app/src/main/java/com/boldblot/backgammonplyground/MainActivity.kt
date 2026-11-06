@@ -243,7 +243,6 @@ class MainActivity : ComponentActivity() {
                     onNewErrors = { nav.navigate("errors") },
                     onNewMarked = { nav.navigate("errors/marked") },
                     onLearned = { nav.navigate("learned") },
-                    onSettings = { nav.navigate("settings/POSITIONS") },
                 )
             }
             composable("learned") {
@@ -264,7 +263,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
             composable("positions/item/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
-                PositionDetailScreen(app, entry.arguments?.getLong("id") ?: 0L, onBack = { nav.popBackStack() })
+                PositionDetailScreen(app, entry.arguments?.getLong("id") ?: 0L, onBack = { nav.popBackStack() }, onSettings = { nav.navigate("settings/POSITIONS") })
             }
             // The quiz menu (folders, labels, how many, order), opened with [ids] ticked and the folder's [filter].
             composable(

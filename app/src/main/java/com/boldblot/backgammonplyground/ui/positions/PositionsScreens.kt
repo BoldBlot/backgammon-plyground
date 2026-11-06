@@ -165,8 +165,6 @@ private const val IMPORT_FORMATS =
 fun MyPositionsScreen(
     app: PlyGroundApp, onBack: () -> Unit, onCategory: (Long?) -> Unit, onQuiz: (List<Long>) -> Unit, onNewErrors: () -> Unit, onNewMarked: () -> Unit,
     onLearned: () -> Unit = {},
-    /** The cog: Settings → My positions. */
-    onSettings: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -211,7 +209,6 @@ fun MyPositionsScreen(
                 title = { Title("My positions") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
-                    IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") }
                     IconButton(onClick = { help = !help }) { Icon(Icons.AutoMirrored.Filled.HelpOutline, "Help") }
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
@@ -676,7 +673,7 @@ internal fun PositionRow(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
+fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit, onSettings: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val settings by app.settings.settings.collectAsState(initial = Settings())
@@ -741,6 +738,11 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                                 text = { Text("Analyze again") }, enabled = p != null && !analyzing,
                                 leadingIcon = { Icon(Icons.Default.Refresh, null) },
                                 onClick = { menu = false; reanalyzing = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Settings") },
+                                leadingIcon = { Icon(Icons.Default.Settings, null) },
+                                onClick = { menu = false; onSettings() },
                             )
                             DropdownMenuItem(text = { Text("Remove") }, onClick = { menu = false; removing = true })
                         }

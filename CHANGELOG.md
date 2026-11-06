@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.6 — 2026-11-06 (build 69, internal test)
+
+- Landscape game screen: Max Bearoff (without its icon here) and Keep rolling now share one row.
+- My positions: the cog is gone from the top bar. The shortcut to Settings → My positions is now
+  in the ⋮ menu of a position (open a folder, pick a position).
+
 ## 0.8.5 — 2026-11-06 (build 68, internal test)
 
 - Landscape game screen: the side panel no longer needs scrolling. Resign takes Keep rolling's

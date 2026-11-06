@@ -1278,7 +1278,8 @@ private fun GameChips(
     val maxBearOff: @Composable () -> Unit = {
         FilterChip(
             selected = st.maxBearOff, onClick = vm::toggleMaxBearOff, enabled = inPlay || st.maxBearOff,
-            leadingIcon = { Icon(Icons.Default.FastForward, null, Modifier.size(18.dp)) },
+            // The landscape side column is narrow: drop the icon there so both chips fit one row.
+            leadingIcon = if (sideArrows == null) ({ Icon(Icons.Default.FastForward, null, Modifier.size(18.dp)) }) else null,
             label = { Text("Max Bearoff", maxLines = 1) },
         )
     }
