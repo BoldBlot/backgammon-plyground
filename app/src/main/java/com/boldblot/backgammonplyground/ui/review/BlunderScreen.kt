@@ -30,6 +30,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.NavigateBefore
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.AssistChip
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
@@ -118,7 +121,8 @@ private fun BlunderContext(b: SavedBlunder, colors: BoardColors, style: androidx
     val after = (if (match && d.crawford) " Crawford" else "") + "$cube · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(e.playedAt))}"
     ScoreText(
         "$what vs $level" + if (match) " · " else "", d.score.takeIf { match }, after, colors,
-        style = style, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = maxLines,
+        style = style, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = maxLines, matchLength = e.matchLength,
+        awayBefore = (if (e.opponent) "Opponent's · " else "") + "vs $level · ",
     )
 }
 
@@ -330,7 +334,7 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
         Box {
             IconButton(onClick = { open = true }) { Icon(Icons.Default.Share, "Share") }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                SharePositionItems(b.decision, b.entity.matchLength, jacoby, PositionShare.title(b.decision, b.entity.matchLength), capture) { open = false }
+                SharePositionItems(b.decision, b.entity.matchLength, jacoby, PositionShare.title(b.decision, b.entity.matchLength, com.boldblot.backgammonplyground.ui.components.LocalScoreAway.current), capture) { open = false }
             }
         }
     }
@@ -416,6 +420,23 @@ private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKee
             modifier = Modifier.padding(top = 4.dp),
         )
     }
+    // Keep files it into My positions as the automatic methods would (Settings → Sort into); Delete drops it.
+    // The chips sit midway between the played/best boxes and the arrows row (portrait), or between the arrows row
+    // and the edge of the screen (landscape).
+    val decide: @Composable () -> Unit = {
+        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)) {
+            val colors = com.boldblot.backgammonplyground.ui.components.negativeChipColors()
+            AssistChip(
+                onClick = onKeep, label = { Text("Keep") }, colors = colors, border = null,
+                leadingIcon = { Icon(Icons.Default.Check, null, Modifier.size(AssistChipDefaults.IconSize)) },
+            )
+            AssistChip(
+                onClick = onRemove, label = { Text("Delete") }, colors = colors, border = null,
+                leadingIcon = { Icon(Icons.Default.Delete, null, Modifier.size(AssistChipDefaults.IconSize)) },
+            )
+        }
+    }
+    if (!landscape) decide()
     FlowRow(
         Modifier.fillMaxWidth(), itemVerticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
@@ -426,16 +447,10 @@ private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKee
             IconButton(onClick = { vm.go(st.index + 1) }, enabled = st.index < st.blunders.size - 1) {
                 Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next")
             }
-            // Keep files it into My positions as the automatic methods would (Settings → Sort into); Delete drops it.
-            Button(onClick = onKeep, modifier = Modifier.padding(start = 4.dp)) { Text("Keep") }
-            OutlinedButton(onClick = onRemove, modifier = Modifier.padding(start = 6.dp)) {
-                Icon(Icons.Default.Delete, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Delete")
-            }
         }
         if (!landscape) ReviewViewChips(st.view, d.move != null, vm::setView, onSave)
     }
+    if (landscape) decide()
 }
 
 @Composable

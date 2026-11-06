@@ -611,7 +611,7 @@ private fun ShareMenu(st: ReviewState, vm: ReviewViewModel, capture: BoardCaptur
             val d = st.current
             val m = st.match
             if (d != null && m != null) {
-                SharePositionItems(d, m.length, m.jacoby, PositionShare.title(d, m.length), capture) { open = false }
+                SharePositionItems(d, m.length, m.jacoby, PositionShare.title(d, m.length, com.boldblot.backgammonplyground.ui.components.LocalScoreAway.current), capture) { open = false }
                 HorizontalDivider()
             }
             Text(

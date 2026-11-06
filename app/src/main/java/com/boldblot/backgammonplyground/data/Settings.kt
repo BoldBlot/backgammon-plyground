@@ -293,6 +293,12 @@ data class Settings(
     val railRight: Boolean = false,
     /** Landscape: Undo on the board and Done by the dice, instead of as chips in the side column. */
     val onBoardMoveButtons: Boolean = false,
+    /** The most games kept in the Match Library; the oldest go first. 0 = no limit. */
+    val libraryMax: Int = 100,
+    /** Match scores in My positions, the quiz and exports as "2-away, 3-away" instead of the score and the match length. */
+    val scoreAway: Boolean = false,
+    /** The game screen has arrows to look at (and mark) the positions of earlier turns. */
+    val pastPositions: Boolean = true,
     /** Automatic labels turned off in Settings → My positions ([com.boldblot.backgammonplyground.core.AutoLabel] names): hidden everywhere. */
     val labelsOff: Set<String> = emptySet(),
     /** The player's own labels, in their order. */
@@ -310,7 +316,7 @@ data class Settings(
             myLabels.map { com.boldblot.backgammonplyground.core.Labels.myKey(it) }
 
     /** [keys] without the labels turned off or deleted. */
-    fun visible(keys: Set<String>): Set<String> = keys.intersect(labelKeys.toSet())
+    fun visible(keys: Set<String>): Set<String> = labelKeys.toSet().let { in_ -> keys.filterTo(HashSet()) { it in in_ || com.boldblot.backgammonplyground.core.Labels.isId(it) } }
 
     /**
      * These settings under [plan]. A plan's level becomes the minimum error and the quiz's fixed level; Adaptive
@@ -453,6 +459,9 @@ class SettingsStore(private val context: Context) {
         val railRight = booleanPreferencesKey("rail_right")
         // "side_move_buttons" (0.7.11–0.7.12, side column instead of on the board) is retired: don't reuse it.
         val onBoardMoveButtons = booleanPreferencesKey("board_move_buttons")
+        val libraryMax = intPreferencesKey("library_max")
+        val scoreAway = booleanPreferencesKey("score_away")
+        val pastPositions = booleanPreferencesKey("past_positions")
         val labelsOff = stringPreferencesKey("labels_off")
         val myLabels = stringPreferencesKey("my_labels")
         val blunderFilter = stringPreferencesKey("blunder_filter")
@@ -557,6 +566,9 @@ class SettingsStore(private val context: Context) {
             speedTestResult = p[Keys.speedTestResult] ?: d.speedTestResult,
             railRight = p[Keys.railRight] ?: d.railRight,
             onBoardMoveButtons = p[Keys.onBoardMoveButtons] ?: d.onBoardMoveButtons,
+            libraryMax = p[Keys.libraryMax] ?: d.libraryMax,
+            scoreAway = p[Keys.scoreAway] ?: d.scoreAway,
+            pastPositions = p[Keys.pastPositions] ?: d.pastPositions,
             labelsOff = lines(p[Keys.labelsOff]).toSet(),
             myLabels = lines(p[Keys.myLabels]),
             blunderFilter = lines(p[Keys.blunderFilter]).toSet(),
@@ -652,6 +664,9 @@ class SettingsStore(private val context: Context) {
             p[Keys.speedTestResult] = s.speedTestResult
             p[Keys.railRight] = s.railRight
             p[Keys.onBoardMoveButtons] = s.onBoardMoveButtons
+            p[Keys.libraryMax] = s.libraryMax
+            p[Keys.scoreAway] = s.scoreAway
+            p[Keys.pastPositions] = s.pastPositions
             p[Keys.labelsOff] = s.labelsOff.joinToString("\n")
             p[Keys.myLabels] = s.myLabels.joinToString("\n")
             p[Keys.blunderFilter] = s.blunderFilter.joinToString("\n")

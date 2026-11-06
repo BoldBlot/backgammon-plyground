@@ -84,6 +84,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -372,7 +373,7 @@ private fun GameShareButton(st: GameUiState, m: MatchState, capture: BoardCaptur
                 else -> emptyList()
             }
             SharePositionItems(
-                PositionIds.toXgid(p.setup.copy(doubled = p.doubled)), PositionShare.title(p), lines, capture,
+                PositionIds.toXgid(p.setup.copy(doubled = p.doubled)), PositionShare.title(p, com.boldblot.backgammonplyground.ui.components.LocalScoreAway.current), lines, capture,
                 analysisLabel = (st.hint?.label ?: st.cubeHint?.label)?.ifBlank { null },
                 noAnalysis = {
                     Toast.makeText(context, "Not available during a game. Open Hint, then share the board with the top 5.", Toast.LENGTH_LONG).show()
@@ -469,6 +470,8 @@ private fun GameContent(
     st: GameUiState, m: MatchState, vm: GameViewModel, onBack: () -> Unit, onAbandon: () -> Unit, onResign: () -> Unit, onSettings: () -> Unit,
 ) {
     val capture = rememberBoardCapture()
+    // Double asked for (Settings → Play: confirm), from the board button or the Double chip.
+    val askState = remember(m.game.phase, m.game.decisions.size) { mutableStateOf<CubeAsk?>(null) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth > maxHeight) {
             // Landscape: side column | board. The board always has the same size and place (the
@@ -490,12 +493,12 @@ private fun GameContent(
                                 // A hint leaves play going: the status, Undo / Done and the chips stay above it.
                                 if (!blocksPlay(st)) {
                                     StatusText(st)
-                                    Actions(st, m, vm, vertical = true, onResign = onResign)
+                                    Actions(st, m, vm, vertical = true, onResign = onResign, askState = askState)
                                 }
                                 Panels(st, m, vm)
                             }
                         } else {
-                            Rail(st, m, vm, capture, onBack, onAbandon, onResign, onSettings, Modifier.widthIn(max = RAIL_MAX_WIDTH).fillMaxSize())
+                            Rail(st, m, vm, capture, onBack, onAbandon, onResign, onSettings, askState, Modifier.widthIn(max = RAIL_MAX_WIDTH).fillMaxSize())
                         }
                     }
                 }
@@ -504,7 +507,7 @@ private fun GameContent(
                     Spacer(Modifier.width(gap))
                 }
                 Box(Modifier.width(boardWidth).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                    BoardArea(st, m, vm, Modifier.fillMaxWidth().aspectRatio(BOARD_ASPECT), capture, onBoardMoveButtons = st.settings.onBoardMoveButtons)
+                    BoardArea(st, m, vm, Modifier.fillMaxWidth().aspectRatio(BOARD_ASPECT), capture, askState, onBoardMoveButtons = st.settings.onBoardMoveButtons)
                 }
                 if (railRight) {
                     Spacer(Modifier.width(gap))
@@ -524,13 +527,13 @@ private fun GameContent(
                 }
                 Column(Modifier.padding(horizontal = 6.dp)) {
                     PlayerStrip(st, m, Player.CPU)
-                    BoardArea(st, m, vm, Modifier.fillMaxWidth().aspectRatio(BOARD_ASPECT), capture)
+                    BoardArea(st, m, vm, Modifier.fillMaxWidth().aspectRatio(BOARD_ASPECT), capture, askState)
                     PlayerStrip(st, m, Player.HUMAN)
                     Meter(st, vm, twoLines = false)
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 6.dp)) {
                     StatusText(st)
-                    Actions(st, m, vm, vertical = false, onResign = onResign)
+                    Actions(st, m, vm, vertical = false, onResign = onResign, askState = askState)
                     Panels(st, m, vm)
                 }
             }
@@ -556,7 +559,7 @@ private val RAIL_MAX_WIDTH = 240.dp
 @Composable
 private fun Rail(
     st: GameUiState, m: MatchState, vm: GameViewModel, capture: BoardCapture, onBack: () -> Unit, onAbandon: () -> Unit, onResign: () -> Unit,
-    onSettings: () -> Unit, modifier: Modifier,
+    onSettings: () -> Unit, askState: MutableState<CubeAsk?>, modifier: Modifier,
 ) {
     Column(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -572,7 +575,7 @@ private fun Rail(
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.Center) {
             StatusText(st)
             Meter(st, vm, twoLines = true)
-            Actions(st, m, vm, vertical = true, onResign = onResign)
+            Actions(st, m, vm, vertical = true, onResign = onResign, askState = askState)
         }
         PlayerCard(st, m, Player.HUMAN)
     }
@@ -580,6 +583,7 @@ private fun Rail(
 
 @Composable
 private fun StatusText(st: GameUiState) {
+    // (Looking at an earlier position adds no line here: the chips and arrows below must not move.)
     val text = st.busyText ?: st.message ?: return
     Text(
         text, style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis,
@@ -637,14 +641,20 @@ private fun PlayerStrip(st: GameUiState, m: MatchState, player: Int) {
 
 @Composable
 private fun BoardArea(
-    st: GameUiState, m: MatchState, vm: GameViewModel, modifier: Modifier, capture: BoardCapture,
+    st: GameUiState, m: MatchState, vm: GameViewModel, modifier: Modifier, capture: BoardCapture, askState: MutableState<CubeAsk?>,
     /** Landscape: Undo on the board in the half without dice, and Done next to the dice. */
     onBoardMoveButtons: Boolean = false,
 ) {
     val g = m.game
-    val showBoard = st.preview ?: st.board
-    val previewing = st.preview != null
+    // Looking at an earlier decision (the arrows): its board, dice and cube, nothing to play.
+    val viewed = st.viewing?.let { g.decisions.getOrNull(it) }
+    val showBoard = viewed?.board ?: st.preview ?: st.board
+    val previewing = st.preview != null || viewed != null
     val dice = buildList {
+        if (viewed != null) {
+            viewed.dice?.let { add(DiceView(viewed.player, it.highFirst)) }
+            return@buildList
+        }
         if (previewing) return@buildList
         // The computer's last roll stays visible (greyed) until the human rolls or doubles, or the
         // computer doubles.
@@ -666,12 +676,12 @@ private fun BoardArea(
                 colors = boardColorsFor(st.settings),
                 mirrored = st.settings.mirrorBoard,
                 dice = dice,
-                cube = offeredCube(g),
-                cubeOffered = g.offeredCube != null,
-                cubeAside = passShown(st, m),
-                crawford = g.crawford,
+                cube = if (viewed != null) viewed.cube else offeredCube(g),
+                cubeOffered = viewed == null && g.offeredCube != null,
+                cubeAside = viewed == null && passShown(st, m),
+                crawford = viewed?.crawford ?: g.crawford,
                 crawfordSign = st.settings.crawfordSign,
-                dmp = com.boldblot.backgammonplyground.core.Scoring.isDmp(m.rules.length, m.score, g.crawford),
+                dmp = com.boldblot.backgammonplyground.core.Scoring.isDmp(m.rules.length, viewed?.score ?: m.score, viewed?.crawford ?: g.crawford),
                 movable = if (interactive) st.movable else emptySet(),
                 lastCpuSteps = if (previewing) emptyList() else st.lastCpuSteps,
                 lastCpuHits = st.lastCpuHits,
@@ -692,20 +702,30 @@ private fun BoardArea(
             val halfLeft = if (mirrored) margin + tray else margin + pointW * 6 + bar
             val buttonH = buttonHeight(w, maxHeight)
             // Double or Pass waiting for the confirmation bar's answer (Settings → Play).
-            var asking by remember(g.phase, g.decisions.size) { mutableStateOf<CubeAsk?>(null) }
+            var asking by askState
             if (asking == null) {
                 Box(
                     Modifier.offset(x = halfLeft).width(pointW * 6).fillMaxHeight(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    OnBoardButtons(st, m, vm, pointW, buttonH, onDouble = {
+                    if (viewed == null) OnBoardButtons(st, m, vm, pointW, buttonH, onDouble = {
                         if (st.settings.confirmDouble) asking = CubeAsk.DOUBLE else vm.double()
                     })
                 }
             }
+            // Looking at an earlier position: Back to game goes in the half without the dice (the dice are in the player's half).
+            if (viewed != null) {
+                val otherLeft = if (mirrored) margin + tray + pointW * 6 + bar else margin
+                Box(Modifier.offset(x = otherLeft).width(pointW * 6).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    Button(
+                        onClick = vm::backToGame, modifier = Modifier.width(pointW * 3).height(buttonH),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 0.dp),
+                    ) { Text("Back to game", style = buttonLabel(pointW), maxLines = 1) }
+                }
+            }
             if (onBoardMoveButtons) MoveButtonsOnBoard(st, vm, w, maxHeight, mirrored, pointW, buttonH, interactive)
             // Pass to a double goes in the computer's half, next to the offered cube.
-            if (passShown(st, m) && asking == null) {
+            if (viewed == null && passShown(st, m) && asking == null) {
                 val geo = BoardGeometry(w.value, maxHeight.value, mirrored)
                 Box(Modifier.offset(x = geo.cubeAside().second.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
                     FilledTonalButton(
@@ -718,7 +738,7 @@ private fun BoardArea(
             // Signs in the middle of the board, centred on the bar: a cube mistake, or a turn without
             // a choice. They go just below the centre line, or to the nearest free spot so that they
             // cover neither the Roll / Double buttons nor checkers, dice or the cube.
-            val buttonsShown = !st.busy && st.preview == null && !blocksPlay(st) && !st.autoFinishing &&
+            val buttonsShown = viewed != null || !st.busy && st.preview == null && !blocksPlay(st) && !st.autoFinishing &&
                 ((g.phase == Phase.PRE_ROLL && g.turn == Player.HUMAN) || (g.phase == Phase.DOUBLED && g.responder == Player.HUMAN) ||
                     (g.phase == Phase.BEAVERED && g.turn == Player.HUMAN))
             val boardW = maxWidth
@@ -1136,12 +1156,13 @@ private fun Panels(st: GameUiState, m: MatchState, vm: GameViewModel) {
 /** Off-board controls: undo / done / hint (and cube actions as a fallback). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical: Boolean, onResign: () -> Unit) {
+private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical: Boolean, onResign: () -> Unit, askState: MutableState<CubeAsk?>) {
     val g = m.game
     val humanTurn = g.turn == Player.HUMAN
     if (st.autoFinishing) return
     // The computer's turn (but not its double, which the human answers here) has no move buttons.
-    val humanActs = !st.busy && st.feedback == null && (humanTurn || g.phase == Phase.DOUBLED)
+    val viewing = st.viewing
+    val humanActs = viewing == null && !st.busy && st.feedback == null && (humanTurn || g.phase == Phase.DOUBLED)
     val moving = humanActs && g.phase == Phase.MOVING && humanTurn && !st.noLegalMove
     val canHint = humanActs && (
         (g.phase == Phase.MOVING && humanTurn && !st.noLegalMove) ||
@@ -1154,21 +1175,52 @@ private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical:
     // Undo and Done: chips beside the board (landscape) or under it (portrait), always there during
     // play and greyed out when they can't be used, so nothing jumps about.
     // The mark sits with them, for any decision of the player's: to roll or double, to take or pass, to move.
-    val myDecision = st.gameOver == null && !st.busy && when (g.phase) {
+    val myDecision = viewing == null && st.gameOver == null && !st.busy && when (g.phase) {
         Phase.PRE_ROLL, Phase.MOVING, Phase.BEAVERED -> g.turn == Player.HUMAN
         Phase.DOUBLED -> g.responder == Player.HUMAN
         else -> false
     }
     val markChip: @Composable () -> Unit = {
-        com.boldblot.backgammonplyground.ui.components.MarkChip(on = st.marking, enabled = myDecision, onClick = vm::toggleMark)
+        // Looking at an earlier position, the blot marks that one.
+        com.boldblot.backgammonplyground.ui.components.MarkChip(
+            on = if (viewing != null) viewing in g.marked else st.marking, enabled = viewing != null || myDecision, onClick = vm::toggleMark,
+        )
     }
-    val moveChips: @Composable () -> Unit = {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            com.boldblot.backgammonplyground.ui.components.MoveChips(
-                canUndo = moving && st.steps.isNotEmpty(), canDone = moving && st.moveComplete,
-                onUndo = vm::undo, onDone = vm::confirmMove,
+    // Arrows to the positions of earlier turns: in the same place whatever else changes (Settings → Display can turn them off).
+    val viewList = viewableDecisions(m)
+    val arrows: @Composable () -> Unit = {
+        if (st.settings.pastPositions) {
+            com.boldblot.backgammonplyground.ui.components.ViewArrows(
+                canBack = st.canView && viewList.any { viewing == null || it < viewing }, canForward = viewing != null,
+                onBack = vm::viewBack, onForward = vm::viewForward,
             )
+        }
+    }
+    val preRoll = humanActs && g.phase == Phase.PRE_ROLL && humanTurn
+    val moveChips: @Composable () -> Unit = {
+        // Portrait: the arrows keep the left end of the row whatever the chips beside them are; the chips are centred in the rest.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            if (!vertical) arrows()
+            Row(
+                Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            ) {
+            // Before the roll the Roll / Double buttons are on the board, and the chips become Roll / Double too.
+            if (viewing != null) {
+                com.boldblot.backgammonplyground.ui.components.BackToGameChip(onClick = vm::backToGame)
+            } else if (preRoll) {
+                com.boldblot.backgammonplyground.ui.components.RollChips(
+                    canRoll = true, canDouble = g.mayDouble(m.rules, m.score), onRoll = vm::roll,
+                    onDouble = { if (st.settings.confirmDouble) askState.value = CubeAsk.DOUBLE else vm.double() },
+                )
+            } else {
+                com.boldblot.backgammonplyground.ui.components.MoveChips(
+                    canUndo = moving && st.steps.isNotEmpty(), canDone = moving && st.moveComplete,
+                    onUndo = vm::undo, onDone = vm::confirmMove,
+                )
+            }
             markChip()
+            }
         }
     }
     if (vertical) {
@@ -1176,7 +1228,9 @@ private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical:
             Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (sideButtons) moveChips() else markChip()
+            // The side column is narrow: the arrows have a line above the chips.
+            arrows()
+            if (sideButtons || preRoll || viewing != null) moveChips() else markChip()
             GameChips(st, m, vm, canHint, onResign)
         }
     } else {

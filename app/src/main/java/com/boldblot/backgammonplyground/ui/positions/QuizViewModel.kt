@@ -288,7 +288,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
 
     /**
      * A response to a double (take, pass, beaver) is the answer; or a cube action alone ("No double / Double",
-     * Settings → My positions → Quiz). With the follow-up question it waits for [answerDoubleClaim].
+     * Settings → Quiz). With the follow-up question it waits for [answerDoubleClaim].
      */
     fun answerCube(k: DecisionKind) {
         val st = _state.value
@@ -523,7 +523,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
     }
 
     /** The Learned chip on the result: into Learned, or (tapped again) back. A favourite stays out of Learned. */
-    fun toggleLearned() {
+    fun toggleLearned(resetCounters: Boolean = false) {
         val st = _state.value
         val r = st.result ?: return
         val sp = st.current ?: return
@@ -531,7 +531,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
         viewModelScope.launch {
             val back = r.learnedByHand
             if (back) {
-                app.positions.unlearn(listOf(sp.id))
+                app.positions.unlearn(listOf(sp.id), resetCounters)
                 gone -= sp.id
             } else {
                 app.positions.learn(sp.id, st.settings.learnedKeep)
@@ -542,6 +542,22 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
                 it.copy(
                     result = it.result?.copy(deleted = !back, learnedByHand = !back),
                     deleted = it.deleted + by, learned = it.learned + by,
+                )
+            }
+        }
+    }
+
+    /** A position that went to Learned in this round, put back from the summary. */
+    fun putBack(id: Long, resetCounters: Boolean) {
+        viewModelScope.launch {
+            app.positions.unlearn(listOf(id), resetCounters)
+            gone -= id
+            _state.update { st ->
+                st.copy(
+                    history = st.history.map { c ->
+                        if (c.position.id == id && c.result.deleted) c.copy(result = c.result.copy(deleted = false, learnedByHand = false)) else c
+                    },
+                    deleted = (st.deleted - 1).coerceAtLeast(0), learned = (st.learned - 1).coerceAtLeast(0),
                 )
             }
         }

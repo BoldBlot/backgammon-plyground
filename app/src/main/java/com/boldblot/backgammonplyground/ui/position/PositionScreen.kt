@@ -156,7 +156,8 @@ private fun TopRow(vm: PositionViewModel, st: PositionState, capture: com.boldbl
         val context = LocalContext.current
         val unit = com.boldblot.backgammonplyground.ui.components.LocalErrorUnit.current
         val scope = rememberCoroutineScope()
-        fun shareTitle() = vm.study()?.let { com.boldblot.backgammonplyground.ui.review.PositionShare.title(it) } ?: "Analyze Position"
+        val away = com.boldblot.backgammonplyground.ui.components.LocalScoreAway.current
+        fun shareTitle() = vm.study()?.let { com.boldblot.backgammonplyground.ui.review.PositionShare.title(it, away) } ?: "Analyze Position"
         fun shareLines(s: PositionState) = com.boldblot.backgammonplyground.ui.review.PositionShare.analysisLines(
             s.board, s.onRoll, s.checker, s.cubeEval, response = false, beavers = false,
             playedIndex = null, playedKind = null, factor = XgRules.errorFactor(s.matchLength),

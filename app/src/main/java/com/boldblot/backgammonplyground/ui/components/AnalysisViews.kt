@@ -57,6 +57,9 @@ fun fmt(v: Double, digits: Int = 1): String = String.format(Locale.US, "%.${digi
 /** The unit errors are shown in (Settings → Display), provided at the top of the app. */
 val LocalErrorUnit = staticCompositionLocalOf { ErrorUnit.EQ }
 
+/** Match scores as "2-away, 3-away" instead of the score and the match length (Settings → Display). */
+val LocalScoreAway = staticCompositionLocalOf { false }
+
 /** The board's checker style (Settings → Board), for the checker icons beside plays and chances. */
 val LocalCheckerStyle = staticCompositionLocalOf { com.boldblot.backgammonplyground.data.CheckerStyle.RIMMED }
 
@@ -160,12 +163,15 @@ fun ScoreText(
     before: String, score: List<Int>?, after: String, colors: com.boldblot.backgammonplyground.ui.board.BoardColors,
     modifier: Modifier = Modifier, style: androidx.compose.ui.text.TextStyle = androidx.compose.material3.LocalTextStyle.current,
     color: Color = Color.Unspecified, maxLines: Int = Int.MAX_VALUE,
+    /** With [Settings.scoreAway] the [score] is shown as the points each player is away from [matchLength] (and [before] is not shown). */
+    matchLength: Int = 0, awayBefore: String = "",
 ) {
+    val away = LocalScoreAway.current && score != null && matchLength > 0
     val text = androidx.compose.ui.text.buildAnnotatedString {
-        append(before)
+        append(if (away) awayBefore else before)
         if (score != null) {
             appendInlineContent("you", "●")
-            append(" ${score[0]}–${score[1]} ")
+            if (away) append(" ${matchLength - score[0]}-away, ${matchLength - score[1]}-away ") else append(" ${score[0]}–${score[1]} ")
             appendInlineContent("them", "●")
         }
         append(after)

@@ -271,6 +271,15 @@ fun MyPositionsScreen(
                     Text("Learned ($learned)", maxLines = 1, softWrap = false)
                 }
             }
+            // The average of the errors the saved positions were played with (those from games, whose play is known).
+            val average by produceState<Float?>(null, refresh, total) { value = libraryAverageError(app) }
+            average?.let {
+                Text(
+                    "Average error of saved positions: ${errWithUnit(it.toDouble(), LocalErrorUnit.current)}",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
             Spacer(Modifier.height(12.dp))
             folderRun?.let { r ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -563,7 +572,7 @@ fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> 
                     }
                     if (!shown.isNullOrEmpty()) LabelFilterButton(
                         settings.labelKeys, filter, { filter = it }, compact = true, quiz = true,
-                        count = { f -> shown.count { passesFilter(it, f, settings) } }, total = shown.size,
+                        count = { f -> shown.count { passesFilter(it, f, settings) } }, total = shown.size, ids = true,
                     )
                     if (!shown.isNullOrEmpty()) androidx.compose.material3.AssistChip(
                         onClick = { onQuiz(listOfNotNull(categoryId), filter) }, label = { Text("Quiz") },
@@ -676,6 +685,7 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
     var answering by remember { mutableStateOf(false) }
     var settingPlayed by remember { mutableStateOf(false) }
     var filing by remember { mutableStateOf(false) }
+    var puttingBack by remember { mutableStateOf(false) }
     var labelling by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
@@ -817,11 +827,10 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
                     FilterChip(
                         selected = learned, enabled = !favourite,
                         onClick = {
-                            scope.launch {
-                                if (learned) app.positions.unlearn(listOf(cur.id)) else app.positions.learn(cur.id, settings.learnedKeep)
-                                refresh++
+                            if (learned) puttingBack = true else {
+                                scope.launch { app.positions.learn(cur.id, settings.learnedKeep); refresh++ }
+                                Toast.makeText(context, "Moved to Learned", Toast.LENGTH_SHORT).show()
                             }
-                            Toast.makeText(context, if (learned) "Back in My positions" else "Moved to Learned", Toast.LENGTH_SHORT).show()
                         },
                         leadingIcon = { Icon(Icons.Default.TaskAlt, null, Modifier.size(18.dp)) },
                         label = { Text("Learned", maxLines = 1, softWrap = false) },
@@ -881,6 +890,13 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit) {
             ) { ans ->
                 settingPlayed = false
                 scope.launch { app.positions.setPlayed(cur.id, ans); refresh++ }
+            }
+        }
+        if (puttingBack) {
+            PutBackDialog(1, onDismiss = { puttingBack = false }) { reset ->
+                puttingBack = false
+                scope.launch { app.positions.unlearn(listOf(cur.id), reset); refresh++ }
+                Toast.makeText(context, "Back in My positions", Toast.LENGTH_SHORT).show()
             }
         }
         if (filing) {
@@ -1132,6 +1148,11 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit = {
 
 @Composable
 private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit) {
+    // A learned position tapped in the list below, to put back.
+    var puttingBack by remember { mutableStateOf<Long?>(null) }
+    puttingBack?.let { id ->
+        PutBackDialog(1, onDismiss = { puttingBack = null }) { reset -> puttingBack = null; vm.putBack(id, reset) }
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Done", style = MaterialTheme.typography.titleLarge)
         Text(
@@ -1159,6 +1180,14 @@ private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit, on
         if (cards.isNotEmpty()) {
             Text("Positions in this quiz", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             cards.forEach { c -> PositionRow(c.position, st.settings, quizAnswer = c.result.right) { onOpen(c.position.id) } }
+        }
+        // The positions that went to Learned in this quiz: tap one to put it back in My positions.
+        val learned = st.history.reversed().distinctBy { it.position.id }.reversed()
+            .filter { it.result.deleted && it.result.removed == null && (it.result.learnedByHand || st.settings.quizLearned) }
+        if (learned.isNotEmpty()) {
+            Text("Learned", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            Text("Tap one to put it back in My positions.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            learned.forEach { c -> PositionRow(c.position, st.settings, quizAnswer = c.result.right) { puttingBack = c.position.id } }
         }
     }
 }
@@ -1256,7 +1285,7 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
                 cubeActions(p).forEach { k -> FilledTonalButton(onClick = { vm.answerCube(k) }) { Text(cubeLabel(k)) } }
             }
             else -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
-                // Settings → My positions → Quiz: the full decision, or the cube action alone (with Too good).
+                // Settings → Quiz: the full decision, or the cube action alone (with Too good).
                 when (st.settings.quizMyCube) {
                     com.boldblot.backgammonplyground.data.QuizMyCube.FULL ->
                         CubeAnswer.entries.forEach { c -> FilledTonalButton(onClick = { vm.answerCube(c) }) { Text(c.label) } }
@@ -1307,6 +1336,10 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
 private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: QuizViewModel, capture: BoardCapture, readOnly: Boolean = false) {
     val p = sp.position
     var filing by remember { mutableStateOf(false) }
+    var puttingBack by remember { mutableStateOf(false) }
+    if (puttingBack) {
+        PutBackDialog(1, onDismiss = { puttingBack = false }) { reset -> puttingBack = false; vm.toggleLearned(reset) }
+    }
     if (filing) {
         CategoriesDialog(vm.app, initial = null, positionId = sp.id, title = "Move to folder", onDismiss = { filing = false }) { ids, _ ->
             filing = false
@@ -1335,7 +1368,7 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
             if (!readOnly && r.removed == null && (!r.deleted || r.learnedByHand)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     FilterChip(
-                        selected = r.learnedByHand, onClick = vm::toggleLearned, enabled = !r.favourite,
+                        selected = r.learnedByHand, onClick = { if (r.learnedByHand) puttingBack = true else vm.toggleLearned() }, enabled = !r.favourite,
                         leadingIcon = { Icon(Icons.Default.TaskAlt, null, Modifier.size(18.dp)) },
                         label = { Text("Learned", maxLines = 1, softWrap = false) },
                     )
@@ -1361,8 +1394,8 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
                 Text("Moved to Learned.", style = MaterialTheme.typography.bodyMedium, color = ArrowColors.best)
             } else if (r.deleted) {
                 Text(
-                    if (st.settings.quizLearned) "Learned: its balance reached the threshold, so it moved to Learned (My positions → Learned; Settings → My positions → Quiz)."
-                    else "Learned: its balance reached the threshold, so it was deleted from My positions (Settings → My positions → Quiz).",
+                    if (st.settings.quizLearned) "Learned: its balance reached the threshold, so it moved to Learned (My positions → Learned; Settings → Quiz)."
+                    else "Learned: its balance reached the threshold, so it was deleted from My positions (Settings → Quiz).",
                     style = MaterialTheme.typography.bodyMedium, color = ArrowColors.best,
                 )
             }
@@ -1370,7 +1403,25 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
             if (r.mine != null) Text("★ Your saved answer: ${r.mine}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
             if (r.played != null) Text("In the game: ${r.played}", style = MaterialTheme.typography.bodyMedium)
             val best = r.bestText ?: r.bestCubeAnswer?.label ?: decisionText(p, r.bestMove, r.bestCube)
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            val checker = r.analysis.checker?.takeIf { it.candidates.isNotEmpty() }
+            val playedMove = r.move
+            if (checker != null && playedMove != null) {
+                // The played and best plays as in the match review: a tap shows that play on the board and in the list.
+                com.boldblot.backgammonplyground.ui.components.PlayedBestBar(
+                    playedText = com.boldblot.backgammonplyground.core.MoveNotation.format(p.board, Player.HUMAN, playedMove),
+                    playedError = r.error / r.factor, playedSeverity = r.severity,
+                    bestText = com.boldblot.backgammonplyground.core.MoveNotation.format(p.board, Player.HUMAN, checker.candidates.first().move),
+                    bestEquity = checker.candidates.first().equity,
+                    onPlayed = { answerIndex?.let { vm.selectCandidate(it) } },
+                    onBest = { vm.selectCandidate(0) },
+                )
+            } else if ((r.cubeAnswer ?: r.cube) != null) {
+                com.boldblot.backgammonplyground.ui.components.PlayedBestBar(
+                    playedText = r.cubeAnswer?.label ?: r.cube?.let { cubeLabel(it) } ?: "?",
+                    playedError = r.error / r.factor, playedSeverity = r.severity,
+                    bestText = best, bestEquity = null,
+                )
+            } else Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Engine: $best", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 SeverityBadge(r.severity, r.error, factor = r.factor)
             }
@@ -1412,5 +1463,5 @@ private fun ContextText(
     style: androidx.compose.ui.text.TextStyle, maxLines: Int = Int.MAX_VALUE,
 ) {
     val (before, score, after) = contextParts(p)
-    com.boldblot.backgammonplyground.ui.components.ScoreText(before, score, after, colors, style = style, maxLines = maxLines)
+    com.boldblot.backgammonplyground.ui.components.ScoreText(before, score, after, colors, style = style, maxLines = maxLines, matchLength = p.setup.matchLength)
 }

@@ -111,7 +111,22 @@ class Repository(private val db: AppDatabase) {
             startedAt = System.currentTimeMillis(), length = rules.length, cpuLevel = Opponent.key(level, mistakes, engine),
             useCube = rules.useCube, jacoby = rules.jacoby, crawford = rules.crawford,
         ),
-    )
+    ).also { enforceLibraryLimit() }
+
+    /** The most games the Match Library keeps (Settings → Data and help); 0 or none = no limit. */
+    var libraryMax: (suspend () -> Int)? = null
+
+    /**
+     * Deletes the oldest finished matches beyond the Match Library's limit (a match in progress is never deleted).
+     * Their saved positions and errors stay. Returns how many went.
+     */
+    suspend fun enforceLibraryLimit(): Int {
+        val max = libraryMax?.invoke()?.takeIf { it > 0 } ?: return 0
+        val all = dao.history()
+        val old = all.filter { it.status != MatchStatus.IN_PROGRESS }.sortedBy { it.startedAt }.take(all.size - max)
+        old.forEach { dao.deleteMatchWithGames(it.id) }
+        return old.size
+    }
 
     // ---- match in progress -----------------------------------------------------
 
@@ -174,6 +189,7 @@ class Repository(private val db: AppDatabase) {
         }
         dao.upsertMatch(updated)
         onMatchFinished?.invoke(m.id)
+        enforceLibraryLimit()
     }
 
     /** Whether match [id] is over (finished, ended or abandoned). */
@@ -344,6 +360,12 @@ class Repository(private val db: AppDatabase) {
         if (id <= 0) dao.blunderAt(m.id, m.gameNumber, index)?.let { dao.setMarkedBlunder(it.id, error, record) }
     }
 
+    /** Takes the mark off the decision at [index]: it leaves New Marked, and returns to New errors if it was a mistake of at least [minError]. */
+    suspend fun unmarkDecision(m: MatchState, index: Int, minError: Float) {
+        dao.blunderAt(m.id, m.gameNumber, index)?.takeIf { it.marked }?.let { dao.deleteBlunder(it.id) }
+        saveIfBlunder(m, index, Severity.ERROR, minError)
+    }
+
     /** Saves the decision at [index] of [m]'s current game if it is one of the human's mistakes of at least [min]. */
     suspend fun saveIfBlunder(m: MatchState, index: Int, min: Severity = Severity.BLUNDER, minError: Float = 0f) {
         val d = m.game.decisions.getOrNull(index) ?: return
@@ -400,7 +422,7 @@ class Repository(private val db: AppDatabase) {
                 games = im.games.size, inStats = false, imported = true, blundersBoth = blundersBoth,
             ),
         )
-        return im.games.map { g ->
+        val keys = im.games.map { g ->
             val r = requireNotNull(g.state.result)
             dao.insertGame(
                 GameEntity(
@@ -411,6 +433,8 @@ class Repository(private val db: AppDatabase) {
             )
             GameKey(id, g.number)
         }
+        enforceLibraryLimit()
+        return keys
     }
 
     /** The saved blunders that pass [filter] (label keys), in [sort] order (newest first within equal errors). */

@@ -144,6 +144,8 @@ data class GameUiState(
     val hinted: Boolean = false,
     /** The mark is on: the player's next decision will be marked. */
     val marking: Boolean = false,
+    /** Looking at the position of an earlier decision of this game (index into its decisions), with the arrows; null = the game. */
+    val viewing: Int? = null,
     val message: String? = null,
     /** CPU's last move, drawn as markers (human orientation indices). */
     val lastCpuSteps: List<Step> = emptyList(),
@@ -170,6 +172,18 @@ data class GameUiState(
     /** The meter in [MeterMode.BAR] shows its numbers after a tap, until the human's next decision. */
     val meterNumbers: Boolean = false,
 )
+
+/** The indices of the decisions the arrows to earlier positions step through: the player's own, not played by autofinish. */
+fun viewableDecisions(m: MatchState): List<Int> =
+    m.game.decisions.indices.filter { m.game.decisions[it].let { d -> d.player == Player.HUMAN && !d.auto } }
+
+/** The arrows to earlier positions can be used: nothing is being moved, asked or analyzed. */
+val GameUiState.canView: Boolean
+    get() {
+        val g = match?.game ?: return false
+        return settings.pastPositions && !busy && !autoFinishing && gameOver == null && feedback == null && steps.isEmpty() &&
+            g.phase != Phase.OVER && diceRequest == null
+    }
 
 /** Autofinish can be started while a game is in progress and nothing else is pending. */
 val GameUiState.canAutoFinish: Boolean
@@ -391,7 +405,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                 // The computer's last roll is shown until the human rolls or doubles.
                 cpuLastDice = if (g.turn == Player.HUMAN && g.phase == Phase.PRE_ROLL) it.cpuLastDice else null,
                 moveComplete = false, noLegalMove = opts != null && !opts.canMove,
-                hint = null, cubeHint = null, preview = null, previewArrows = emptyList(), previewCandidate = null,
+                hint = null, cubeHint = null, preview = null, previewArrows = emptyList(), previewCandidate = null, viewing = null,
                 hinted = if (g.phase == Phase.MOVING || g.phase == Phase.PRE_ROLL) it.hinted else false,
                 message = if (opts != null && !opts.canMove) "You rolled ${g.dice}: no legal move." else message,
                 lastCpuSteps = if (keepCpuMarkers) it.lastCpuSteps else emptyList(),
@@ -1158,7 +1172,43 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     }
 
     /** The mark: on, it goes on the player's next decision; tapped again, it comes off. */
-    fun toggleMark() = _state.update { it.copy(marking = !it.marking) }
+    fun toggleMark() {
+        val st = _state.value
+        val at = st.viewing ?: return _state.update { it.copy(marking = !it.marking) }
+        // Looking at an earlier position: the blot marks that decision (or takes its mark off).
+        val m = st.match ?: return
+        val g = m.game
+        if (at !in g.decisions.indices) return
+        val next = m.copy(game = g.copy(marked = if (at in g.marked) g.marked - at else g.marked + at))
+        _state.update { it.copy(match = next) }
+        viewModelScope.launch {
+            repo.saveCurrent(withAnalyzed(next))
+            if (at in next.game.marked) repo.saveMarked(next, at) else repo.unmarkDecision(next, at, settings.newErrorsMin)
+        }
+    }
+
+    /** The decisions the arrows step through: the player's own, not played by autofinish. */
+    private fun viewable(m: MatchState) = viewableDecisions(m)
+
+    /** Back: the position of the player's previous decision. */
+    fun viewBack() {
+        val st = _state.value
+        val m = st.match ?: return
+        if (!st.canView) return
+        val list = viewable(m)
+        val to = if (st.viewing == null) list.lastOrNull() else list.lastOrNull { it < st.viewing }
+        if (to != null) _state.update { it.copy(viewing = to, hint = null, cubeHint = null, preview = null, previewArrows = emptyList(), previewCandidate = null) }
+    }
+
+    /** Forward: the next decision, or the game itself after the last. */
+    fun viewForward() {
+        val st = _state.value
+        val m = st.match ?: return
+        val at = st.viewing ?: return
+        _state.update { it.copy(viewing = viewable(m).firstOrNull { i -> i > at }) }
+    }
+
+    fun backToGame() = _state.update { it.copy(viewing = null) }
 
     /** The meter's numbers in [MeterMode.BAR], until the human's next decision. */
     fun toggleMeterNumbers() = _state.update { it.copy(meterNumbers = !it.meterNumbers) }

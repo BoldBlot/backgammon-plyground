@@ -78,7 +78,9 @@ class PositionsRepository(db: AppDatabase) {
         val p = StudyPosition.stored(e.xgid, e.doubled, e.beavers)
         val a = e.analysis?.let { AppJson.decodeFromString<PositionAnalysis>(it).withRecordedEngine() }
         SavedPosition(
-            e, p, a, e.myAnswer?.let { AppJson.decodeFromString<MyAnswer>(it) }, storedLabels(e.labels)?.let { Labels.withDmp(it, p.setup.matchLength, p.setup.score, p.setup.crawford) } ?: autoLabels(p, a),
+            e, p, a, e.myAnswer?.let { AppJson.decodeFromString<MyAnswer>(it) },
+            (storedLabels(e.labels)?.let { Labels.withDmp(it, p.setup.matchLength, p.setup.score, p.setup.crawford) } ?: autoLabels(p, a)) +
+                Labels.idKey(com.boldblot.backgammonplyground.core.PositionTags.of(e.id)),
             played = e.played?.let { AppJson.decodeFromString<MyAnswer>(it) } ?: playedFromAnalysis(a),
             lastAnswer = e.lastAnswer?.let { runCatching { AppJson.decodeFromString<MyAnswer>(it) }.getOrNull() },
         )
@@ -378,11 +380,27 @@ class PositionsRepository(db: AppDatabase) {
         dao.learned().drop(keep.coerceAtLeast(0)).forEach { remove(it.id) }
     }
 
+    /** My positions (not in Learned, not favourites) whose quiz balance is at least [min]: the ones a lower threshold would have moved. */
+    suspend fun atBalance(min: Int): List<SavedPosition> {
+        val favourites = favouritesFolder(create = false)
+        return positions(null).filter { it.quizBalance >= min && (favourites == null || favourites !in dao.categoriesOf(it.id)) }
+    }
+
+    /** Moves the positions [atBalance] to Learned (or deletes them when [toLearned] is off); returns how many. */
+    suspend fun settleAtBalance(min: Int, toLearned: Boolean, keep: Int): Int {
+        val list = atBalance(min)
+        list.forEach { if (toLearned) learn(it.id, keep) else remove(it.id) }
+        return list.size
+    }
+
     /** Learned positions, the newest first. */
     suspend fun learned(): List<SavedPosition> = dao.learned().mapNotNull(::decode)
 
     /** Puts Learned positions [ids] back in My positions, in the folders they were in. */
-    suspend fun unlearn(ids: Collection<Long>) = ids.forEach { dao.setLearned(it, null) }
+    suspend fun unlearn(ids: Collection<Long>, resetCounters: Boolean = false) = ids.forEach { id ->
+        dao.setLearned(id, null)
+        if (resetCounters) dao.position(id)?.let { dao.update(it.copy(quizRight = 0, quizWrong = 0)) }
+    }
 
     /** Trims Learned to its newest [keep] (after the setting changes); returns how many were deleted. */
     suspend fun trimLearned(keep: Int): Int {
@@ -502,7 +520,8 @@ class PositionsRepository(db: AppDatabase) {
         /** Stored when the player took every label off ("" = never set: the labels come from the position). */
         private const val NO_LABELS = "-"
 
-        fun encodeLabels(labels: Set<String>): String = if (labels.isEmpty()) NO_LABELS else Labels.encode(labels)
+        fun encodeLabels(labels: Set<String>): String =
+            labels.filterNot { Labels.isId(it) }.toSet().let { if (it.isEmpty()) NO_LABELS else Labels.encode(it) }
 
         /** The stored labels, or null if they were never set. */
         fun storedLabels(text: String): Set<String>? = when (text) {

@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.8.3 — 2026-11-06 (build 66, internal test)
+
+- Game: before your roll, the Undo and Done chips become Roll and Double (the buttons that are
+  on the board), so the chips stay in one place.
+- Game: the blot (mark) chip is lit in negative colours when it is on.
+- Game: back and forward arrows left of the chips step through the positions of your earlier
+  turns in the game, with their dice and cube. The arrows keep their place, and the position you
+  look at has a "Back to game" chip (and button on the board) in place of the usual chips. The
+  blot marks that position, or takes its mark off, and the marked position goes to New Marked.
+  Settings → Display, at the top, turns the arrows off.
+- Settings → Display: "Match score as away" shows 2-away, 3-away instead of the score and the
+  length of the match in My positions, the quiz and shared pictures.
+- Settings: Quiz and My positions are two pages now. New errors, with the training plan, is at
+  the top of My positions.
+- Quiz: the summary lists the positions that went to Learned in the round, under "Learned"; tap
+  one to put it back in My positions.
+- Putting a position back from Learned (in Learned, on the position, or in the quiz) asks
+  whether to reset its right, missed and balance counters.
+- Quiz: after an answer, Played and Best are the same boxes as in the match review, and tapping
+  one shows that play on the board and in the list.
+- Quiz: when you lower the Learned balance (Settings → Quiz), you are asked whether to go through
+  My positions now and move the positions at the new balance to Learned.
+- Quiz menu: 10, 20, 30 or All questions, 10 first.
+- My positions: the average error of the saved positions is shown under the buttons.
+- Match Library: it keeps at most 100 games by default (Settings → Data and help: any number;
+  0 is no limit, with a warning for 0 and for more than 1000). The oldest game is deleted when a
+  new one is saved. The Library shows how many games it holds, with a cog to the setting. Positions
+  you saved from a deleted match stay.
+- Every saved position has an ID tag such as #AB012, the first tag shown. My positions and the
+  quiz filter has an "ID#" part to show a position by its ID.
+- New errors and New Marked: Keep and Delete are chips, midway between the Played / Best boxes and
+  the arrows row (portrait), or between the arrows row and the edge of the screen (landscape).
+- Three new labels for a blunder: Missed hit, Missed point and Missed running, when the best play
+  hit, made a point or moved a checker out of the opponent's home board, you did not, and no
+  play without it was acceptable. Positions saved before this version don't get them.
+
 ## 0.8.2 — 2026-11-06 (build 65)
 
 - Played and Best in review: always two boxes side by side, so the board and buttons no longer

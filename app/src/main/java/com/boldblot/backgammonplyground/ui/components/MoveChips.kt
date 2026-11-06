@@ -5,7 +5,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Casino
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Icon
@@ -35,11 +40,62 @@ fun MoveChips(canUndo: Boolean, canDone: Boolean, onUndo: () -> Unit, onDone: ()
     }
 }
 
+/**
+ * Roll and Double as chips in the place of [MoveChips], while the Roll / Double buttons are on the board
+ * (before the roll). Double is greyed out when the cube can't be turned.
+ */
+@Composable
+fun RollChips(canRoll: Boolean, canDouble: Boolean, onRoll: () -> Unit, onDouble: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = negativeChipColors()
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        AssistChip(
+            onClick = onRoll, enabled = canRoll, label = { Text("Roll", maxLines = 1) }, colors = colors, border = null,
+            leadingIcon = { Icon(Icons.Default.Casino, null, Modifier.size(AssistChipDefaults.IconSize)) },
+        )
+        AssistChip(
+            onClick = onDouble, enabled = canDouble, label = { Text("Double", maxLines = 1) }, colors = colors, border = null,
+            leadingIcon = { Icon(Icons.Default.KeyboardDoubleArrowUp, null, Modifier.size(AssistChipDefaults.IconSize)) },
+        )
+    }
+}
+
+/** Back to the game from an earlier position: a negative chip in the place of the move chips. */
+@Composable
+fun BackToGameChip(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    AssistChip(
+        onClick = onClick, label = { Text("Back to game", maxLines = 1) }, colors = negativeChipColors(), border = null, modifier = modifier,
+        leadingIcon = { Icon(Icons.Default.PlayArrow, null, Modifier.size(AssistChipDefaults.IconSize)) },
+    )
+}
+
+/**
+ * Arrows to the position of the previous / next decision. Both always take their place (greyed out when they
+ * can't be used), so they never move when pressed.
+ */
+@Composable
+fun ViewArrows(canBack: Boolean, canForward: Boolean, onBack: () -> Unit, onForward: () -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier) {
+        androidx.compose.material3.IconButton(onClick = onBack, enabled = canBack, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Previous position")
+        }
+        androidx.compose.material3.IconButton(onClick = onForward, enabled = canForward, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, "Next position")
+        }
+    }
+}
+
 /** The mark for a position: on, the player's next decision is marked for review. */
 @Composable
 fun MarkChip(on: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    // Pressed: negative colours (as Undo and Done), so it is easy to see; unpressed stays as it was.
     androidx.compose.material3.FilterChip(
         selected = on, onClick = onClick, enabled = enabled, modifier = modifier,
+        colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+            selectedContainerColor = scheme.inverseSurface, selectedLabelColor = scheme.inverseOnSurface,
+            selectedLeadingIconColor = scheme.inverseOnSurface, selectedTrailingIconColor = scheme.inverseOnSurface,
+            disabledSelectedContainerColor = scheme.inverseSurface.copy(alpha = 0.25f),
+        ),
         label = { Icon(BlotIcon, if (on) "Marked" else "Mark this position", Modifier.size(AssistChipDefaults.IconSize)) },
     )
 }

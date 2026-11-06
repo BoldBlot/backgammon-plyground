@@ -55,6 +55,8 @@ fun LearnedScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Unit)
     var list by remember { mutableStateOf<List<SavedPosition>?>(null) }
     var menu by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    // Positions to put back, waiting for the answer about their counters.
+    var putBack by remember { mutableStateOf<List<Long>?>(null) }
     LaunchedEffect(refresh) { list = app.positions.learned() }
     Scaffold(
         topBar = {
@@ -66,7 +68,7 @@ fun LearnedScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Unit)
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("Put all back") }, onClick = {
                             menu = false
-                            scope.launch { app.positions.unlearn(list.orEmpty().map { it.id }); refresh++ }
+                            putBack = list.orEmpty().map { it.id }
                         })
                         DropdownMenuItem(text = { Text("Delete all") }, onClick = { menu = false; confirmClear = true })
                     }
@@ -83,7 +85,7 @@ fun LearnedScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Unit)
         LazyColumn(Modifier.padding(padding).fillMaxSize()) {
             item {
                 Text(
-                    "Positions you learned in the quiz (Settings → My positions → Quiz → Move to Learned). They are out of the quiz " +
+                    "Positions you learned in the quiz (Settings → Quiz → Move to Learned). They are out of the quiz " +
                         "and the folders; put one back to have it asked again. The newest ${s.learnedKeep} are kept, older ones are deleted.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(16.dp),
@@ -93,7 +95,7 @@ fun LearnedScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Unit)
             items(l, key = { it.id }) { p ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) { PositionRow(p, s) { onOpen(p.id) } }
-                    IconButton(onClick = { scope.launch { app.positions.unlearn(listOf(p.id)); refresh++ } }) {
+                    IconButton(onClick = { putBack = listOf(p.id) }) {
                         Icon(Icons.AutoMirrored.Filled.Undo, "Put back in My positions")
                     }
                     IconButton(onClick = { scope.launch { app.positions.remove(p.id); refresh++ } }) {
@@ -101,6 +103,12 @@ fun LearnedScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Unit)
                     }
                 }
             }
+        }
+    }
+    putBack?.let { ids ->
+        PutBackDialog(ids.size, onDismiss = { putBack = null }) { reset ->
+            putBack = null
+            scope.launch { app.positions.unlearn(ids, reset); refresh++ }
         }
     }
     if (confirmClear) AlertDialog(
@@ -114,5 +122,30 @@ fun LearnedScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Unit)
             }) { Text("Delete") }
         },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+    )
+}
+
+/**
+ * Asked when positions leave Learned: whether their quiz counters (right, missed, balance) start again from zero,
+ * or stay as they were (a position already one answer from Learned again would go back at once).
+ */
+@Composable
+fun PutBackDialog(count: Int, onDismiss: () -> Unit, onChoose: (resetCounters: Boolean) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (count == 1) "Put back in My positions?" else "Put $count positions back in My positions?") },
+        text = {
+            Text(
+                "Reset the counters of right and missed answers and the balance? Reset: ${if (count == 1) "it starts" else "they start"} " +
+                    "again from zero. Keep: ${if (count == 1) "it keeps" else "they keep"} the counts ${if (count == 1) "it" else "they"} had.",
+            )
+        },
+        confirmButton = {
+            Column(horizontalAlignment = Alignment.End) {
+                TextButton(onClick = { onChoose(true) }) { Text("Reset counters") }
+                TextButton(onClick = { onChoose(false) }) { Text("Keep counters") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
     )
 }

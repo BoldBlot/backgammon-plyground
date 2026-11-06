@@ -70,6 +70,7 @@ class PlyGroundApp : Application() {
             if (!filed && s.errorsMode == ErrorsMode.TOP_X && repository.matchOver(b.entity.matchId)) fileTopX(b.entity.matchId)
             if (s.errorsMode != ErrorsMode.MANUAL) trimNewErrors(s.excludedKeep)
         }
+        repository.libraryMax = { settings.settings.first().libraryMax }
         repository.onMatchFinished = { id -> if (settings.settings.first().errorsMode == ErrorsMode.TOP_X) fileTopX(id) }
         // Analysis uses the engine chosen in Settings.
         appScope.launch {

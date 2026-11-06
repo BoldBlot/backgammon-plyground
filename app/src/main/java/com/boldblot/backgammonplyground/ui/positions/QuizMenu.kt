@@ -120,7 +120,7 @@ fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Uni
     var total by remember { mutableIntStateOf(0) }
     var folders by rememberSaveable { mutableStateOf(preselected.toSet()) }
     var filter by rememberSaveable { mutableStateOf(preFilter) }
-    var limit by rememberSaveable { mutableIntStateOf(0) }
+    var limit by rememberSaveable { mutableIntStateOf(10) }
     var order by rememberSaveable { mutableStateOf(QuizOrder.RANDOM) }
     var savedNote by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -175,14 +175,14 @@ fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Uni
             )
             LabelFilterButton(
                 s.labelKeys, filter, { filter = it }, Modifier.padding(top = 4.dp), quiz = true,
-                count = { f -> pool.count { passesFilter(it, f, s) } }, total = pool.size,
+                count = { f -> pool.count { passesFilter(it, f, s) } }, total = pool.size, ids = true,
             )
             if (s.visible(filter).isNotEmpty()) Text(Labels.folderName(s.visible(filter)), style = MaterialTheme.typography.bodySmall)
             QuizFilter.text(filter).takeIf { it.isNotEmpty() }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             Spacer(Modifier.height(12.dp))
             Text("Questions", style = MaterialTheme.typography.titleMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(0 to "All", 10 to "10", 20 to "20").forEach { (n, label) ->
+                listOf(10 to "10", 20 to "20", 30 to "30", 0 to "All").forEach { (n, label) ->
                     FilterChip(selected = limit == n, onClick = { limit = n }, label = { Text(label) })
                 }
             }

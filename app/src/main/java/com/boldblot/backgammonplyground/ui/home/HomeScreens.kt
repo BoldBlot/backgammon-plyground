@@ -11,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Checkbox
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.ui.platform.LocalContext
@@ -444,6 +445,8 @@ fun HistoryScreen(
     app: PlyGroundApp, onReview: (Long) -> Unit, onBack: () -> Unit,
     /** An imported match's games, for the background analysis. */
     onImported: (List<GameKey>) -> Unit,
+    /** The cog: Settings → Data and help, where the library's limit is. */
+    onSettings: () -> Unit = {},
 ) {
     var matches by remember { mutableStateOf<List<MatchEntity>?>(null) }
     var toDelete by remember { mutableStateOf<MatchEntity?>(null) }
@@ -554,6 +557,18 @@ fun HistoryScreen(
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             val list = matches
+            if (list != null && !selecting) {
+                val max = settings?.libraryMax ?: 100
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Games in the library: ${list.size}" + if (max > 0) " of $max" else " (no limit)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (max in 1 until list.size) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Library limit (Settings)") }
+                }
+            }
             when {
                 list == null -> Unit
                 list.isEmpty() -> Text("No games played yet.", Modifier.padding(24.dp))
@@ -814,7 +829,7 @@ private fun HistoryRow(
 /** The pages of Settings, each opened from the Settings list. */
 enum class SettingsGroup(val title: String) {
     TRAINING("Training"), ANALYSIS("Analysis"), ENGINE("Advanced engine settings"), PLAY("Play"), DISPLAY("Display"),
-    POSITIONS("My positions"), DATA("Data and help"),
+    QUIZ("Quiz"), POSITIONS("My positions"), DATA("Data and help"),
 }
 
 /** One line under a group's name in the Settings list: its main values. */
@@ -844,7 +859,8 @@ private fun SettingsGroup.summary(s: Settings): String = when (this) {
         s.boardTheme.label, "pip counts".takeIf { s.showPips }, "meter: ${s.meter.label.lowercase()}".takeIf { s.meter != MeterMode.OFF },
         "errors in mEq".takeIf { s.errorUnit == ErrorUnit.MEQ },
     ).joinToString(" · ")
-    SettingsGroup.POSITIONS -> "Quiz, labels (${s.labelKeys.size} in use), new errors, autofilters"
+    SettingsGroup.QUIZ -> "Right answers, cube questions, repeating, Learned"
+    SettingsGroup.POSITIONS -> "New errors, labels (${s.labelKeys.size} in use), autofilters"
     SettingsGroup.DATA -> "Your name in exported files, clearing data, error report"
 }
 
@@ -882,8 +898,9 @@ fun SettingsScreen(
                 SettingsGroup.ENGINE -> EngineSettings(s, ::update)
                 SettingsGroup.PLAY -> PlaySettings(s, ::update)
                 SettingsGroup.DISPLAY -> DisplaySettings(s, ::update)
+                SettingsGroup.QUIZ -> QuizSettings(app, s, ::update)
                 SettingsGroup.POSITIONS -> PositionsSettings(app, s, ::update) { clear = it }
-                SettingsGroup.DATA -> DataSettings(s, ::update) { clear = it }
+                SettingsGroup.DATA -> DataSettings(app, s, ::update) { clear = it }
             }
         }
     }
@@ -960,22 +977,14 @@ private fun TrainingSettings(s: Settings, update: (f: (Settings) -> Settings) ->
     Note("PR, rating, luck and errors for both players. The end of a match always shows it, and the game's ⋮ menu has the last game's summary.")
 }
 
-/** Settings → My positions: the quiz, the labels (automatic ones on or off, the player's own), New errors filing and the autofilters. */
+/** Settings → Quiz: what counts as a right answer, the cube questions, repeating missed positions, Learned. */
 @Composable
-private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) -> Settings) -> Unit, onClear: (ClearKind) -> Unit) {
+private fun QuizSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) -> Settings) -> Unit) {
     val scope = rememberCoroutineScope()
     val unit = LocalErrorUnit.current
     val custom = s.trainingPlan == com.boldblot.backgammonplyground.data.TrainingPlan.CUSTOM
-    Header("Training plan")
-    Chips("Plan", com.boldblot.backgammonplyground.data.TrainingPlan.entries, s.trainingPlan, { it.label }) { v -> update { it.withPlan(v) } }
-    Note(
-        s.trainingPlan.level?.let { level ->
-            val l = errWithUnit(level.toDouble(), unit)
-            "Mistakes of at least $l are kept for My positions, and a quiz answer costing up to $l counts as right."
-        } ?: "Set the level for New errors and the level for the quiz separately, below.",
-    )
-    HorizontalDivider(Modifier.padding(vertical = 12.dp))
-    Header("Quiz")
+    Header("Right answers")
+    if (!custom) Note("The level for a right answer follows the training plan (Settings → My positions → New errors). Choose Custom there to set it here.")
     if (custom) {
         Chips("A right answer is", QuizCorrect.entries, s.quizCorrect, { it.label }) { v -> update { it.copy(quizCorrect = v) } }
         when (s.quizCorrect) {
@@ -1026,8 +1035,32 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
     Toggle("Repeat missed positions until all are right", s.quizRepeat) { v -> update { it.copy(quizRepeat = v) } }
     Note("Each position counts its right and missed answers; their balance is right minus missed. The Filter menus can pick positions by them.")
     Toggle("Move to Learned", s.quizAutoDelete) { v -> update { it.copy(quizAutoDelete = v) } }
+    // A lower threshold: offer to go through the positions now (otherwise each is checked at its next answer).
+    var lowerTo by remember { mutableStateOf<Int?>(null) }
     Chips("When the balance reaches", listOf(2, 3, 4, 5, 10), s.quizDeleteAt, { "+$it" }, enabled = s.quizAutoDelete) { v ->
+        if (v < s.quizDeleteAt) lowerTo = v
         update { it.copy(quizDeleteAt = v) }
+    }
+    lowerTo?.let { v ->
+        val waiting by produceState<Int?>(null, v) { value = app.positions.atBalance(v).size }
+        AlertDialog(
+            onDismissRequest = { lowerTo = null },
+            title = { Text("Go through My positions now?") },
+            text = {
+                Text(
+                    (waiting?.let { n -> if (n == 0) "No position is at +$v or more yet. " else "$n position${if (n == 1) " is" else "s are"} at +$v or more. " } ?: "") +
+                        (if (s.quizLearned) "Move them to Learned now? " else "Learned is off, so they would be deleted from My positions. Delete them now? ") +
+                        "If not, each one is checked after the next time you answer it.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    lowerTo = null
+                    scope.launch { app.positions.settleAtBalance(v, s.quizLearned, s.learnedKeep) }
+                }, enabled = (waiting ?: 0) > 0) { Text(if (s.quizLearned) "Move to Learned" else "Delete them") }
+            },
+            dismissButton = { TextButton(onClick = { lowerTo = null }) { Text("Not now") } },
+        )
     }
     Note(
         when {
@@ -1049,6 +1082,82 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
     Header("Quick quiz")
     Chips("Button beside My positions", listOf(false, true), s.quickQuizRight, { if (it) "Right" else "Left" }) { v -> update { it.copy(quickQuizRight = v) } }
     Note("The ⚡ button on the main screen starts the quick quiz: all positions, 10, random, or what you saved with \"Save as quick quiz\" in the quiz menu.")
+}
+
+/** Settings → My positions: New errors (with the training plan), the labels (automatic ones on or off, the player's own) and the autofilters. */
+@Composable
+private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) -> Settings) -> Unit, onClear: (ClearKind) -> Unit) {
+    val scope = rememberCoroutineScope()
+    val unit = LocalErrorUnit.current
+    val custom = s.trainingPlan == com.boldblot.backgammonplyground.data.TrainingPlan.CUSTOM
+    Header("New errors")
+    Text("Training plan", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp))
+    Chips("Plan", com.boldblot.backgammonplyground.data.TrainingPlan.entries, s.trainingPlan, { it.label }) { v -> update { it.withPlan(v) } }
+    Note(
+        s.trainingPlan.level?.let { level ->
+            val l = errWithUnit(level.toDouble(), unit)
+            "Mistakes of at least $l are kept for My positions, and a quiz answer costing up to $l counts as right."
+        } ?: "Set the level for New errors and the level for the quiz separately, below.",
+    )
+    Text("Method", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+    // A plan fixes the level: only the methods that use it as it is.
+    val methods = if (custom) ErrorsMode.entries else listOf(ErrorsMode.MANUAL, ErrorsMode.AUTOMATIC)
+    Chips("Method", methods, s.errorsMode, { it.label }) { v -> update { it.copy(errorsMode = v) } }
+    // The minimum, in the error unit of Settings → Display: up to 0.5, only enormous blunders.
+    if (custom) Text(
+        "Minimum error: ${errWithUnit(s.errorMin.toDouble(), unit)}" + when {
+            s.errorMin <= XgRules.ERROR_THRESHOLD + 0.0001f -> " (every error)"
+            s.errorMin <= XgRules.BLUNDER_THRESHOLD + 0.0001f && s.errorMin >= XgRules.BLUNDER_THRESHOLD - 0.0001f -> " (blunders)"
+            else -> ""
+        },
+        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp),
+    )
+    if (custom) Slider(
+        value = s.errorMin, valueRange = NewErrors.MIN_ERROR..NewErrors.MAX_ERROR, steps = 95,
+        onValueChange = { v -> update { it.copy(errorMin = (Math.round(v * 200) / 200f).coerceIn(NewErrors.MIN_ERROR, NewErrors.MAX_ERROR)) } },
+    )
+    when (s.errorsMode) {
+        ErrorsMode.MANUAL -> Note(
+            "Manual: errors of at least the minimum go to New errors (the button next to Quiz). Go through them there " +
+                "and add the ones you keep to My positions.",
+        )
+        ErrorsMode.AUTOMATIC -> Note("Errors of at least the minimum go straight to My positions, sorted as set below.")
+        ErrorsMode.ADAPTIVE -> {
+            val average by produceState<Float?>(null, s.errorsMode) { value = libraryAverageError(app) }
+            Text(
+                "Share of the library's average: ${Math.round(s.adaptiveRatio * 100)}%",
+                style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp),
+            )
+            Slider(
+                value = s.adaptiveRatio, valueRange = 0.5f..1.5f, steps = 19,
+                onValueChange = { v -> update { it.copy(adaptiveRatio = Math.round(v * 20) / 20f) } },
+            )
+            val now = NewErrors.adaptiveThreshold(s.errorMin, s.adaptiveRatio, average)
+            Note(
+                "Experimental. An error goes straight to My positions when it costs more than ${Math.round(s.adaptiveRatio * 100)}% " +
+                    "of the average error in My positions, and at least the minimum. As the library fills with bigger " +
+                    "errors, the bar rises. Library average now: " +
+                    (average?.let { errWithUnit(it.toDouble(), unit) } ?: "no errors yet") + " · bar now: ${errWithUnit(now.toDouble(), unit)}.",
+            )
+        }
+        ErrorsMode.TOP_X -> {
+            Chips("Errors per match", listOf(1, 2, 3, 5, 10), s.topX, { "$it" }) { v -> update { it.copy(topX = v) } }
+            Note(
+                "At the end of each match (a money session: when you end it) its ${s.topX} biggest errors of at least the " +
+                    "minimum go to My positions, checker and cube together.",
+            )
+        }
+    }
+    if (s.errorsMode != ErrorsMode.MANUAL) {
+        Chips("Sort into", ErrorsSort.entries, s.errorsSort, { it.label }) { v -> update { it.copy(errorsSort = v) } }
+        Note("The Checker and Cube folders are made when needed.")
+        Chips("New errors keeps the newest", listOf(20, 50, 100, 200), s.excludedKeep, { "$it" }) { v -> update { it.copy(excludedKeep = v) } }
+        Note(
+            "The errors the method leaves out wait in New errors (next to Quiz in My positions), so you can still add " +
+                "one by hand. The oldest go when there are more.",
+        )
+    }
+    Note("Your autofilters (below) take the errors they match in both cases.")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Automatic labels")
     Note(
@@ -1133,66 +1242,6 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
     }
-    HorizontalDivider(Modifier.padding(vertical = 12.dp))
-    Header("New errors")
-    // A plan fixes the level: only the methods that use it as it is.
-    val methods = if (custom) ErrorsMode.entries else listOf(ErrorsMode.MANUAL, ErrorsMode.AUTOMATIC)
-    Chips("Method", methods, s.errorsMode, { it.label }) { v -> update { it.copy(errorsMode = v) } }
-    // The minimum, in the error unit of Settings → Display: up to 0.5, only enormous blunders.
-    if (custom) Text(
-        "Minimum error: ${errWithUnit(s.errorMin.toDouble(), unit)}" + when {
-            s.errorMin <= XgRules.ERROR_THRESHOLD + 0.0001f -> " (every error)"
-            s.errorMin <= XgRules.BLUNDER_THRESHOLD + 0.0001f && s.errorMin >= XgRules.BLUNDER_THRESHOLD - 0.0001f -> " (blunders)"
-            else -> ""
-        },
-        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp),
-    )
-    if (custom) Slider(
-        value = s.errorMin, valueRange = NewErrors.MIN_ERROR..NewErrors.MAX_ERROR, steps = 95,
-        onValueChange = { v -> update { it.copy(errorMin = (Math.round(v * 200) / 200f).coerceIn(NewErrors.MIN_ERROR, NewErrors.MAX_ERROR)) } },
-    )
-    when (s.errorsMode) {
-        ErrorsMode.MANUAL -> Note(
-            "Manual: errors of at least the minimum go to New errors (the button next to Quiz). Go through them there " +
-                "and add the ones you keep to My positions.",
-        )
-        ErrorsMode.AUTOMATIC -> Note("Errors of at least the minimum go straight to My positions, sorted as set below.")
-        ErrorsMode.ADAPTIVE -> {
-            val average by produceState<Float?>(null, s.errorsMode) { value = libraryAverageError(app) }
-            Text(
-                "Share of the library's average: ${Math.round(s.adaptiveRatio * 100)}%",
-                style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp),
-            )
-            Slider(
-                value = s.adaptiveRatio, valueRange = 0.5f..1.5f, steps = 19,
-                onValueChange = { v -> update { it.copy(adaptiveRatio = Math.round(v * 20) / 20f) } },
-            )
-            val now = NewErrors.adaptiveThreshold(s.errorMin, s.adaptiveRatio, average)
-            Note(
-                "Experimental. An error goes straight to My positions when it costs more than ${Math.round(s.adaptiveRatio * 100)}% " +
-                    "of the average error in My positions, and at least the minimum. As the library fills with bigger " +
-                    "errors, the bar rises. Library average now: " +
-                    (average?.let { errWithUnit(it.toDouble(), unit) } ?: "no errors yet") + " · bar now: ${errWithUnit(now.toDouble(), unit)}.",
-            )
-        }
-        ErrorsMode.TOP_X -> {
-            Chips("Errors per match", listOf(1, 2, 3, 5, 10), s.topX, { "$it" }) { v -> update { it.copy(topX = v) } }
-            Note(
-                "At the end of each match (a money session: when you end it) its ${s.topX} biggest errors of at least the " +
-                    "minimum go to My positions, checker and cube together.",
-            )
-        }
-    }
-    if (s.errorsMode != ErrorsMode.MANUAL) {
-        Chips("Sort into", ErrorsSort.entries, s.errorsSort, { it.label }) { v -> update { it.copy(errorsSort = v) } }
-        Note("The Checker and Cube folders are made when needed.")
-        Chips("New errors keeps the newest", listOf(20, 50, 100, 200), s.excludedKeep, { "$it" }) { v -> update { it.copy(excludedKeep = v) } }
-        Note(
-            "The errors the method leaves out wait in New errors (next to Quiz in My positions), so you can still add " +
-                "one by hand. The oldest go when there are more.",
-        )
-    }
-    Note("Your autofilters (below) take the errors they match in both cases.")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("My autofilters")
     Note(
@@ -1468,6 +1517,10 @@ private fun PlaySettings(s: Settings, update: (f: (Settings) -> Settings) -> Uni
 
 @Composable
 private fun DisplaySettings(s: Settings, update: (f: (Settings) -> Settings) -> Unit) {
+    Toggle("Arrows to past positions", s.pastPositions) { v -> update { it.copy(pastPositions = v) } }
+    Note("In a game, back and forward arrows beside the chips show the positions of your earlier turns, to mark one with the blot. Off: no arrows.")
+    Toggle("Match score as away", s.scoreAway) { v -> update { it.copy(scoreAway = v) } }
+    Note("In My positions, the quiz and exports, a match position reads \"2-away, 3-away\" instead of the score and the length of the match.")
     Toggle("Show pip counts", s.showPips) { v -> update { it.copy(showPips = v) } }
     Chips("Winning chances meter (a hint!)", MeterMode.entries, s.meter, { it.label }) { v -> update { it.copy(meter = v) } }
     Note("Your chances on the left, the computer's on the right; the darker parts are gammons and backgammons. With Bar, tap it to see the numbers.")
@@ -1483,7 +1536,7 @@ private fun DisplaySettings(s: Settings, update: (f: (Settings) -> Settings) -> 
 }
 
 @Composable
-private fun DataSettings(s: Settings, update: (f: (Settings) -> Settings) -> Unit, onClear: (ClearKind) -> Unit) {
+private fun DataSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) -> Settings) -> Unit, onClear: (ClearKind) -> Unit) {
     Header("Exported files")
     var name by remember { mutableStateOf(s.playerName) }
     OutlinedTextField(
@@ -1493,6 +1546,36 @@ private fun DataSettings(s: Settings, update: (f: (Settings) -> Settings) -> Uni
         supportingText = { Text("Shown in .mat files for eXtreme Gammon and GNU Backgammon; the computer is named after its engine and PR, e.g. \"PureTD PR 4\" or \"GNU BG PR <1\".") },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
+    )
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Header("Match Library")
+    var limit by remember { mutableStateOf(s.libraryMax.toString()) }
+    val count by produceState(0, s.libraryMax) { value = app.repository.history().size }
+    OutlinedTextField(
+        value = limit,
+        onValueChange = { v ->
+            limit = v.filter { it.isDigit() }.take(6)
+            update { it.copy(libraryMax = limit.toIntOrNull() ?: 0) }
+        },
+        label = { Text("Most games kept (0 = no limit)") },
+        supportingText = { Text("Now ${count} game${if (count == 1) "" else "s"} in the library.") },
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    val max = limit.toIntOrNull() ?: 0
+    if (limit.isNotEmpty() && (max == 0 || max > 1000)) {
+        Text(
+            "Storing too many games may cause unexpected phone behaviour if it runs out of memory space.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+        )
+    }
+    if (max in 1 until count) {
+        Note("The library holds $count games, more than this limit: the oldest ${count - max} are deleted when the next game is saved.")
+    }
+    Note(
+        "When the library is full, the oldest game is deleted to make room for a new one. Deleting a match from the library " +
+            "doesn't delete the positions you saved from it: they stay in My positions.",
     )
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Data")

@@ -57,10 +57,14 @@ fun LabelFilterButton(
      */
     count: ((Set<String>) -> Int)? = null,
     total: Int = 0,
+    /** Also ID tags ("ID#"), for saved positions: any of the IDs typed in. */
+    ids: Boolean = false,
 ) {
     var open by remember { mutableStateOf(false) }
+    var typing by remember { mutableStateOf(false) }
     val quizKeys = if (quiz) QuizFilter.entries.map { it.key } else emptyList()
-    val on = selected.intersect((keys + quizKeys).toSet())
+    val known = (keys + quizKeys).toSet()
+    val on = selected.filterTo(HashSet()) { it in known || (ids && Labels.isId(it)) }
     val passing = if (count != null && on.isNotEmpty()) count(on) else null
     /** "Race (12)": the option's title and how many pass with it ticked. */
     fun title(text: String, key: String): String = if (count == null) text else "$text (${count(on + key)})"
@@ -96,6 +100,20 @@ fun LabelFilterButton(
                 DropdownMenuItem(text = { Text("Clear filter") }, onClick = { onChange(emptySet()); open = false })
                 HorizontalDivider()
             }
+            if (ids) {
+                Text(
+                    "ID#", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp),
+                )
+                on.filter { Labels.isId(it) }.sorted().forEach { k ->
+                    DropdownMenuItem(
+                        text = { Text(Labels.title(k)) },
+                        leadingIcon = { Checkbox(checked = true, onCheckedChange = null) },
+                        onClick = { onChange(on - k) },
+                    )
+                }
+                DropdownMenuItem(text = { Text("Add an ID…") }, onClick = { open = false; typing = true })
+            }
             keys.groupBy { Labels.group(it) }.forEach { (group, inGroup) ->
                 Text(
                     group.title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
@@ -123,7 +141,26 @@ fun LabelFilterButton(
                 }
             }
         }
+        if (typing) IdDialog(onDismiss = { typing = false }) { id -> typing = false; onChange(on + Labels.idKey(id)) }
     }
+}
+
+/** Asks for an ID tag ("AB012", with or without the #) to show only that position. */
+@Composable
+private fun IdDialog(onDismiss: () -> Unit, onDone: (String) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    val id = text.trim().removePrefix("#").uppercase()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Show a position by its ID") },
+        text = {
+            androidx.compose.material3.OutlinedTextField(
+                value = text, onValueChange = { text = it.take(12) }, singleLine = true, label = { Text("ID, e.g. #AB012") },
+            )
+        },
+        confirmButton = { TextButton(onClick = { onDone(id) }, enabled = id.isNotEmpty()) { Text("Add") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** A position's labels as small tags. */

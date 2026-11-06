@@ -162,7 +162,7 @@ fun SharePositionItems(
         )
     }.orEmpty()
     val label = analysis?.let { a -> a.label.ifBlank { a.checker?.label ?: a.cube?.label ?: "" } }?.ifBlank { null }
-    SharePositionItems(PositionIds.toXgid(p.setup.copy(doubled = p.doubled)), PositionShare.title(p), lines, capture, playedTag = "you", analysisLabel = label, noAnalysis = noAnalysis, onDone = onDone)
+    SharePositionItems(PositionIds.toXgid(p.setup.copy(doubled = p.doubled)), PositionShare.title(p, com.boldblot.backgammonplyground.ui.components.LocalScoreAway.current), lines, capture, playedTag = "you", analysisLabel = label, noAnalysis = noAnalysis, onDone = onDone)
 }
 
 /** The share menu's entries: [xgid] as text (if any), the board picture, and the board with [lines] (if any). */
@@ -370,19 +370,26 @@ object PositionShare {
         }
         text(title.substring(0, m.range.first))
         checker(checkers.human, checkers.humanRim)
-        text("${m.groupValues[1]}\u2013${m.groupValues[2]}")
+        text(if (m.groupValues[1].isNotEmpty()) "${m.groupValues[1]}\u2013${m.groupValues[2]}" else "${m.groupValues[3]}-away, ${m.groupValues[4]}-away")
         at += size * 0.2f
         checker(checkers.cpu, checkers.cpuRim)
         text(title.substring(m.range.last + 1).trimStart().let { if (it.isEmpty()) it else " $it" })
     }
 
+    /** "5-point match · 2-1", or with [away] "3-away, 4-away" (Settings → Display). */
+    private fun scoreHeading(matchLength: Int, score: List<Int>, away: Boolean): String = when {
+        matchLength == 0 -> "Money game"
+        away -> "${matchLength - score[0]}-away, ${matchLength - score[1]}-away"
+        else -> "$matchLength-point match · ${score[0]}-${score[1]}"
+    }
+
     /** The score in a heading: "2-1" after "N-point match · ". */
-    private val SCORE = Regex("""(?<=match · )(\d+)-(\d+)""")
+    private val SCORE = Regex("""(?<=match · )(\d+)-(\d+)|(\d+)-away, (\d+)-away""")
 
     /** The heading of a shared picture of saved position [p], as for a decision. */
-    fun title(p: StudyPosition): String = buildString {
+    fun title(p: StudyPosition, away: Boolean = false): String = buildString {
         val s = p.setup
-        append(if (s.matchLength == 0) "Money game" else "${s.matchLength}-point match · ${s.score[0]}-${s.score[1]}")
+        append(scoreHeading(s.matchLength, s.score, away))
         if (s.crawford) append(" Crawford")
         if (s.cube.value > 1) append(" · Cube ${s.cube.value}")
         p.dice?.let { append(" · Roll $it") }
@@ -390,8 +397,8 @@ object PositionShare {
     }
 
     /** "5-point match · 2-1 · Cube 2 · Roll 64" (or "Money game"), the heading of a shared picture. */
-    fun title(d: DecisionRecord, matchLength: Int): String = buildString {
-        append(if (matchLength == 0) "Money game" else "$matchLength-point match · ${d.score[0]}-${d.score[1]}")
+    fun title(d: DecisionRecord, matchLength: Int, away: Boolean = false): String = buildString {
+        append(scoreHeading(matchLength, d.score, away))
         if (d.crawford) append(" Crawford")
         if (d.cube.value > 1) append(" · Cube ${d.cube.value}")
         d.dice?.let { append(" · Roll $it") }

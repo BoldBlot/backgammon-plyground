@@ -3,7 +3,10 @@ package com.boldblot.backgammonplyground.core
 /** The groups of [AutoLabel]s, in the order they are listed and named. */
 /** [allOf]: the group's labels can all be true at once, so an autofilter needs each one it names ([Labels.matchesAll]). */
 enum class LabelGroup(val title: String, val allOf: Boolean = false) {
+    /** A saved position's ID tag (#AB012), derived from the position, never stored as a label. */
+    ID("ID#"),
     DECISION("Decision"), CUBE_SIDE("Cube side"), POSITION("Position"), GAME("Game"), SIZE("Size"),
+    MISSED("Missed", true),
     STAGE("Stage", true), STAKES("Stakes", true), WHOSE("Whose"), MARKED("Marked"),
     THEMES("Themes (rule of thumb)", true),
     /** The player's own labels. */
@@ -31,6 +34,9 @@ enum class AutoLabel(val title: String, val group: LabelGroup, val description: 
     BLUNDER("Blunder", LabelGroup.SIZE, "A mistake of XG's blunder size."),
     OPENING("Opening", LabelGroup.STAGE, "The first few moves: both pip counts are still 145 or more."),
     GAMMONISH("Gammonish", LabelGroup.STAKES, "Either side wins a gammon at least 20% of the time."),
+    MISSED_HIT("Missed hit", LabelGroup.MISSED, "A blunder that did not hit when the best play hit, and no play without a hit was acceptable."),
+    MISSED_POINT("Missed point", LabelGroup.MISSED, "A blunder that did not make a point when the best play made one, and no play without a point was acceptable."),
+    MISSED_RUNNING("Missed running", LabelGroup.MISSED, "A blunder that left the checkers in the opponent's home board when the best play moved one out, and no play that stays was acceptable."),
     MINE("Mine", LabelGroup.WHOSE, "Your own mistake."),
     OPPONENTS("Opponent's", LabelGroup.WHOSE, "The opponent's mistake (imported matches)."),
     MARKED("Marked", LabelGroup.MARKED, "You marked it while playing."),
@@ -47,13 +53,18 @@ enum class AutoLabel(val title: String, val group: LabelGroup, val description: 
  */
 object Labels {
     private const val MY = "my:"
+    private const val ID = "id:"
+
+    /** The key of ID tag [tag] ("AB012"), for the filter and the tags shown on a saved position. */
+    fun idKey(tag: String) = ID + tag.trim().uppercase()
+    fun isId(key: String) = key.startsWith(ID)
 
     fun myKey(name: String) = MY + name.trim()
     fun isMine(key: String) = key.startsWith(MY)
     fun auto(key: String): AutoLabel? = AutoLabel.entries.firstOrNull { it.name == key }
 
-    fun title(key: String): String = auto(key)?.title ?: key.removePrefix(MY)
-    fun group(key: String): LabelGroup = auto(key)?.group ?: LabelGroup.MINE
+    fun title(key: String): String = if (isId(key)) "#" + key.removePrefix(ID) else auto(key)?.title ?: key.removePrefix(MY)
+    fun group(key: String): LabelGroup = if (isId(key)) LabelGroup.ID else auto(key)?.group ?: LabelGroup.MINE
 
     /** [keys] in the order they are listed: by group, then as declared (own labels by name). */
     fun sorted(keys: Collection<String>): List<String> = keys.sortedWith(
@@ -92,6 +103,7 @@ object Labels {
         return compute(
             board = d.board, player = d.player, kind = d.kind, matchLength = matchLength, score = d.score,
             crawford = d.crawford, moves = listOfNotNull(d.move, best), probs = probs, error = error,
+            played = d.reviewMove, analysis = d.checker, factor = XgRules.errorFactor(matchLength),
         ).apply {
             when (opponent) {
                 true -> add(AutoLabel.OPPONENTS)
@@ -118,6 +130,8 @@ object Labels {
     private fun compute(
         board: Board, player: Int, kind: DecisionKind, matchLength: Int, score: List<Int>, crawford: Boolean,
         moves: List<Move>, probs: List<Float>?, error: Float?,
+        /** The play made and the analysis behind [error] (after [factor]), for the "missed" labels. */
+        played: Move? = null, analysis: CheckerAnalysis? = null, factor: Float = 1f,
     ): MutableSet<AutoLabel> {
         val out = mutableSetOf<AutoLabel>()
         val opp = Player.other(player)
@@ -140,6 +154,11 @@ object Labels {
         if (probs != null && probs.size >= 5 && (probs[1] >= 0.2f || probs[3] >= 0.2f)) out += AutoLabel.GAMMONISH
         if (board.bar(player) > 0) out += AutoLabel.ON_THE_BAR
         if (kind == DecisionKind.CHECKER && moves.any { hits(board, player, it) }) out += AutoLabel.HIT
+        if (kind == DecisionKind.CHECKER && played != null && analysis != null && error != null && XgRules.severity(error).atLeast(Severity.BLUNDER)) {
+            if (missed(analysis, played, factor) { hits(board, player, it) }) out += AutoLabel.MISSED_HIT
+            if (missed(analysis, played, factor) { makesPoint(board, player, it) }) out += AutoLabel.MISSED_POINT
+            if (missed(analysis, played, factor) { runs(it) }) out += AutoLabel.MISSED_RUNNING
+        }
         if (!race) {
             if (prime(board, player) >= 4 && prime(board, opp) >= 4) out += AutoLabel.PRIME_VS_PRIME
             for (side in listOf(player, opp)) {
@@ -170,6 +189,25 @@ object Labels {
         if (AutoLabel.POST_CRAWFORD.name in labels && matchGameLabel(matchLength, score, crawford) == AutoLabel.DMP) {
             labels - AutoLabel.POST_CRAWFORD.name + AutoLabel.DMP.name
         } else labels
+
+    /**
+     * True if the best play does what [does] asks (hits, makes a point, runs), the play made [played] does not,
+     * and neither does any other play in [analysis] that is acceptable (not itself an error).
+     */
+    private fun missed(analysis: CheckerAnalysis, played: Move, factor: Float, does: (Move) -> Boolean): Boolean {
+        val best = analysis.candidates.firstOrNull() ?: return false
+        if (!does(best.move) || does(played)) return false
+        return analysis.candidates.none { c -> !does(c.move) && !XgRules.severity((best.equity - c.equity) * factor).atLeast(Severity.ERROR) }
+    }
+
+    /** True if [move] makes a point: one that had fewer than two of [player]'s checkers has two or more after it. */
+    private fun makesPoint(board: Board, player: Int, move: Move): Boolean {
+        val after = board.applyMove(player, move)
+        return (0..23).any { board.count(player, it) < 2 && after.count(player, it) >= 2 }
+    }
+
+    /** True if [move] takes a checker out of the opponent's home board (indices 18..23) to the outside. */
+    private fun runs(move: Move): Boolean = move.steps.any { it.from in 18..23 && it.to < 18 }
 
     private fun hits(board: Board, player: Int, move: Move): Boolean {
         var b = board
