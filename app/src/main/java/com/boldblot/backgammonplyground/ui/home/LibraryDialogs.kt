@@ -43,8 +43,8 @@ fun looksLikeMatch(text: String): Boolean =
  * whether the opponent's mistakes go on the list too.
  */
 @Composable
-fun MatchImportDialog(match: MatImport.ParsedMatch, onDismiss: () -> Unit, onImport: (you: Int, both: Boolean) -> Unit) {
-    var you by remember { mutableIntStateOf(1) }
+fun MatchImportDialog(match: MatImport.ParsedMatch, defaultYou: Int = 1, onDismiss: () -> Unit, onImport: (you: Int, both: Boolean) -> Unit) {
+    var you by remember { mutableIntStateOf(defaultYou) }
     var both by remember { mutableStateOf(false) }
     val r = match.rules
     AlertDialog(

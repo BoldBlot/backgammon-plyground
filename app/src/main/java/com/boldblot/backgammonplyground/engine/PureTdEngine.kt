@@ -19,17 +19,24 @@ import com.boldblot.backgammonplyground.core.moneyJanowski
  * network; match cube decisions from the cube-aware match search ([MatchCubeSearch]: our match
  * Janowski and our own match equity table at its leaves), or that Janowski alone at 1-ply. The checker search, levels and luck are [SearchEngine]'s.
  */
-class PureTdEngine(private val handle: Long, private val met: MatchEquityTable = MatchEquityTable.DEFAULT) : SearchEngine() {
-    override val name: String get() = com.boldblot.backgammonplyground.core.EngineKind.PURETD.label
+class PureTdEngine(
+    private val handle: Long,
+    private val met: MatchEquityTable = MatchEquityTable.DEFAULT,
+    /** What an analysis records as its engine: "PureTD" for the wide net, "PureTD 4L" for the compact one. */
+    private val netName: String = com.boldblot.backgammonplyground.core.EngineKind.PURETD.label,
+) : SearchEngine() {
+    override val name: String get() = netName
 
 
     /**
-     * Experimental (off in the app): money checker plays scored with the cubeful network. Each
+     * Money checker plays (a setting, on by default; off here for tests) scored with the cubeful network. Each
      * position after a play is the opponent's turn, valued by the cube-aware money search (the
      * money cube decisions' search, cubeful network at its leaves) as deep as the prob5 search
      * would look; the mover's equity is minus the opponent's best (double or not).
      */
     @Volatile var cubefulCheckers: Boolean = false
+
+    override val rankingMode: Any? get() = cubefulCheckers
 
     // ---- positions ------------------------------------------------------------------------------
 

@@ -135,6 +135,15 @@ fun plyLabel(plies: Int): String = Depth.of(plies).label()
 /** Engines the app can play and analyze with. */
 enum class EngineKind(val label: String) { PURETD("PureTD"), GNUBG("GNU BG"), SAGE("Open Sage") }
 
+/**
+ * PureTD's two network sizes (Advanced engine settings). [engineName] is what an analysis records:
+ * the wide net keeps the plain "PureTD" every earlier analysis carries.
+ */
+enum class PureTdNet(val label: String, val cubeless: String, val cubeful: String, val engineName: String, val note: String) {
+    WIDE("Wide 5L", "prob5_wide.ptw", "cubeful_wide.ptw", "PureTD", "Five hidden layers (768, 768, 256, 256, 256). The strongest."),
+    COMPACT("Compact 4L", "prob5_compact.ptw", "cubeful_compact.ptw", "PureTD 4L", "Four hidden layers (512, 512, 256, 256): about 1.9 times faster, but weaker in full games (6 to 13 mEq per game in tests)."),
+}
+
 /** An evaluation engine (PureTD, GNU Backgammon, Open Sage). All methods are blocking. */
 interface AnalysisEngine {
     /** "PureTD", "GNU BG", "Open Sage"; recorded with each analysis. */

@@ -50,4 +50,27 @@ class MatExportTest {
         val bearOff = Board.fromSides(IntArray(25).also { it[2] = 2 }, IntArray(25).also { it[10] = 15 })
         assertEquals("3/1 3/0", MatExport.formatMove(bearOff, Player.HUMAN, Move(listOf(Step(2, 0), Step(2, OFF)))))
     }
+
+    @Test
+    fun humanFirstSwapsTheColumnsAndRoundTrips() {
+        var g = GameState().openingRoll(humanDie = 1, cpuDie = 3)
+        val cpuMove = Move(listOf(step(8, 5), step(6, 5)))
+        g = g.record(DecisionRecord(Player.CPU, DecisionKind.CHECKER, g.board, g.cube, listOf(0, 0), false, dice = g.dice, move = cpuMove)).move(cpuMove, rules)
+        g = g.roll(Dice(4, 6))
+        val humanMove = Move(listOf(step(13, 9), step(24, 18)))
+        g = g.record(DecisionRecord(Player.HUMAN, DecisionKind.CHECKER, g.board, g.cube, listOf(0, 0), false, dice = g.dice, move = humanMove)).move(humanMove, rules)
+        val games = listOf(MatExport.Game(1, listOf(2, 1), g))
+        val names = listOf("Player", "gnubg World Class")
+
+        val first = MatExport.write(MatExport.Info(rules, names, 0, humanFirst = true), games).replace("\r\n", "\n")
+        assertEquals(true, first.contains("; [Player 1 \"Player\"]"))
+        assertEquals(true, first.contains("; [Player 2 \"gnubg World Class\"]"))
+        assertEquals(true, Regex(" Player : 2 +gnubg World Class : 1").containsMatchIn(first))
+        // The computer opened: its play is in the right column (after the 33 characters of the left one).
+        assertEquals(true, Regex("  1\\) {29,}31: 8/5 6/5").containsMatchIn(first))
+
+        // Read back: the columns are the players in file order, whichever way the file was written.
+        assertEquals(listOf("Player", "gnubg World Class"), MatImport.parse(first).names)
+        assertEquals(listOf("gnubg World Class", "Player"), MatImport.parse(MatExport.write(MatExport.Info(rules, names, 0), games)).names)
+    }
 }

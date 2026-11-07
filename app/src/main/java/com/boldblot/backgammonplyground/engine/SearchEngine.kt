@@ -38,6 +38,9 @@ abstract class SearchEngine : AnalysisEngine {
 
     // ---- checker play ---------------------------------------------------------------------------
 
+    /** Anything besides the position that changes the ranking (an engine's setting): part of the cache key. */
+    protected open val rankingMode: Any? get() = null
+
     /** The last ranking (a hint, the computer's own choice and the analysis often rank the same roll). */
     private var cacheKey: Any? = null
     private var cached: RankResult? = null
@@ -46,7 +49,7 @@ abstract class SearchEngine : AnalysisEngine {
         // The ranking depends on the played move only when a filter would leave it unsearched, so a
         // ranking of the same roll is reused when the played move is among its fully searched
         // candidates (the computer's choice, then the analysis of that choice; a hint, then the move).
-        val key = listOf(board, ctx, minOf(d1, d2), maxOf(d1, d2), plies)
+        val key = listOf(board, ctx, minOf(d1, d2), maxOf(d1, d2), plies, rankingMode)
         val hit = cached?.takeIf { cacheKey == key }
         if (hit != null) {
             val mover = ctx.onRoll

@@ -95,6 +95,7 @@ import com.boldblot.backgammonplyground.core.EngineKind
 import com.boldblot.backgammonplyground.core.MatchRules
 import com.boldblot.backgammonplyground.core.MistakeRate
 import com.boldblot.backgammonplyground.core.MoveFilter
+import com.boldblot.backgammonplyground.core.PureTdNet
 import com.boldblot.backgammonplyground.core.Opponent
 import com.boldblot.backgammonplyground.core.Labels
 import com.boldblot.backgammonplyground.core.AutoLabel
@@ -445,6 +446,8 @@ fun HistoryScreen(
     app: PlyGroundApp, onReview: (Long) -> Unit, onBack: () -> Unit,
     /** An imported match's games, for the background analysis. */
     onImported: (List<GameKey>) -> Unit,
+    /** Per match: decisions of its games still in the background analysis (a bar on its tile). */
+    analysisProgress: Map<Long, com.boldblot.backgammonplyground.ui.game.AnalysisProgress> = emptyMap(),
     /** The cog: Settings → Data and help, where the library's limit is. */
     onSettings: () -> Unit = {},
 ) {
@@ -488,7 +491,7 @@ fun HistoryScreen(
     suspend fun selectedFiles(): List<Pair<String, String>> = withContext(Dispatchers.IO) {
         MatFiles.unique(
             matches.orEmpty().filter { it.id in selected }.sortedBy { it.startedAt }.mapNotNull { m ->
-                app.repository.games(m.id).takeIf { it.isNotEmpty() }?.let { MatFiles.matchFile(m, it, playerName = settings?.playerName ?: "Player") }
+                app.repository.games(m.id).takeIf { it.isNotEmpty() }?.let { MatFiles.matchFile(m, it, playerName = settings?.playerName ?: "Player", humanFirst = settings?.meFirstInFiles ?: false) }
             },
         )
     }
@@ -587,6 +590,7 @@ fun HistoryScreen(
                         HistoryRow(
                             m, { if (selecting) toggle() else onReview(m.id) }, { toDelete = m },
                             onSummary = { summaryOf = m },
+                            progress = analysisProgress[m.id],
                             selection = if (selecting) checked else null,
                             onToggleStats = {
                                 scope.launch {
@@ -601,7 +605,7 @@ fun HistoryScreen(
         }
     }
     importing?.let { parsed ->
-        MatchImportDialog(parsed, onDismiss = { importing = null }) { you, both ->
+        MatchImportDialog(parsed, defaultYou = if (settings?.meFirstInFiles == true) 0 else 1, onDismiss = { importing = null }) { you, both ->
             importing = null
             scope.launch {
                 runCatching { MatImport.replay(parsed, you) }
@@ -778,6 +782,7 @@ private fun HistoryRow(
     selection: Boolean? = null,
     onToggleStats: () -> Unit,
     onSummary: () -> Unit,
+    progress: com.boldblot.backgammonplyground.ui.game.AnalysisProgress? = null,
 ) {
     val perf = m.humanPerformance?.let { runCatching { AppJson.decodeFromString<PerformanceTotals>(it) }.getOrNull() }
     val level = Opponent.name(m.cpuLevel)
@@ -802,6 +807,16 @@ private fun HistoryRow(
                         (if (m.imported) " · imported" else "") + if (m.inStats) "" else " · not in statistics",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (progress != null) {
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { (progress.total - progress.left).toFloat() / progress.total },
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    )
+                    Text(
+                        "Analyzing: ${progress.total - progress.left} of ${progress.total} decisions",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             perf?.pr?.let { Text("PR ${fmt(it)}", style = MaterialTheme.typography.titleSmall) }
             var menu by remember { mutableStateOf(false) }
@@ -1461,6 +1476,14 @@ private fun EngineSettings(s: Settings, update: (f: (Settings) -> Settings) -> U
             }
         }
     }
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Chips("PureTD network", PureTdNet.entries, s.puretdNet, { it.label }) { v -> update { it.copy(puretdNet = v) } }
+    Note(s.puretdNet.note + " Applies to play, hints and every analysis, and is recorded with each analysis.")
+    Toggle("Cubeful checker play (money games)", s.cubefulCheckers) { v -> update { it.copy(cubefulCheckers = v) } }
+    Note(
+        "On: money checker plays are scored by the opponent's cube-aware search with the cubeful network, so the cube " +
+            "is part of the choice (about 25% slower). Off: the cubeless network with a Janowski cube adjustment. Matches always use the latter.",
+    )
     val choices = threadChoices(cores)
     fun shown(n: Int, background: Boolean) =
         if (n > 0) n.coerceAtMost(cores) else if (background) EngineService.defaultBackgroundThreads(cores) else cores
@@ -1545,6 +1568,11 @@ private fun DataSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) 
         supportingText = { Text("Shown in .mat files for eXtreme Gammon and GNU Backgammon; the computer is named after its engine and PR, e.g. \"PureTD PR 4\" or \"GNU BG PR <1\".") },
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
+    )
+    Toggle("Me first in .mat files", s.meFirstInFiles) { v -> update { it.copy(meFirstInFiles = v) } }
+    Note(
+        "Exporting: you are Player 1 (the left column) and the computer Player 2. Importing: \"Which player are you?\" " +
+            "starts on the first player. Off (the default): the computer is first in exports and you start as the second player.",
     )
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Match Library")

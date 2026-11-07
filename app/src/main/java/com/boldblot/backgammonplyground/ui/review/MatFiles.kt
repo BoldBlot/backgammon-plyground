@@ -40,14 +40,14 @@ object MatFiles {
     /** [playerName]: the player's name in the file (Settings), cleaned by [fileName]. */
     fun matchFile(
         match: MatchEntity, games: List<Pair<GameEntity, GameState>>, only: Pair<GameEntity, GameState>? = null,
-        playerName: String = "Player",
+        playerName: String = "Player", humanFirst: Boolean = false,
     ): Pair<String, String> {
         val selected = if (only != null) listOf(only) else games
         val info = MatExport.Info(
             rules = MatchRules(match.length, match.useCube, match.jacoby, match.crawford),
             // By player index: human, computer. Short names, as XG and gnubg show them in narrow columns.
             names = listOf(fileName(playerName), Opponent.name(match.cpuLevel)),
-            startedAt = match.startedAt,
+            startedAt = match.startedAt, humanFirst = humanFirst,
         )
         val out = selected.map { (e, g) -> MatExport.Game(e.number, listOf(e.scoreBeforeHuman, e.scoreBeforeCpu), g) }
         val stamp = java.text.SimpleDateFormat("yyyy-MM-dd-HHmm", java.util.Locale.ROOT).format(java.util.Date(match.startedAt))

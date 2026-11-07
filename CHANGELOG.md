@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.7 — 2026-11-07 (build 70, internal test)
+
+- PureTD: the new networks of November 2026 (a small gain over the earlier ones in 80,000 games of
+  self-play), and a second, compact network pair: Settings → Advanced engine settings, "PureTD
+  network", Wide 5L (the default, strongest) or Compact 4L (about 1.9 times faster, but weaker in
+  full games). The network in use is named in each analysis ("PureTD 4L"). Analyses made with the
+  earlier network may differ slightly from a new analysis of the same position.
+- Money games: checker plays are now scored with the cubeful network (the cube is part of the choice)
+  for the computer's moves, hints and analysis. Settings → Advanced engine settings, "Cubeful checker
+  play (money games)" turns it off (about 25% slower when on). Matches are unchanged.
+- Library: a match that is being analyzed after an import shows a progress bar on its tile.
+- Game: a tap on the bear-off tray sets up a play that bears off two checkers (the best by 1-ply
+  when several do; the most there is when two is not possible).
+- Game: a long press on a point sets up a play that makes that point.
+- Settings → Data: "Me first in .mat files" writes you as Player 1 (left column) when exporting, and
+  preselects the first player as you when importing.
+
 ## 0.8.6 — 2026-11-06 (build 69)
 
 - Landscape game screen: Max Bearoff (without its icon here) and Keep rolling now share one row.

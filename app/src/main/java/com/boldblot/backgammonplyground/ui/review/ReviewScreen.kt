@@ -373,7 +373,7 @@ class ReviewViewModel(
         if (s.games.isEmpty()) return null
         return MatFiles.matchFile(
             match, s.games, only = if (wholeMatch) null else s.games.getOrNull(s.gameIndex) ?: return null,
-            playerName = s.settings.playerName,
+            playerName = s.settings.playerName, humanFirst = s.settings.meFirstInFiles,
         )
     }
 

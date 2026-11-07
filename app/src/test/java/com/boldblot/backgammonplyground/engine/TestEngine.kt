@@ -20,6 +20,18 @@ object TestEngine {
         PureTdEngine(handle)
     }
 
+    /** The compact 4L net pair ([com.boldblot.backgammonplyground.core.PureTdNet.COMPACT]). */
+    val compact: PureTdEngine? by lazy {
+        lib ?: return@lazy null
+        val dir = File(assets, "puretd")
+        val handle = PureTdNative.nativeOpen(
+            "$dir/prob5_compact.ptw", "$dir/cubeful_compact.ptw",
+            File(System.getProperty("java.io.tmpdir"), "puretd-bearoff-test.bin").path, Runtime.getRuntime().availableProcessors(),
+        )
+        check(handle != 0L) { "could not load the compact PureTD networks from $dir" }
+        PureTdEngine(handle, netName = com.boldblot.backgammonplyground.core.PureTdNet.COMPACT.engineName)
+    }
+
     val gnubg: GnubgEngine? by lazy {
         lib ?: return@lazy null
         GnubgEngine.open(File(assets, "gnubg").path)

@@ -14,6 +14,7 @@ import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.EngineKind
 import com.boldblot.backgammonplyground.core.MistakeRate
 import com.boldblot.backgammonplyground.core.MoveFilter
+import com.boldblot.backgammonplyground.core.PureTdNet
 import com.boldblot.backgammonplyground.core.Severity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -181,6 +182,8 @@ data class Settings(
     val cpuAnalysis: Boolean = false,
     /** The player's name in exported .mat files. */
     val playerName: String = "Player",
+    /** .mat files: the player first (left column) on export, and the first player preselected as "you" on import. */
+    val meFirstInFiles: Boolean = false,
     /** Checker-play analysis depth (XG plies 1-4) and which moves are searched to that depth. */
     val checkerPlies: Int = 3,
     val moveFilter: MoveFilter = MoveFilter.WIDE,
@@ -278,6 +281,9 @@ data class Settings(
     /** The background analysis runs during play (its own slot, PureTD only); otherwise between games. */
     val analyzeDuringPlay: Boolean = true,
     val backgroundPriority: BackgroundPriority = BackgroundPriority.LOW,
+    /** PureTD's network size, and money checker plays scored with its cubeful network (Advanced engine settings). */
+    val puretdNet: PureTdNet = PureTdNet.WIDE,
+    val cubefulCheckers: Boolean = true,
     /** In the Crawford game a "CRAWFORD" sign stands on the bar instead of the cube (off: the bar is empty). */
     val crawfordSign: Boolean = true,
     /** Errors in equity or in thousandths of it (mEq), everywhere. */
@@ -385,6 +391,7 @@ class SettingsStore(private val context: Context) {
         val opponentEngine = stringPreferencesKey("opponent_engine")
         val analysisEngine = stringPreferencesKey("analysis_engine")
         val playerName = stringPreferencesKey("player_name")
+        val meFirstInFiles = booleanPreferencesKey("me_first_in_files")
         val checkerPlies = intPreferencesKey("checker_plies")
         val moveFilter = stringPreferencesKey("move_filter")
         val welcomeSeen = stringPreferencesKey("welcome_shown_version")
@@ -450,6 +457,8 @@ class SettingsStore(private val context: Context) {
         val backgroundThreads = intPreferencesKey("background_threads")
         val analyzeDuringPlay = booleanPreferencesKey("analyze_during_play")
         val backgroundPriority = stringPreferencesKey("background_priority")
+        val puretdNet = stringPreferencesKey("puretd_net")
+        val cubefulCheckers = booleanPreferencesKey("cubeful_checkers")
         val crawfordSign = booleanPreferencesKey("crawford_sign")
         val errorUnit = stringPreferencesKey("error_unit")
         val quickCubeCheck = stringPreferencesKey("quick_cube_check")
@@ -494,6 +503,7 @@ class SettingsStore(private val context: Context) {
             opponentEngine = p.enum(Keys.opponentEngine, d.opponentEngine),
             analysisEngine = p.enum(Keys.analysisEngine, d.analysisEngine),
             playerName = p[Keys.playerName] ?: d.playerName,
+            meFirstInFiles = p[Keys.meFirstInFiles] ?: d.meFirstInFiles,
             checkerPlies = (p[Keys.checkerPlies] ?: d.checkerPlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
             // Pruning is on or off now; the older ±0.04 and ±0.08 settings become on.
             moveFilter = p.enum(Keys.moveFilter, d.moveFilter).let { if (it == MoveFilter.ALL) it else MoveFilter.WIDE },
@@ -558,6 +568,8 @@ class SettingsStore(private val context: Context) {
             backgroundThreads = p[Keys.backgroundThreads] ?: d.backgroundThreads,
             analyzeDuringPlay = p[Keys.analyzeDuringPlay] ?: d.analyzeDuringPlay,
             backgroundPriority = p.enum(Keys.backgroundPriority, d.backgroundPriority),
+            puretdNet = p.enum(Keys.puretdNet, d.puretdNet),
+            cubefulCheckers = p[Keys.cubefulCheckers] ?: d.cubefulCheckers,
             crawfordSign = p[Keys.crawfordSign] ?: d.crawfordSign,
             errorUnit = p.enum(Keys.errorUnit, d.errorUnit),
             quickCubeCheck = p.enum(Keys.quickCubeCheck, d.quickCubeCheck),
@@ -598,6 +610,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.opponentEngine] = s.opponentEngine.name
             p[Keys.analysisEngine] = s.analysisEngine.name
             p[Keys.playerName] = s.playerName
+            p[Keys.meFirstInFiles] = s.meFirstInFiles
             p[Keys.checkerPlies] = s.checkerPlies
             p[Keys.moveFilter] = s.moveFilter.name
             p[Keys.welcomeSeen] = s.welcomeSeen
@@ -656,6 +669,8 @@ class SettingsStore(private val context: Context) {
             p[Keys.backgroundThreads] = s.backgroundThreads
             p[Keys.analyzeDuringPlay] = s.analyzeDuringPlay
             p[Keys.backgroundPriority] = s.backgroundPriority.name
+            p[Keys.puretdNet] = s.puretdNet.name
+            p[Keys.cubefulCheckers] = s.cubefulCheckers
             p[Keys.crawfordSign] = s.crawfordSign
             p[Keys.errorUnit] = s.errorUnit.name
             p[Keys.quickCubeCheck] = s.quickCubeCheck.name

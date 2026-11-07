@@ -80,6 +80,8 @@ class PlyGroundApp : Application() {
                 engine.gameThreads = it.gameThreads.takeIf { n -> n > 0 } ?: engine.cores
                 engine.backgroundThreads = it.backgroundThreads.takeIf { n -> n > 0 } ?: EngineService.defaultBackgroundThreads(engine.cores)
                 engine.backgroundLow = it.backgroundPriority == BackgroundPriority.LOW
+                engine.net = it.puretdNet
+                engine.cubefulCheckers = it.cubefulCheckers
             }
         }
     }

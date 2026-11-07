@@ -36,6 +36,8 @@ object MatExport {
         /** Player names by player index ([Player.HUMAN], [Player.CPU]). */
         val names: List<String>,
         val startedAt: Long,
+        /** The player's column: false (the default) the computer left and the human right, true the human first (Settings → Data). */
+        val humanFirst: Boolean = false,
     )
 
     /** A game with the score before it (by player index). */
@@ -43,13 +45,14 @@ object MatExport {
 
     private const val NL = "\r\n"
 
-    /** Column of a player: the computer left (0), the human right (1). */
-    private fun column(player: Int) = if (player == Player.CPU) 0 else 1
+    /** Column of a player: by default the computer left (0), the human right (1); [humanFirst] swaps them. */
+    private fun column(player: Int, humanFirst: Boolean) = if ((player == Player.CPU) != humanFirst) 0 else 1
 
     fun write(info: Info, games: List<Game>): String = buildString {
         val time = Instant.ofEpochMilli(info.startedAt).atZone(ZoneId.systemDefault())
-        val left = info.names[Player.CPU]
-        val right = info.names[Player.HUMAN]
+        val first = if (info.humanFirst) Player.HUMAN else Player.CPU
+        val left = info.names[first]
+        val right = info.names[Player.other(first)]
         append("; [Site \"Backgammon PlyGround\"]").append(NL)
         append("; [Player 1 \"").append(left).append("\"]").append(NL)
         append("; [Player 2 \"").append(right).append("\"]").append(NL)
@@ -61,23 +64,24 @@ object MatExport {
         append("; [CubeLimit \"").append(if (info.rules.useCube) "1024" else "1").append("\"]").append(NL)
         append(NL)
         append(' ').append(info.rules.length).append(" point match").append(NL).append(NL)
-        for (g in games) writeGame(this, g, left, right)
+        for (g in games) writeGame(this, g, left, right, info.humanFirst)
     }
 
     private fun onOff(b: Boolean) = if (b) "On" else "Off"
 
-    private fun writeGame(out: StringBuilder, g: Game, left: String, right: String) {
+    private fun writeGame(out: StringBuilder, g: Game, left: String, right: String, humanFirst: Boolean) {
+        val first = if (humanFirst) Player.HUMAN else Player.CPU
         out.append(" Game ").append(g.number).append(NL)
-        val l = "$left : ${g.score[Player.CPU]}"
-        out.append(' ').append(l.padEnd(31)).append(right).append(" : ").append(g.score[Player.HUMAN]).append(NL)
+        val l = "$left : ${g.score[first]}"
+        out.append(' ').append(l.padEnd(31)).append(right).append(" : ").append(g.score[Player.other(first)]).append(NL)
 
         // Entries in playing order; the two players' entries strictly alternate.
         val entries = entries(g.state)
-        var slot = if (entries.isNotEmpty()) column(entries.first().first) else 0
+        var slot = if (entries.isNotEmpty()) column(entries.first().first, humanFirst) else 0
         var row = 1
         var lineOpen = false
         for ((player, text) in entries) {
-            val col = column(player)
+            val col = column(player, humanFirst)
             if (col != slot) {
                 // Never expected (players alternate); keep the columns right regardless.
                 if (slot == 0) { out.append(rowStart(row, "")); lineOpen = true } else { out.append(NL); row++; lineOpen = false }
@@ -98,7 +102,7 @@ object MatExport {
         val result = g.state.result
         if (result != null) {
             val text = "Wins ${result.points} point${if (result.points > 1) "s" else ""}"
-            if (column(result.winner) == 0) {
+            if (column(result.winner, humanFirst) == 0) {
                 if (lineOpen) out.append(NL)
                 out.append("      ").append(text).append(NL)
             } else {

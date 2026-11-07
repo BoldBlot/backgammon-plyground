@@ -9,6 +9,7 @@ import com.boldblot.backgammonplyground.core.AnalysisSettings
 import com.boldblot.backgammonplyground.core.WinningChances
 import com.boldblot.backgammonplyground.core.BAR
 import com.boldblot.backgammonplyground.core.MaxBearOff
+import com.boldblot.backgammonplyground.core.TapPlays
 import com.boldblot.backgammonplyground.core.Board
 import com.boldblot.backgammonplyground.core.CheckerAnalysis
 import com.boldblot.backgammonplyground.core.CpuLevel
@@ -273,7 +274,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             _state.update { it.copy(loading = false, inStats = inStats) }
             if (current != null) resume(current)
             // Decisions left for the background analysis when the app was closed.
-            pendingGames += repo.gamesWithPending()
+            enqueue(repo.gamesWithPending())
             startBackgroundAnalysis()
         }
     }
@@ -1027,11 +1028,44 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     fun tap(target: Int) {
         val st = _state.value
         val opts = options ?: return
-        if (st.busy || st.preview != null || target == OFF) return
+        if (st.busy || st.preview != null) return
+        if (target == OFF) { tapTray(); return }
         val ownChecker = if (target == BAR) st.board.bar(Player.HUMAN) > 0 else st.board.count(Player.HUMAN, target) > 0
         if (!ownChecker) return
         val step = if (st.moveComplete) null else opts.tapStep(st.steps, target, st.diceOrder)
         if (step == null) flashDice() else applySteps(st.steps + step)
+    }
+
+    /**
+     * Tap on the bear-off tray: sets up a play that bears off two checkers (or the most there is, when
+     * no play takes two off); the engine's 1-ply best when several do, as Max Bearoff chooses.
+     */
+    private fun tapTray() {
+        val st = _state.value
+        val m = st.match ?: return
+        val opts = options ?: return
+        if (m.game.phase != Phase.MOVING || m.game.turn != Player.HUMAN || st.moveComplete) return
+        choosePlay(m, TapPlays.bearOffTwo(m.game.board, Player.HUMAN, opts.distinctMoves))
+    }
+
+    /** Long press on a point: sets up a play that makes it (two or more of the player's checkers there). */
+    fun makePoint(target: Int) {
+        val st = _state.value
+        val m = st.match ?: return
+        val opts = options ?: return
+        if (st.busy || st.preview != null || st.moveComplete) return
+        if (m.game.phase != Phase.MOVING || m.game.turn != Player.HUMAN) return
+        choosePlay(m, TapPlays.makePoint(m.game.board, Player.HUMAN, opts.distinctMoves, target))
+    }
+
+    /** Puts the best of [plays] (1-ply; the only one when single) on the board as the move being made; the dice flash when there is none. */
+    private fun choosePlay(m: MatchState, plays: List<Move>) {
+        if (plays.isEmpty()) { flashDice(); return }
+        viewModelScope.launch {
+            val move = plays.singleOrNull() ?: engine { controller.bestAmong(m, plays, Depth(1).code) }
+            if (move == null || _state.value.match !== m || _state.value.busy) return@launch
+            applySteps(move.steps)
+        }
     }
 
     /** Tap on the dice: finish the move when it is complete, otherwise swap the dice. */
@@ -1222,6 +1256,27 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
 
     /** Finished games with decisions waiting for the background analysis. */
     private val pendingGames = LinkedHashSet<GameKey>()
+
+    private val _analysisProgress = MutableStateFlow<Map<Long, AnalysisProgress>>(emptyMap())
+    /** Per match of the library whose saved games are in the background analysis: decisions left and in all (the library tile's bar). */
+    val analysisProgress: StateFlow<Map<Long, AnalysisProgress>> = _analysisProgress
+
+    /** Queues [keys] for the background analysis and starts counting their decisions per match for the library. */
+    private suspend fun enqueue(keys: Collection<GameKey>) {
+        for ((matchId, games) in keys.groupBy { it.matchId }) {
+            if (matchId in _analysisProgress.value) continue
+            val n = games.sumOf { k -> repo.savedGame(k.matchId, k.number)?.second?.decisions?.count { it.pending } ?: 0 }
+            if (n > 0) _analysisProgress.update { it + (matchId to AnalysisProgress(n, n)) }
+        }
+        pendingGames += keys
+    }
+
+    private fun analysisDone(matchId: Long) = _analysisProgress.update { m ->
+        val p = m[matchId] ?: return@update m
+        if (p.left <= 1) m - matchId else m + (matchId to p.copy(left = p.left - 1))
+    }
+
+    private fun analysisDropped(matchId: Long) = _analysisProgress.update { it - matchId }
     /** The current match's decisions analyzed in the background during their game: (game, index) → record. */
     private val analyzedNow = HashMap<Pair<Int, Int>, DecisionRecord>()
     private var analysisJob: Job? = null
@@ -1265,6 +1320,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                 val next = nextPending() ?: break
                 analyze(next)
             }
+            _analysisProgress.value = emptyMap()
             updateAnalysisLeft()
         }
     }
@@ -1313,6 +1369,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             if (g.decisions.getOrNull(p.index)?.pending != true) return
             val game = g.copy(decisions = g.decisions.toMutableList().also { it[p.index] = done })
             repo.saveReanalyzedGame(e, game, p.matchLength)
+            analysisDone(p.matchId)
             refreshGameOver(p.matchId, p.gameNumber, game, p.matchLength)
         } else {
             // Kept aside while the game goes on (the game's state is not touched mid-play) and saved with it.
@@ -1374,6 +1431,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     fun stopAnalysis(matchId: Long) {
         viewModelScope.launch {
             pendingGames.removeAll { it.matchId == matchId }
+            analysisDropped(matchId)
             val dropped = repo.dropPending(matchId)
             _state.update { st -> st.copy(gameOver = st.gameOver?.takeIf { it.matchId == matchId }?.let { it.copy(notAnalyzed = it.notAnalyzed + dropped) } ?: st.gameOver) }
             updateAnalysisLeft()
@@ -1387,6 +1445,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     fun deleteMatch(matchId: Long, errors: Boolean, then: () -> Unit) {
         viewModelScope.launch {
             pendingGames.removeAll { it.matchId == matchId }
+            analysisDropped(matchId)
             com.boldblot.backgammonplyground.ui.review.deleteMatchEverywhere(app, matchId, errors)
             pendingNext = null
             repo.clearCurrent()
@@ -1398,14 +1457,16 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
 
     /** Games of an imported match: their decisions go to the background analysis. */
     fun queueAnalysis(games: List<GameKey>) {
-        pendingGames += games
-        startBackgroundAnalysis()
+        viewModelScope.launch {
+            enqueue(games)
+            startBackgroundAnalysis()
+        }
     }
 
     /** "Analyze now" after a match played without analysis: its decisions go to the background analysis. */
     fun analyzeMatchNow(matchId: Long) {
         viewModelScope.launch {
-            pendingGames += repo.markForAnalysis(matchId, cpu = settings.cpuAnalysis)
+            enqueue(repo.markForAnalysis(matchId, cpu = settings.cpuAnalysis))
             _state.update { st -> st.copy(gameOver = st.gameOver?.copy(offerAnalysis = false)) }
             startBackgroundAnalysis()
         }
@@ -1548,3 +1609,6 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         const val BAR_TARGET = BAR
     }
 }
+
+/** Decisions of an imported or finished match still waiting for the background analysis, and how many it started with. */
+data class AnalysisProgress(val left: Int, val total: Int)

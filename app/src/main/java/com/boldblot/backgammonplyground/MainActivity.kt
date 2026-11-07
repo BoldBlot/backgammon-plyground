@@ -220,6 +220,7 @@ class MainActivity : ComponentActivity() {
                     onReview = { id -> nav.navigate("review/$id") },
                     onBack = { nav.popBackStack() },
                     onImported = gameVm::queueAnalysis,
+                    analysisProgress = gameVm.analysisProgress.collectAsState().value,
                     onSettings = { nav.navigate("settings/DATA") },
                 )
             }

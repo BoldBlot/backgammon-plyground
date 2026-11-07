@@ -8,6 +8,7 @@ import com.boldblot.backgammonplyground.core.CpuLevel
 import com.boldblot.backgammonplyground.core.CubeContext
 import com.boldblot.backgammonplyground.core.EngineKind
 import com.boldblot.backgammonplyground.core.MatchEquityTable
+import com.boldblot.backgammonplyground.core.PureTdNet
 import com.boldblot.backgammonplyground.core.Move
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -35,9 +36,19 @@ class EngineService(private val context: Context) {
         Thread(null, r, "engines", 4L * 1024 * 1024).apply { isDaemon = true }
     }.asCoroutineDispatcher()
 
-    lateinit var engine: PureTdEngine
-        private set
-    private var ptdHandle = 0L
+    /** PureTD's network size for the game and the analysis (Advanced engine settings); the other net loads on first use. */
+    @Volatile var net: PureTdNet = PureTdNet.WIDE
+
+    /** Money checker plays scored with the cubeful network ([PureTdEngine.cubefulCheckers]), for every PureTD. */
+    @Volatile var cubefulCheckers: Boolean = true
+
+    /** One PureTD (handle and engine) per network size, opened on first use on the engine thread. */
+    private class Ptd(val handle: Long, val engine: PureTdEngine)
+    private val ptds = EnumMap<PureTdNet, Ptd>(PureTdNet::class.java)
+
+    /** The active network's engine. Call after [start], on the engine thread. */
+    val engine: PureTdEngine get() = ptd(net).engine
+    private val ptdHandle: Long get() = ptd(net).handle
     private var sageHandle = 0L
 
     /** Cores the phone has online (Android tells any app, no permission needed). */
@@ -56,8 +67,7 @@ class EngineService(private val context: Context) {
     private val backgroundDispatcher: CoroutineDispatcher = Executors.newSingleThreadExecutor { r ->
         Thread(null, r, "analysis", 4L * 1024 * 1024).apply { isDaemon = true }
     }.asCoroutineDispatcher()
-    private var backgroundHandle = 0L
-    private var backgroundEngine: PureTdEngine? = null
+    private val backgrounds = EnumMap<PureTdNet, Ptd>(PureTdNet::class.java)
 
     private val engines = EnumMap<EngineKind, SearchEngine>(EngineKind::class.java)
 
@@ -67,9 +77,9 @@ class EngineService(private val context: Context) {
     @Volatile var analysisKind: EngineKind = EngineKind.PURETD
 
     /** [kind]'s engine, loaded on first use. Call on the engine thread. */
-    fun get(kind: EngineKind): SearchEngine = engines.getOrPut(kind) {
+    fun get(kind: EngineKind): SearchEngine = if (kind == EngineKind.PURETD) engine.also { it.cubefulCheckers = cubefulCheckers } else engines.getOrPut(kind) {
         when (kind) {
-            EngineKind.PURETD -> engine
+            EngineKind.PURETD -> error("PureTD is opened by ptd()")
             EngineKind.GNUBG -> GnubgEngine.open(GnubgNative.files(context).path)
             EngineKind.SAGE -> {
                 val dir = SageNative.files(context)
@@ -114,17 +124,20 @@ class EngineService(private val context: Context) {
         withContext(dispatcher) {
             if (ready.isCompleted) return@withContext
             PureTdNative.load()
-            val dir = PureTdNative.files(context)
-            // Wide networks; the bear-off database is built once (about a second) and cached.
-            val handle = PureTdNative.nativeOpen(
-                File(dir, "prob5_wide.ptw").path, File(dir, "cubeful_wide.ptw").path,
-                File(context.filesDir, "puretd-bearoff.bin").path, Runtime.getRuntime().availableProcessors(),
-            )
-            check(handle != 0L) { "PureTD engine failed to load its networks" }
-            ptdHandle = handle
-            engine = PureTdEngine(handle)
+            ptd(net)
             ready.complete(Unit)
         }
+    }
+
+    /** [n]'s PureTD, opened on first use (the wide nets' bear-off database is built once, about a second, and cached). */
+    @Synchronized private fun ptd(n: PureTdNet): Ptd = ptds.getOrPut(n) {
+        val dir = PureTdNative.files(context)
+        val handle = PureTdNative.nativeOpen(
+            File(dir, n.cubeless).path, File(dir, n.cubeful).path,
+            File(context.filesDir, "puretd-bearoff.bin").path, Runtime.getRuntime().availableProcessors(),
+        )
+        check(handle != 0L) { "PureTD engine failed to load its networks" }
+        Ptd(handle, PureTdEngine(handle, netName = n.engineName))
     }
 
     /** Runs [block] on the engine thread with [kind]'s engine (the analysis engine by default). */
@@ -147,17 +160,19 @@ class EngineService(private val context: Context) {
         return withContext(backgroundDispatcher) {
             Process.setThreadPriority(if (backgroundLow) Process.THREAD_PRIORITY_BACKGROUND else Process.THREAD_PRIORITY_DEFAULT)
             val threads = backgroundThreads.coerceIn(1, cores)
-            val e = backgroundEngine ?: openBackground(threads)
-            PureTdNative.nativeSetThreads(backgroundHandle, threads)
-            e.block()
+            val n = net
+            val b = backgrounds[n] ?: openBackground(n, threads)
+            PureTdNative.nativeSetThreads(b.handle, threads)
+            b.engine.cubefulCheckers = cubefulCheckers
+            b.engine.block()
         }
     }
 
-    private fun openBackground(threads: Int): PureTdEngine {
-        backgroundHandle = PureTdNative.nativeShare(ptdHandle, threads)
-        check(backgroundHandle != 0L) { "PureTD background engine failed" }
+    private fun openBackground(n: PureTdNet, threads: Int): Ptd {
+        val handle = PureTdNative.nativeShare(ptd(n).handle, threads)
+        check(handle != 0L) { "PureTD background engine failed" }
         // Its own match equity table: the table fills a cache as it goes, which two threads can't share.
-        return PureTdEngine(backgroundHandle, MatchEquityTable()).also { backgroundEngine = it }
+        return Ptd(handle, PureTdEngine(handle, MatchEquityTable(), n.engineName)).also { backgrounds[n] = it }
     }
 
     companion object {
