@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.8 — 2026-11-08 (build 71, internal test)
+## 0.8.8 — 2026-11-08 (build 71)
 
 - Analysis: the background analysis no longer lags behind at the end of a game. A cube decision that
   a 2-ply search settles by a wide margin (about 0.3 or more between the two options) is not
