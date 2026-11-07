@@ -232,8 +232,6 @@ fun BoardView(
     /** Arrows illustrating a move on the (pre-move) board. */
     arrows: List<MoveArrow> = emptyList(),
     onTap: ((Int) -> Unit)? = null,
-    /** Long press on a point (0..23): the player's play that makes that point. */
-    onLongPress: ((Int) -> Unit)? = null,
     /** Tap on the human's dice. */
     onDiceTap: (() -> Unit)? = null,
     onDrag: ((from: Int, to: Int) -> Unit)? = null,
@@ -305,9 +303,8 @@ fun BoardView(
         }
     }
     if (onTap != null || onDiceTap != null) {
-        mod = mod.pointerInput(onTap, onDiceTap, onLongPress) {
+        mod = mod.pointerInput(onTap, onDiceTap) {
             detectTapGestures(
-                onLongPress = { pos -> geometry?.hitTest(pos)?.takeIf { it in 0..23 }?.let { onLongPress?.invoke(it) } },
                 onTap = { pos ->
                     val g = geometry
                     if (g != null) {

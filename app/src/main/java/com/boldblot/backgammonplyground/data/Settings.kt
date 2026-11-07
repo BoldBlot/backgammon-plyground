@@ -183,7 +183,7 @@ data class Settings(
     /** The player's name in exported .mat files. */
     val playerName: String = "Player",
     /** .mat files: the player first (left column) on export, and the first player preselected as "you" on import. */
-    val meFirstInFiles: Boolean = false,
+    val meFirstInFiles: Boolean = true,
     /** Checker-play analysis depth (XG plies 1-4) and which moves are searched to that depth. */
     val checkerPlies: Int = 3,
     val moveFilter: MoveFilter = MoveFilter.WIDE,

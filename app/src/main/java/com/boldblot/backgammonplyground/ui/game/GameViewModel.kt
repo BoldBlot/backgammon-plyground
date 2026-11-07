@@ -1030,32 +1030,41 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         val opts = options ?: return
         if (st.busy || st.preview != null) return
         if (target == OFF) { tapTray(); return }
+        // A point with none of the player's checkers (empty, or an opponent's blot): make it.
+        if (target != BAR && st.board.count(Player.HUMAN, target) == 0) { makePoint(target); return }
         val ownChecker = if (target == BAR) st.board.bar(Player.HUMAN) > 0 else st.board.count(Player.HUMAN, target) > 0
         if (!ownChecker) return
         val step = if (st.moveComplete) null else opts.tapStep(st.steps, target, st.diceOrder)
         if (step == null) flashDice() else applySteps(st.steps + step)
     }
 
-    /**
-     * Tap on the bear-off tray: sets up a play that bears off two checkers (or the most there is, when
-     * no play takes two off); the engine's 1-ply best when several do, as Max Bearoff chooses.
-     */
+    /** Tap on the bear-off tray: sets up the play that bears off the most checkers (the engine's 1-ply best when several do, as Max Bearoff chooses). */
     private fun tapTray() {
         val st = _state.value
         val m = st.match ?: return
         val opts = options ?: return
         if (m.game.phase != Phase.MOVING || m.game.turn != Player.HUMAN || st.moveComplete) return
-        choosePlay(m, TapPlays.bearOffTwo(m.game.board, Player.HUMAN, opts.distinctMoves))
+        choosePlay(m, TapPlays.bearOffMost(m.game.board, Player.HUMAN, opts.distinctMoves))
     }
 
-    /** Long press on a point: sets up a play that makes it (two or more of the player's checkers there). */
-    fun makePoint(target: Int) {
+    /**
+     * Tap on an empty point or an opponent's blot: adds the steps that make the point (two checkers there) to
+     * the moves already made, leaving other checkers alone; the dice flash when it cannot be made.
+     */
+    private fun makePoint(target: Int) {
         val st = _state.value
         val m = st.match ?: return
         val opts = options ?: return
         if (st.busy || st.preview != null || st.moveComplete) return
         if (m.game.phase != Phase.MOVING || m.game.turn != Player.HUMAN) return
-        choosePlay(m, TapPlays.makePoint(m.game.board, Player.HUMAN, opts.distinctMoves, target))
+        val plays = TapPlays.makePoint(m.game.board, Player.HUMAN, opts.distinctMoves, target, st.steps)
+        if (plays.isEmpty()) { flashDice(); return }
+        viewModelScope.launch {
+            val best = plays.singleOrNull()?.move ?: engine { controller.bestAmong(m, plays.map { it.move }, Depth(1).code) }
+            if (best == null || _state.value.match !== m || _state.value.busy) return@launch
+            val play = plays.firstOrNull { it.move == best } ?: plays.first()
+            applySteps(play.steps)
+        }
     }
 
     /** Puts the best of [plays] (1-ply; the only one when single) on the board as the move being made; the dice flash when there is none. */
@@ -1353,11 +1362,12 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         val started = android.os.SystemClock.elapsedRealtime()
         val done = try {
             val work: com.boldblot.backgammonplyground.engine.SearchEngine.() -> DecisionRecord = {
-                Reanalysis(this, s.checkerDepth.code, s.cubeDepth.code).decision(p.decision, p.matchLength, p.jacoby)
+                Reanalysis(this, s.checkerDepth.code, s.cubeDepth.code, shortcut = true).decision(p.decision, p.matchLength, p.jacoby)
             }
             (if (engineService.twoSlots) engineService.runBackground(work) else engineService.run(block = work)).also {
                 val ms = (android.os.SystemClock.elapsedRealtime() - started).toDouble()
                 analysisMillis = if (analysisMillis == 0.0) ms else analysisMillis * 0.8 + ms * 0.2
+                AppLog.i("Analyzed ${p.decision.kind} in ${ms.toLong()} ms (game ${p.gameNumber}, decision ${p.index})")
             }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e

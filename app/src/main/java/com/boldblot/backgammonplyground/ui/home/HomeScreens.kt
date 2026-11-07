@@ -491,7 +491,7 @@ fun HistoryScreen(
     suspend fun selectedFiles(): List<Pair<String, String>> = withContext(Dispatchers.IO) {
         MatFiles.unique(
             matches.orEmpty().filter { it.id in selected }.sortedBy { it.startedAt }.mapNotNull { m ->
-                app.repository.games(m.id).takeIf { it.isNotEmpty() }?.let { MatFiles.matchFile(m, it, playerName = settings?.playerName ?: "Player", humanFirst = settings?.meFirstInFiles ?: false) }
+                app.repository.games(m.id).takeIf { it.isNotEmpty() }?.let { MatFiles.matchFile(m, it, playerName = settings?.playerName ?: "Player", humanFirst = settings?.meFirstInFiles ?: true) }
             },
         )
     }

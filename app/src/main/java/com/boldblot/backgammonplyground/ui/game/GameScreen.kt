@@ -689,7 +689,6 @@ private fun BoardArea(
                 // A hint play's arrows go on the live board (the dice stay, and the player can move).
                 arrows = if (previewing || st.hint != null) st.previewArrows else emptyList(),
                 onTap = if (interactive) vm::tap else null,
-                onLongPress = if (interactive) vm::makePoint else null,
                 onDrag = if (interactive) vm::drag else null,
                 onDiceTap = if (interactive) vm::tapDice else null,
             )

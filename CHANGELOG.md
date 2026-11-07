@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.8 — 2026-11-08 (build 71, internal test)
+
+- Analysis: the background analysis no longer lags behind at the end of a game. A cube decision that
+  a 2-ply search settles by a wide margin (about 0.3 or more between the two options) is not
+  searched to the full cube depth; its analysis then says 2-ply. "Analyze again" always uses the
+  depth you pick. The log now records the time of each background analysis.
+- Game: a tap on the bear-off tray now bears off as many checkers as possible (the best by 1-ply
+  when several plays take the same number), as Max Bearoff does.
+- Game: making a point is now a plain tap on an empty point or an opponent's blot (the long press
+  is gone); a tap on your own blot or point moves that checker as before. It keeps the moves
+  already made, adds only the checkers that make the point (two, with a double) and leaves the
+  other checkers where they are.
+- Settings → Data: "Me first in .mat files" is now on by default (your choice stays if you set it).
+
 ## 0.8.7 — 2026-11-07 (build 70, internal test)
 
 - PureTD: the new networks of November 2026 (a small gain over the earlier ones in 80,000 games of
@@ -13,7 +27,7 @@
 - Library: a match that is being analyzed after an import shows a progress bar on its tile.
 - Game: a tap on the bear-off tray sets up a play that bears off two checkers (the best by 1-ply
   when several do; the most there is when two is not possible).
-- Game: a long press on a point sets up a play that makes that point.
+- Game: a long press on a point sets up a play that makes that point (replaced by a tap in 0.8.8).
 - Settings → Data: "Me first in .mat files" writes you as Player 1 (left column) when exporting, and
   preselects the first player as you when importing.
 
