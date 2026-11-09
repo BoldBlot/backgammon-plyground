@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.9 — 2026-11-09 (build 72, internal test)
+## 0.8.9 — 2026-11-09 (build 72)
 
 - PureTD, matches: inside its search, each side now picks its moves by its match-winning chance at
   the score, not by money equity (where gammons always count double). In a Crawford game, for
