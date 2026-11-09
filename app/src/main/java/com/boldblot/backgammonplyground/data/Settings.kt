@@ -17,6 +17,7 @@ import com.boldblot.backgammonplyground.core.MoveFilter
 import com.boldblot.backgammonplyground.core.PureTdNet
 import com.boldblot.backgammonplyground.core.Severity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 
@@ -591,6 +592,9 @@ class SettingsStore(private val context: Context) {
 
     val settings: Flow<Settings> = context.dataStore.data.map { read(it) }
 
+    /** Every setting with its value, one per line (for the error report). */
+    suspend fun reportText(): String = settingsReport(settings.first())
+
     suspend fun update(transform: (Settings) -> Settings) {
         context.dataStore.edit { p ->
             val s = transform(read(p))
@@ -689,4 +693,28 @@ class SettingsStore(private val context: Context) {
             p[Keys.folders074] = s.folders074
         }
     }
+}
+
+/**
+ * [s] as "name = value" lines, every field of [Settings] (so a setting added later is listed too). The player's
+ * name is left out: it is personal and never explains a problem.
+ */
+fun settingsReport(s: Settings): String {
+    val text = s.toString().removePrefix("Settings(").removeSuffix(")")
+    val out = StringBuilder()
+    var depth = 0
+    var start = 0
+    fun field(end: Int) {
+        val f = text.substring(start, end).trim()
+        if (f.isNotEmpty() && !f.startsWith("playerName=")) out.append(f.replaceFirst("=", " = ")).append('\n')
+    }
+    for (i in text.indices) {
+        when (text[i]) {
+            '(', '[', '{' -> depth++
+            ')', ']', '}' -> depth--
+            ',' -> if (depth == 0) { field(i); start = i + 1 }
+        }
+    }
+    field(text.length)
+    return out.toString()
 }

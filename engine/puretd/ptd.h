@@ -44,6 +44,10 @@ typedef struct {
     const ptd_net *cubeful;     /* PTD_CUBEFUL: money cube decisions (may be NULL) */
     const ptd_bearoff *bearoff; /* exact values for races with both sides bearing off (may be NULL) */
     int threads;                /* worker threads for the search (1 = none) */
+    /* Match play: per colour (WHITE then BLACK), the weights of the mover's 5 probabilities in its
+     * match-winning chance (up to a constant), by which each side picks its 1-ply best move inside the
+     * search. NULL = money cubeless equity. Set per call (the JNI layer passes a copy of the engine). */
+    const float *match_w;
 } ptd_engine;
 
 /*

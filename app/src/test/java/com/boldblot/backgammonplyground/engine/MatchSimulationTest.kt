@@ -4,6 +4,7 @@ import com.boldblot.backgammonplyground.core.AnalysisSettings
 import com.boldblot.backgammonplyground.core.Blunders
 import com.boldblot.backgammonplyground.core.GameState
 import com.boldblot.backgammonplyground.core.CpuLevel
+import com.boldblot.backgammonplyground.core.CubeShortcut
 import com.boldblot.backgammonplyground.core.DecisionKind
 import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.Reanalysis
@@ -247,5 +248,79 @@ class MatchSimulationTest {
         assertEquals(0, t[0].decisions)
         assertNull(t[0].pr)
         assertTrue("the computer is still analyzed", t[1].decisions > 0)
+    }
+
+    /** Choosing to roll records the no-double decision without rolling; the dice come with rollForHuman (a missed double waits for Continue). */
+    @Test
+    fun noDoubleIsRecordedBeforeTheDiceAreRolled() {
+        assumeTrue(engine != null)
+        val e = engine!!
+        val rnd = Random(5)
+        val c = MatchController(e, DiceSource { rnd.nextInt(1, 7) }, AnalysisSettings(plies = 0, cubePlies = 0), { e })
+        var m = c.openingRoll(MatchState(rules = MatchRules(length = 0), cpuLevel = CpuLevel.EXPERT, engine = EngineKind.PURETD))
+        var checked = 0
+        var guard = 0
+        while (checked < 3 && m.game.phase != Phase.OVER) {
+            check(guard++ < 500)
+            val g = m.game
+            m = when {
+                g.resignOffer != null -> c.humanAnswerResign(m, accept = true)
+                g.phase == Phase.DOUBLED -> c.humanRespond(m, take = true).first
+                g.turn == Player.CPU -> c.cpuStep(m).first
+                g.phase == Phase.PRE_ROLL && g.mayDouble(m.rules, m.score) -> {
+                    val (decided, _) = c.humanNoDouble(m)
+                    assertEquals(Phase.PRE_ROLL, decided.game.phase)
+                    assertEquals(g.rolls, decided.game.rolls)
+                    assertEquals(g.decisions.size + 1, decided.game.decisions.size)
+                    assertEquals(DecisionKind.NO_DOUBLE, decided.game.decisions.last().kind)
+                    assertEquals(Player.HUMAN, decided.game.decisions.last().player)
+                    val rolled = c.rollForHuman(decided)
+                    assertEquals(decided.game.decisions, rolled.game.decisions)
+                    assertEquals(g.rolls.size + 1, rolled.game.rolls.size)
+                    checked++
+                    rolled
+                }
+                g.phase == Phase.PRE_ROLL -> c.humanRoll(m).first
+                else -> {
+                    val d = g.dice!!
+                    c.humanMove(m, e.chooseMove(g.board, m.ctx(), d.d1, d.d2, CpuLevel.EXPERT)).first
+                }
+            }
+        }
+        assertEquals(3, checked)
+    }
+
+    /** The computer's own cube analysis stops at 2-ply when that settles it by more than CubeShortcut.CLEAR_MARGIN. */
+    @Test
+    fun computerCubeAnalysisTakesTheTwoPlyShortcut() {
+        assumeTrue(engine != null)
+        val e = engine!!
+        val rnd = Random(11)
+        val full = Depth(4).code
+        val c = MatchController(e, DiceSource { rnd.nextInt(1, 7) }, AnalysisSettings(plies = 0, cubePlies = full, cpuPlies = 0), { e })
+        var m = c.openingRoll(MatchState(rules = MatchRules(length = 0), cpuLevel = CpuLevel.EXPERT, engine = EngineKind.PURETD))
+        var guard = 0
+        fun evals(m: MatchState) =
+            m.game.decisions.filter { it.player == Player.CPU && it.kind == DecisionKind.NO_DOUBLE }.mapNotNull { it.cubeEval }
+        // Until both kinds are seen (or the game ends).
+        while (m.game.phase != Phase.OVER && evals(m).map { it.plies == full }.toSet().size < 2) {
+            check(guard++ < 2000)
+            val g = m.game
+            m = when {
+                g.resignOffer != null -> c.humanAnswerResign(m, accept = true)
+                g.phase == Phase.DOUBLED -> c.humanRespond(m, take = true).first
+                g.turn == Player.CPU -> c.cpuStep(m).first
+                g.phase == Phase.PRE_ROLL -> c.humanRoll(m).first
+                else -> {
+                    val d = g.dice!!
+                    c.humanMove(m, e.chooseMove(g.board, m.ctx(), d.d1, d.d2, CpuLevel.EXPERT)).first
+                }
+            }
+        }
+        val evals = evals(m)
+        assertTrue(evals.isNotEmpty())
+        val quick = evals.filter { it.plies == Depth(2).code }
+        for (q in quick) assertTrue("clear at 2-ply", kotlin.math.abs(q.noDouble - q.afterDouble) > CubeShortcut.CLEAR_MARGIN)
+        assertTrue("some shortcut, some full: ${quick.size} of ${evals.size}", quick.isNotEmpty() && evals.any { it.plies == full })
     }
 }

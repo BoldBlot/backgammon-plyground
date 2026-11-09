@@ -1181,9 +1181,11 @@ private fun Actions(st: GameUiState, m: MatchState, vm: GameViewModel, vertical:
         else -> false
     }
     val markChip: @Composable () -> Unit = {
-        // Looking at an earlier position, the blot marks that one.
+        // Looking at an earlier position, the blot marks that one; with a mistake's card, the decision it is about.
+        val cardDecision = if (viewing == null) st.feedbackDecision else null
         com.boldblot.backgammonplyground.ui.components.MarkChip(
-            on = if (viewing != null) viewing in g.marked else st.marking, enabled = viewing != null || myDecision, onClick = vm::toggleMark,
+            on = when { viewing != null -> viewing in g.marked; cardDecision != null -> cardDecision in g.marked; else -> st.marking },
+            enabled = viewing != null || cardDecision != null || myDecision, onClick = vm::toggleMark,
         )
     }
     // Arrows to the positions of earlier turns: in the same place whatever else changes (Settings → Display can turn them off).

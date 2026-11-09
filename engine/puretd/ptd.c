@@ -109,6 +109,7 @@ typedef struct {
     BoardState live[MAX_KIDS];      /* kid_probs: unfinished resulting states */
     float q5[MAX_KIDS * 5];         /* kid_probs: their on-roll probabilities */
     float kp[MAX_KIDS * 5];         /* best_1ply: probabilities of every play */
+    float mv[MAX_KIDS];             /* best_1ply: what the mover makes of every play */
 } scratch;
 
 /* Rows X[n][in_size] -> raw outputs Y[n][last dim]. Hidden layers ReLU, output linear. */
@@ -174,6 +175,15 @@ static void win_probs(int pts, float p[5]) { p[0] = 1; p[1] = pts >= 2; p[2] = p
 static void loss_probs(int pts, float p[5]) { p[0] = p[1] = p[2] = 0; p[3] = pts >= 2; p[4] = pts >= 3; }
 static void invert5(const float a[5], float b[5]) { float t[5] = {1 - a[0], a[3], a[4], a[1], a[2]}; memcpy(b, t, sizeof t); }
 static inline float equity5(const float p[5]) { return 2 * p[0] - 1 + p[1] + p[2] - p[3] - p[4]; }
+
+/* What the mover (colour `turn`) maximizes when it picks a move inside the search, p its
+ * probabilities after its play: in match play its cubeless match-winning chance (e->match_w, up to a
+ * constant); money cubeless equity otherwise. */
+static float mover_value(const ptd_engine *e, int turn, const float p[5]) {
+    if (!e->match_w) return equity5(p);
+    const float *w = e->match_w + 5 * turn;
+    return w[0] * p[0] + w[1] * p[1] + w[2] * p[2] + w[3] * p[3] + w[4] * p[4];
+}
 
 /* ── bear-off database ────────────────────────────────────────────── */
 
@@ -349,8 +359,19 @@ static int best_1ply(const ptd_engine *e, scratch *sc, const BoardState *s, int 
     }
     float *p = sc->kp;
     kid_probs(e, sc, sc->plays, n, p);
+    float *mv = sc->mv;
     int b = 0;
-    for (int k = 1; k < n; k++) if (equity5(p + 5 * k) > equity5(p + 5 * b)) b = k;
+    for (int k = 0; k < n; k++) {
+        mv[k] = mover_value(e, s->turn, p + 5 * k);
+        if (mv[k] > mv[b]) b = k;
+    }
+    if (e->match_w) {
+        /* Where the match objective is flat (every play worth the same at this score), money equity
+         * decides, as in Open Sage: an arbitrary pick would carry odd gammon rates up the tree. */
+        float bv = mv[b], be = equity5(p + 5 * b);
+        for (int k = 0; k < n; k++)
+            if (mv[k] >= bv - 1e-6f && equity5(p + 5 * k) > be) { b = k; be = equity5(p + 5 * k); }
+    }
     *next = sc->plays[b].resulting_state;
     if (probs) memcpy(probs, p + 5 * b, 5 * sizeof(float));
     return b;

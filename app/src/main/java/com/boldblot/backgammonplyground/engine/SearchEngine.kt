@@ -44,13 +44,21 @@ abstract class SearchEngine : AnalysisEngine {
     /** The last ranking (a hint, the computer's own choice and the analysis often rank the same roll). */
     private var cacheKey: Any? = null
     private var cached: RankResult? = null
+    /** The depth code [cached] was ranked with (its searched candidates carry it). */
+    private var cachedPlies: Int = 0
 
     override fun rankMoves(board: Board, ctx: CubeContext, d1: Int, d2: Int, plies: Int, played: Move?): RankResult {
         // The ranking depends on the played move only when a filter would leave it unsearched, so a
         // ranking of the same roll is reused when the played move is among its fully searched
         // candidates (the computer's choice, then the analysis of that choice; a hint, then the move).
-        val key = listOf(board, ctx, minOf(d1, d2), maxOf(d1, d2), plies, rankingMode)
-        val hit = cached?.takeIf { cacheKey == key }
+        // The depth by what it searches: a level's short code (Grandmaster's 3) and the analysis's long one
+        // (3-ply pruned, 32) are the same search, done once.
+        val key = listOf(board, ctx, minOf(d1, d2), maxOf(d1, d2), Depth.of(plies), rankingMode)
+        val hit = cached?.takeIf { cacheKey == key }?.let { h ->
+            // Candidates searched at the cached ranking's depth carry the code asked for now.
+            if (cachedPlies == plies) h
+            else h.copy(candidates = h.candidates.map { if (it.plies == cachedPlies) it.copy(plies = plies) else it })
+        }
         if (hit != null) {
             val mover = ctx.onRoll
             val target = played?.let { board.applyMove(mover, it) }
@@ -64,10 +72,10 @@ abstract class SearchEngine : AnalysisEngine {
                 val moved = hit.candidates[idx].copy(equity = e.equity, probs = e.probs, plies = plies)
                 val list = (hit.candidates.filterIndexed { i, _ -> i != idx } + moved)
                     .sortedWith(compareByDescending<Candidate> { it.plies }.thenByDescending { it.equity })
-                return RankResult(list, list.indexOf(moved)).also { cached = it }
+                return RankResult(list, list.indexOf(moved)).also { cached = it; cachedPlies = plies }
             }
         }
-        return rank(board, ctx, d1, d2, plies, played).also { cacheKey = key; cached = it }
+        return rank(board, ctx, d1, d2, plies, played).also { cacheKey = key; cached = it; cachedPlies = plies }
     }
 
     /** Leaves the ranking cache alone: the bar must not cost the deep ranking done ahead of a move. */
@@ -85,7 +93,7 @@ abstract class SearchEngine : AnalysisEngine {
         val depth = IntArray(posts.size)
         val playedIdx = played?.let { posts.indexOf(board.applyMove(mover, it)) } ?: -1
         val depthOf = Depth.of(plies)
-        if (depthOf.plies >= 2 && posts.size > 1 && !decided(probs)) {
+        if (depthOf.plies >= 2 && posts.size > 1 && !decided(probs) && !exactAtOnePly(ctx, posts)) {
             val within = depthOf.filter.within
             val best = eq.max()
             // Every move whose 1-ply equity is within the window of the best is searched deeper, and
@@ -110,6 +118,9 @@ abstract class SearchEngine : AnalysisEngine {
         val candidates = order.map { Candidate(moves[it], eq[it], probs[it], depth[it]) }
         return RankResult(candidates, if (playedIdx >= 0) order.indexOf(playedIdx) else -1)
     }
+
+    /** True when the 1-ply values of these plays are already exact, so a deeper search finds the same (see PureTD's bear-off table). */
+    protected open fun exactAtOnePly(ctx: CubeContext, posts: List<Board>): Boolean = false
 
     /**
      * True when no play changes anything: the mover wins (or loses) whatever they play, and the
@@ -150,7 +161,7 @@ abstract class SearchEngine : AnalysisEngine {
     private var cubeKey: Any? = null
     private var cubeCached: CubeEval? = null
 
-    private fun cubeKeyOf(board: Board, ctx: CubeContext, plies: Int) = listOf(board, ctx, Depth.of(plies).plies)
+    private fun cubeKeyOf(board: Board, ctx: CubeContext, plies: Int) = listOf(board, ctx, Depth.of(plies).plies, rankingMode)
 
     final override fun cubeDecision(board: Board, ctx: CubeContext, plies: Int): CubeEval {
         cachedCube(board, ctx, plies)?.let { return it }

@@ -1618,7 +1618,7 @@ private fun DataSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) 
     val context = LocalContext.current
     OutlinedButton(onClick = { AppLog.sendReport(context) }) { Text("Send error report") }
     Note(
-        "Opens your email app with a message to ${AppLog.SUPPORT_EMAIL} and the app's log attached " +
+        "Opens your email app with a message to ${AppLog.SUPPORT_EMAIL}, with your settings and the app's log attached " +
             "(recent game events, engine problems and crashes, kept only on this phone). " +
             "Nothing is sent until you send the email.",
     )
@@ -1729,6 +1729,13 @@ fun AboutScreen(
             OutlinedButton(onClick = onWelcome) { Text("Welcome screen") }
             val uri = LocalUriHandler.current
             OutlinedButton(onClick = { uri.openUri(MANUAL_URL) }) { Text("Manual (boldblot.com)") }
+            val context = LocalContext.current
+            OutlinedButton(onClick = { AppLog.sendReport(context) }) { Text("Send error report") }
+            Text(
+                "Opens your email app with a message to ${AppLog.SUPPORT_EMAIL}, your settings and the app's log attached. " +
+                    "Nothing is sent until you send the email.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Spacer(Modifier.height(8.dp))
             Text(
                 "Three backgammon engines play and analyze, each with its own neural networks and cube handling:",

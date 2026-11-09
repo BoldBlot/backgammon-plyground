@@ -178,6 +178,16 @@ data class GameUiState(
 fun viewableDecisions(m: MatchState): List<Int> =
     m.game.decisions.indices.filter { m.game.decisions[it].let { d -> d.player == Player.HUMAN && !d.auto } }
 
+/**
+ * The decision a mistake card is about (its index in the game), which the mark chip marks while the card shows;
+ * null without a card. A decision tried again carries its first try, so that is left out of the match.
+ */
+val GameUiState.feedbackDecision: Int?
+    get() {
+        val d = feedback?.decision?.copy(firstTry = null) ?: return null
+        return match?.game?.decisions?.indexOfLast { it.copy(firstTry = null) == d }?.takeIf { it >= 0 }
+    }
+
 /** The arrows to earlier positions can be used: nothing is being moved, asked or analyzed. */
 val GameUiState.canView: Boolean
     get() {
@@ -458,6 +468,8 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             g.phase == Phase.OVER -> viewModelScope.launch { handleGameOver(m) }
             g.turn == Player.CPU && g.resignOffer != null -> Unit // waiting for the human's answer
             g.turn == Player.CPU && g.phase != Phase.DOUBLED -> runCpu()
+            // A roll held back behind a missed double's card: rolled once the card is closed (or on resuming).
+            rollHeld(m) -> if (st.feedback == null) roll()
             // Rolls by themselves when there is no cube decision to make, or with "Keep rolling" on.
             g.turn == Player.HUMAN && g.phase == Phase.PRE_ROLL &&
                 ((settings.autoRoll && !g.mayDouble(m.rules, m.score)) || st.keepRolling) -> roll()
@@ -495,8 +507,11 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     /** The state [thinkAhead] last worked on. */
     private var aheadFor: MatchState? = null
 
-    /** The computer's steps worked out ahead ([cpuAhead]): each step's state, the state after it and the action. */
-    private var cpuSteps: Deferred<List<Triple<MatchState, MatchState, MatchController.CpuAction>>>? = null
+    /**
+     * The computer's steps worked out ahead ([cpuAhead]), in order: each step's state, the state after it and the
+     * action (null: no such step). Separate jobs, so that its roll is shown as soon as it is made.
+     */
+    private var cpuSteps: List<Deferred<Triple<MatchState, MatchState, MatchController.CpuAction>?>> = emptyList()
     private var cpuStepsFor: MatchState? = null
 
     /**
@@ -508,32 +523,35 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         if (m.game.turn != Player.CPU || m.game.phase !in setOf(Phase.PRE_ROLL, Phase.MOVING)) return
         if (cpuStepsFor == m) return
         cpuStepsFor = m
-        cpuSteps = viewModelScope.async {
-            engineService.run {
-                val first = controller.cpuStep(m)
-                val steps = mutableListOf(Triple(m, first.first, first.second))
-                if (first.second == MatchController.CpuAction.Rolled) {
-                    val second = controller.cpuStep(first.first)
-                    steps += Triple(first.first, second.first, second.second)
-                }
-                steps
-            }
+        val first = viewModelScope.async {
+            engineService.run { controller.cpuStep(m).let { Triple(m, it.first, it.second) } }
         }
+        val second = viewModelScope.async {
+            val f = first.await()
+            if (f.third != MatchController.CpuAction.Rolled) null
+            else engineService.run { controller.cpuStep(f.second).let { Triple(f.second, it.first, it.second) } }
+        }
+        cpuSteps = listOf(first, second)
     }
 
     /** The step [cpuAhead] worked out for [m], if any (waiting for it if it is still being worked out). */
     private suspend fun aheadStep(m: MatchState): Pair<MatchState, MatchController.CpuAction>? {
-        val job = cpuSteps ?: return null
-        if (!job.isCompleted) _state.update { it.copy(busy = true, busyText = "Computer is thinking…") }
-        val steps = try { job.await() } catch (e: Exception) {
-            if (e !is kotlinx.coroutines.CancellationException) AppLog.error("Computer's steps ahead failed", e)
-            // A failed job is dropped, not awaited again at every later step.
-            if (cpuSteps === job) { cpuSteps = null; cpuStepsFor = null }
-            null
-        } finally {
-            _state.update { it.copy(busy = false, busyText = null) }
+        val jobs = cpuSteps
+        for (job in jobs) {
+            if (!job.isCompleted) _state.update { it.copy(busy = true, busyText = "Computer is thinking…") }
+            val step = try { job.await() } catch (e: Exception) {
+                if (e !is kotlinx.coroutines.CancellationException) AppLog.error("Computer's steps ahead failed", e)
+                // Failed jobs are dropped, not awaited again at every later step.
+                if (cpuSteps === jobs) { cpuSteps = emptyList(); cpuStepsFor = null }
+                null
+            } finally {
+                _state.update { it.copy(busy = false, busyText = null) }
+            } ?: return null
+            if (step.first == m) return step.second to step.third
+            // The next step starts where this one ended: not from [m], so nothing ahead is for it.
+            if (step.second != m) return null
         }
-        return steps?.firstOrNull { it.first == m }?.let { it.second to it.third }
+        return null
     }
 
     private fun runCpu() {
@@ -927,10 +945,28 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         val m = _state.value.match ?: return
         if (m.game.phase != Phase.PRE_ROLL || m.game.turn != Player.HUMAN || _state.value.busy || diceAnswer != null) return
         val hinted = _state.value.hinted
+        // The roll held back behind a missed double's card waits for Continue (or Try again).
+        if (rollHeld(m) && _state.value.feedback != null) return
         viewModelScope.launch {
             if (!enterDice(opening = false, player = Player.HUMAN)) return@launch
-            applyHuman(engine { controller.humanRoll(m, hinted) }, before = m)
+            if (rollHeld(m)) {
+                applyHuman(engine { controller.rollForHuman(m) } to null, before = m)
+                return@launch
+            }
+            val (decided, fb) = engine { controller.humanNoDouble(m, hinted) }
+            // A missed double shown to the player: the dice are rolled only after Continue, so the
+            // player can't start a move under the card (where Undo is off).
+            if (shouldShow(fb) && autoMode == null) applyHuman(decided to fb, before = m)
+            else applyHuman(engine { controller.rollForHuman(decided) } to fb, before = m)
         }
+    }
+
+    /** The human has chosen to roll (the no-double decision is recorded) but the dice are not rolled yet. */
+    private fun rollHeld(m: MatchState): Boolean {
+        val g = m.game
+        if (g.phase != Phase.PRE_ROLL || g.turn != Player.HUMAN) return false
+        val last = g.decisions.lastOrNull() ?: return false
+        return last.player == Player.HUMAN && last.kind == DecisionKind.NO_DOUBLE
     }
 
     fun double() {
@@ -1217,12 +1253,14 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     /** The mark: on, it goes on the player's next decision; tapped again, it comes off. */
     fun toggleMark() {
         val st = _state.value
-        val at = st.viewing ?: return _state.update { it.copy(marking = !it.marking) }
-        // Looking at an earlier position: the blot marks that decision (or takes its mark off).
+        // Looking at an earlier position, or at a mistake's card: the blot marks that decision (or takes its mark off).
+        val at = st.viewing ?: st.feedbackDecision ?: return _state.update { it.copy(marking = !it.marking) }
         val m = st.match ?: return
         val g = m.game
         if (at !in g.decisions.indices) return
         val next = m.copy(game = g.copy(marked = if (at in g.marked) g.marked - at else g.marked + at))
+        // Marked under a "Try again" card: the decision made again keeps the mark.
+        if (st.viewing == null) retry = retry?.copy(marked = at in next.game.marked)
         _state.update { it.copy(match = next) }
         viewModelScope.launch {
             repo.saveCurrent(withAnalyzed(next))
@@ -1541,6 +1579,10 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
                 g.phase == Phase.BEAVERED && g.turn == Player.HUMAN -> {
                     val view = engine { if (auto) controller.autoCube(m) else controller.analyzeCube(m) }
                     applyHuman(engine { controller.humanAnswerBeaver(m, raccoon = view.doubleTake > 0f, hinted = false, auto = auto) }, before = m)
+                }
+                g.phase == Phase.PRE_ROLL && g.turn == Player.HUMAN && rollHeld(m) -> {
+                    if (enterDice(opening = false, player = Player.HUMAN)) applyHuman(engine { controller.rollForHuman(m) } to null, before = m)
+                    else stopAutoFinish()
                 }
                 g.phase == Phase.PRE_ROLL && g.turn == Player.HUMAN -> {
                     val wantDouble = g.mayDouble(m.rules, m.score) &&

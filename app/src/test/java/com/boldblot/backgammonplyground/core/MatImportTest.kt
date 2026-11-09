@@ -90,6 +90,35 @@ class MatImportTest {
         assertTrue(g.decisions.any { it.kind == DecisionKind.TAKE && it.player == Player.CPU })
     }
 
+    /** "Cannot Move" reads as a dance (as "64:" with nothing after it); Galaxy's "Losses N point(s)" is ignored. Either used to fail the file. */
+    @Test
+    fun readsCannotMoveAndLosses() {
+        fun match(row3: String, row4: String) = """
+            ; [Player 1 "Alice"]
+            ; [Player 2 "Bob"]
+
+             1 point match
+
+             Game 1
+             Alice : 0                      Bob : 0
+              1) 31: 8/5 6/5                  66: 24/18(2) 13/7(2)
+              2) 52: 13/8 13/11                63: 18/9
+        """.trimIndent() + "\n" + row3 + "\n" + row4 + "\n" + "      Wins 1 point\n"   // Alice's: Losses sits on Bob's side
+        val plain = MatImport.parse(match("  3) 66:                           41: 13/9 6/5", "  4) 64: 8/2 6/2"))
+        val written = MatImport.parse(
+            match("  3) 66: Cannot Move               41: 13/9 6/5", "  4) 64: 8/2 6/2                    Losses 1 point"),
+        )
+        fun entries(p: MatImport.ParsedMatch) = p.games.flatMap { g ->
+            g.entries.map { e -> "${e::class.simpleName} ${e.column} " + ((e as? MatImport.Entry.Roll)?.let { "${it.dice} ${it.steps}" } ?: "") }
+        }
+        assertEquals(entries(plain), entries(written))
+        // A legal game ending with Galaxy's Losses line replays.
+        val p = MatImport.parse(match("  3) 41: 13/9 6/5                 21: 13/11 6/5", "  4) 64: 8/2 6/2                    Losses 1 point"))
+        val g = MatImport.replay(p, you = 0).games.single().state
+        assertEquals(GameResult(Player.HUMAN, WinType.SINGLE, 1, resigned = true), g.result)
+        assertEquals(4, g.decisions.count { it.player == Player.HUMAN && it.kind == DecisionKind.CHECKER })
+    }
+
     @Test
     fun crawfordGameIsFound() {
         val game = { n: Int, a: Int, b: Int, winner: Int ->

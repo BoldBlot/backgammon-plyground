@@ -212,6 +212,12 @@ class MatchController(
     /** Cube analysis from the point of view of the player on roll (the potential doubler), at [plies]. */
     fun analyzeCube(m: MatchState, plies: Int = settings.cubePlies): CubeEval = engine.cubeDecision(m.game.board, m.ctx(), plies)
 
+    /** The analysis of the computer's own cube decision before its roll, with [CubeShortcut]. */
+    private fun cpuCubeAnalysis(m: MatchState): CubeEval =
+        // The computer's own view may already be the full analysis (same engine and depth): free, and kept.
+        engine.cachedCube(m.game.board, m.ctx(), settings.cubePlies)
+            ?: CubeShortcut.cubeDecision(engine, m.game.board, m.ctx(), settings.cubePlies, DecisionKind.NO_DOUBLE)
+
     /**
      * The analysis of the human's cube decision when they roll: the quick check's ([AnalysisSettings.quickCubePlies])
      * when it is shallower than the cube depth and finds doubling a blunder (or the game hopeless either way, so
@@ -279,19 +285,32 @@ class MatchController(
      * decision is analyzed and recorded first.
      */
     fun humanRoll(m: MatchState, hinted: Boolean = false, auto: Boolean = false): Pair<MatchState, Feedback?> {
+        val (state, feedback) = humanNoDouble(m, hinted, auto)
+        return rollDice(state) to feedback
+    }
+
+    /**
+     * The human chooses to roll: the no-double decision is recorded (when there is one to analyze),
+     * but the dice are not rolled yet; [rollForHuman] rolls them. A missed double shown to the player
+     * waits for Continue between the two.
+     */
+    fun humanNoDouble(m: MatchState, hinted: Boolean = false, auto: Boolean = false): Pair<MatchState, Feedback?> {
         require(m.game.phase == Phase.PRE_ROLL && m.game.turn == Player.HUMAN)
-        var state = m
-        var feedback: Feedback? = null
         val how = humanAnalysis(auto)
         if (how != Analysis.NONE && m.game.mayDouble(m.rules, m.score)) {
             val eval = if (how == Analysis.NOW) rollCubeEval(m) else cubeAnalysis(m, how)
             if (eval == null || eval.cubeAvailable) {
                 val rec = recordDoubleDecision(m, doubled = false, eval = eval, hinted = hinted).later(how)
-                state = state.copy(game = state.game.record(rec))
-                feedback = feedbackFor(m, rec)
+                return m.copy(game = m.game.record(rec)) to feedbackFor(m, rec)
             }
         }
-        return rollDice(state) to feedback
+        return m to null
+    }
+
+    /** Rolls the human's dice, after [humanNoDouble]. */
+    fun rollForHuman(m: MatchState): MatchState {
+        require(m.game.phase == Phase.PRE_ROLL && m.game.turn == Player.HUMAN)
+        return rollDice(m)
     }
 
     /**
@@ -472,7 +491,9 @@ class MatchController(
                 if (g.mayDouble(m.rules, m.score)) {
                     val view = cpuCubeView(m)
                     val how = cpuAnalysis
-                    val analysis = cubeAnalysis(m, how) ?: if (cpuLight) analyzeCube(m, LIGHT_PLIES) else null
+                    // A clear decision at 2-ply is not searched deeper (as in the background analysis).
+                    val analysis = (if (how == Analysis.NOW) cpuCubeAnalysis(m) else cubeAnalysis(m, how))
+                        ?: if (cpuLight) analyzeCube(m, LIGHT_PLIES) else null
                     val doubles = mistakeMaker(m)?.double(view, factor(m)) ?: view.shouldDouble
                     if (view.cubeAvailable && doubles) {
                         val rec = recordDoubleDecision(m, doubled = true, eval = analysis, hinted = false).rated().later(how)

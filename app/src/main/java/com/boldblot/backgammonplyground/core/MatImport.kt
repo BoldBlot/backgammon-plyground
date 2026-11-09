@@ -154,8 +154,15 @@ object MatImport {
         }
     }
 
+    /** Words some writers put after the dice that are not a move: "Cannot Move" (no legal move). */
+    private val noMove = Regex("""\bcannot\s+move\b""", RegexOption.IGNORE_CASE)
+
+    /** Galaxy's "Losses 1 point" on the loser's side of a game's last row: it ends the move (the result comes from Wins). */
+    private val losses = Regex("""\blosses\s+\d+\s+points?\b.*$""", RegexOption.IGNORE_CASE)
+
     /** "24/18* 13/7(2) bar/20/16" as (from, to) steps in the mover's points (bar 25, off 0). */
-    private fun steps(text: String): List<Pair<Int, Int>> {
+    private fun steps(raw: String): List<Pair<Int, Int>> {
+        val text = noMove.replace(losses.replace(raw, ""), " ")
         val out = mutableListOf<Pair<Int, Int>>()
         for (token in text.trim().split(Regex("\\s+"))) {
             if (token.isEmpty() || token == "????") continue

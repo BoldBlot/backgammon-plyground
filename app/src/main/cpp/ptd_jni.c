@@ -8,6 +8,7 @@
 #include <jni.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "ptd.h"
 
@@ -94,20 +95,44 @@ FN(nativeSetThreads)(JNIEnv *env, jclass cls, jlong ptr, jint threads)
     if (h) h->e.threads = threads < 1 ? 1 : threads;
 }
 
+/* The handle's engine with this call's match weights (ptd_engine.match_w; null = money), as a copy so
+ * that calls on one handle from several threads do not share them: 10 floats from
+ * PureTdEngine.matchWeights, each colour's 5 weights. 0 if the weights are malformed. */
+static int with_weights(JNIEnv *env, const handle *h, jfloatArray w, ptd_engine *e, float buf[10])
+{
+    *e = h->e;
+    e->match_w = NULL;
+    if (!w) return 1;
+    if ((*env)->GetArrayLength(env, w) != 10) return 0;
+    (*env)->GetFloatArrayRegion(env, w, 0, 10, buf);
+    e->match_w = buf;
+    return 1;
+}
+
+/* Whether the handle has the bear-off table (exact values once both sides are bearing off). */
+JNIEXPORT jboolean JNICALL
+FN(nativeHasBearoff)(JNIEnv *env, jclass cls, jlong ptr)
+{
+    handle *h = (handle *)(intptr_t)ptr;
+    return h && h->e.bearoff ? JNI_TRUE : JNI_FALSE;
+}
+
 /* Probabilities for the player who just moved, 5 per position (see ptd_post_probs). */
 JNIEXPORT jfloatArray JNICALL
-FN(nativePostProbs)(JNIEnv *env, jclass cls, jlong ptr, jintArray states, jint plies)
+FN(nativePostProbs)(JNIEnv *env, jclass cls, jlong ptr, jintArray states, jint plies, jfloatArray weights)
 {
     handle *h = (handle *)(intptr_t)ptr;
     jsize len = (*env)->GetArrayLength(env, states);
-    if (!h || len % STATE_INTS) return NULL;
+    ptd_engine e;
+    float w[10];
+    if (!h || len % STATE_INTS || !with_weights(env, h, weights, &e, w)) return NULL;
     int n = len / STATE_INTS;
     jint *v = (*env)->GetIntArrayElements(env, states, NULL);
     BoardState *s = malloc((n ? n : 1) * sizeof *s);
     for (int k = 0; k < n; k++) to_state(v + k * STATE_INTS, &s[k]);
     (*env)->ReleaseIntArrayElements(env, states, v, JNI_ABORT);
     float *out = malloc((n ? n : 1) * 5 * sizeof(float));
-    ptd_post_probs(&h->e, s, n, plies, out);
+    ptd_post_probs(&e, s, n, plies, out);
     jfloatArray res = (*env)->NewFloatArray(env, n * 5);
     (*env)->SetFloatArrayRegion(env, res, 0, n * 5, out);
     free(s);
@@ -184,10 +209,13 @@ FN(nativeBenchCancel)(JNIEnv *env, jclass cls)
 /* The match cube search tree (ptd_cube_tree): float[nodes + 7 * leaves], the points of every node
  * first, then the leaves' data. */
 JNIEXPORT jfloatArray JNICALL
-FN(nativeCubeTree)(JNIEnv *env, jclass cls, jlong ptr, jintArray state, jint levels)
+FN(nativeCubeTree)(JNIEnv *env, jclass cls, jlong ptr, jintArray state, jint levels, jfloatArray weights)
 {
     handle *h = (handle *)(intptr_t)ptr;
+    ptd_engine e;
+    float w[10];
     if (!h || levels < 1 || levels > PTD_MAX_PLIES - 1 || (*env)->GetArrayLength(env, state) != STATE_INTS) return NULL;
+    if (!with_weights(env, h, weights, &e, w)) return NULL;
     jint v[STATE_INTS];
     (*env)->GetIntArrayRegion(env, state, 0, STATE_INTS, v);
     BoardState s;
@@ -196,7 +224,7 @@ FN(nativeCubeTree)(JNIEnv *env, jclass cls, jlong ptr, jintArray state, jint lev
     for (int k = 0; k < levels; k++) { leaves *= 21; nodes += leaves; }
     int *pts = malloc(sizeof(int) * (size_t)nodes);
     float *leaf = malloc(sizeof(float) * 7 * (size_t)leaves);
-    ptd_cube_tree(&h->e, &s, levels, pts, leaf);
+    ptd_cube_tree(&e, &s, levels, pts, leaf);
     jfloatArray out = (*env)->NewFloatArray(env, (jsize)(nodes + 7 * leaves));
     if (out) {
         float *buf = malloc(sizeof(float) * (size_t)nodes);

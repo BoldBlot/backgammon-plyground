@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.8.9 — 2026-11-09 (build 72, internal test)
+
+- PureTD, matches: inside its search, each side now picks its moves by its match-winning chance at
+  the score, not by money equity (where gammons always count double). In a Crawford game, for
+  example, the leader no longer plays for gammons that are worth nothing and leaves fewer shots.
+  Errors fell by about 10% on 6,692 rolled-out decisions from 5-point matches (by almost a quarter
+  once the cube is dead). Money games are unchanged.
+- Training: when the mistake shown is a missed double, the dice are rolled only after Continue (or
+  Try again), so no move can be started under the card. The mark button now works while a mistake
+  is shown: it marks the decision the card is about.
+- Speed in endgames, on the computer's turn: its own cube analysis stops at 2-ply when that settles
+  the decision by a wide margin (as the background analysis does since 0.8.8); its roll is shown
+  before its move is worked out; Grandmaster's search is no longer done a second time for the
+  analysis of its move; and once both sides are bearing off with a checker off each, checker plays
+  are not searched deeper than 1-ply, where PureTD's bear-off table is already exact.
+- Import: .mat files with "Cannot Move" after a roll, or BackgammonGalaxy's "Losses 1 point" on a
+  game's last line, now import (one such line used to fail the whole file with "Unreadable move").
+- Error report: the attached file now starts with all your settings (your name left out). "Send
+  error report" is also in About.
+
 ## 0.8.8 — 2026-11-08 (build 71)
 
 - Analysis: the background analysis no longer lags behind at the end of a game. A cube decision that

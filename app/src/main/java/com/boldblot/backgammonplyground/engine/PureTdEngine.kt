@@ -25,6 +25,12 @@ class PureTdEngine(
     /** What an analysis records as its engine: "PureTD" for the wide net, "PureTD 4L" for the compact one. */
     private val netName: String = com.boldblot.backgammonplyground.core.EngineKind.PURETD.label,
 ) : SearchEngine() {
+    /**
+     * In matches, each side picks its moves inside the search by its match-winning chance (true), or by money
+     * equity as up to 0.8.8 (false: for benchmarks only).
+     */
+    internal var matchAwareSearch: Boolean = true
+
     override val name: String get() = netName
 
 
@@ -36,7 +42,7 @@ class PureTdEngine(
      */
     @Volatile var cubefulCheckers: Boolean = false
 
-    override val rankingMode: Any? get() = cubefulCheckers
+    override val rankingMode: Any? get() = cubefulCheckers to matchAwareSearch
 
     // ---- positions ------------------------------------------------------------------------------
 
@@ -54,17 +60,17 @@ class PureTdEngine(
     }
 
     /** Probabilities for [mover] of positions right after its move (the opponent to roll). */
-    private fun postProbs(mover: Int, boards: List<Board>, plies: Int): List<List<Float>> {
+    private fun postProbs(mover: Int, boards: List<Board>, plies: Int, weights: FloatArray?): List<List<Float>> {
         if (boards.isEmpty()) return emptyList()
         val s = IntArray(29 * boards.size)
         boards.forEachIndexed { k, b -> state(b, mover, 1, s, 29 * k) }
-        val r = PureTdNative.nativePostProbs(handle, s, plies) ?: error("PureTD evaluation failed")
+        val r = PureTdNative.nativePostProbs(handle, s, plies, weights) ?: error("PureTD evaluation failed")
         return List(boards.size) { k -> List(5) { r[5 * k + it] } }
     }
 
     /** Pre-roll probabilities for the player on roll. */
-    private fun preProbs(board: Board, onRoll: Int, plies: Int): List<Float> {
-        val r = PureTdNative.nativePostProbs(handle, state(board, onRoll, 0), plies) ?: error("PureTD evaluation failed")
+    private fun preProbs(board: Board, onRoll: Int, plies: Int, weights: FloatArray?): List<Float> {
+        val r = PureTdNative.nativePostProbs(handle, state(board, onRoll, 0), plies, weights) ?: error("PureTD evaluation failed")
         return invertProbs(List(5) { r[it] })
     }
 
@@ -75,6 +81,24 @@ class PureTdEngine(
     }
 
     private fun away(ctx: CubeContext, player: Int) = ctx.matchLength - ctx.score[player]
+
+    /**
+     * Weights of a side's 5 probabilities (win, gammon, backgammon, lose gammon, lose backgammon) in its
+     * match-winning chance, for [white] then the other side: what each side maximizes when it picks its
+     * move inside the search. Null for money games (the search then uses money equity).
+     */
+    internal fun matchWeights(ctx: CubeContext, white: Int): FloatArray? {
+        if (ctx.matchLength == 0 || !matchAwareSearch) return null
+        val v = ctx.cube.value
+        fun side(me: Int): List<Float> {
+            val a = away(ctx, me); val b = away(ctx, Player.other(me))
+            fun after(won: Int, lost: Int) = met.after(a, b, ctx.crawford, won, lost)
+            val l1 = after(0, v); val lg = after(0, 2 * v); val lb = after(0, 3 * v)
+            val w1 = after(v, 0); val wg = after(2 * v, 0); val wb = after(3 * v, 0)
+            return listOf(w1 - l1, wg - w1, wb - wg, lg - l1, lb - lg).map { it.toFloat() }
+        }
+        return (side(white) + side(Player.other(white))).toFloatArray()
+    }
 
     /** Cubeful equity (normalized, EMG in matches) for the mover of [post], from its probabilities. */
     private fun postEquity(post: Board, ctx: CubeContext, p: List<Float>): Float {
@@ -97,9 +121,19 @@ class PureTdEngine(
 
     // ---- checker play ---------------------------------------------------------------------------
 
+    /**
+     * Both sides bearing off with a checker off each: PureTD's bear-off table gives exact winning chances at 1-ply (no
+     * gammons left), so the best play is found there. Not with the cubeful network (money cubeful checker play).
+     */
+    override fun exactAtOnePly(ctx: CubeContext, posts: List<Board>): Boolean =
+        !(cubefulCheckers && ctx.matchLength == 0) && hasBearoff &&
+            posts.all { b -> (0..1).all { p -> b.allHome(p) && b.off(p) > 0 } }
+
+    private val hasBearoff: Boolean by lazy { PureTdNative.nativeHasBearoff(handle) }
+
     override fun evaluate(board: Board, ctx: CubeContext, posts: List<Board>, plies: Int): List<PostEval> {
         if (cubefulCheckers && ctx.matchLength == 0) return posts.map { cubefulPost(it, ctx, plies) }
-        val probs = postProbs(ctx.onRoll, posts, plies)
+        val probs = postProbs(ctx.onRoll, posts, plies, matchWeights(ctx, ctx.onRoll))
         return posts.indices.map { PostEval(postEquity(posts[it], ctx, probs[it]), probs[it]) }
     }
 
@@ -108,7 +142,7 @@ class PureTdEngine(
         val mover = ctx.onRoll
         val opp = Player.other(mover)
         if (post.off(mover) == 15) {
-            val probs = postProbs(mover, listOf(post), 1)[0]
+            val probs = postProbs(mover, listOf(post), 1, null)[0]
             return PostEval(postEquity(post, ctx, probs), probs)
         }
         val owner = view(ctx, opp)
@@ -141,7 +175,7 @@ class PureTdEngine(
         } else {
             // Deeper than 1-ply: the cube-aware search, with cube decisions at every node of the tree.
             val search = if (depth >= 2) matchSearch(board, ctx, depth) else null
-            probs = search?.probs() ?: preProbs(board, me, depth)
+            probs = search?.probs() ?: preProbs(board, me, depth, matchWeights(ctx, me))
             val mc = MatchCube(met, probs, away(ctx, me), away(ctx, Player.other(me)), ctx.crawford, cubeLife(board))
             val (a, b, c) = search?.root(owner, v) ?: mc.decision(owner, v)
             nd = mc.toEmg(a, v); dt = mc.toEmg(b, v); dp = mc.toEmg(c, v)
@@ -154,7 +188,7 @@ class PureTdEngine(
     private fun matchSearch(board: Board, ctx: CubeContext, depth: Int): MatchCubeSearch {
         val me = ctx.onRoll
         val levels = depth - 1
-        val tree = PureTdNative.nativeCubeTree(handle, state(board, me, 0), levels) ?: error("PureTD cube search failed")
+        val tree = PureTdNative.nativeCubeTree(handle, state(board, me, 0), levels, matchWeights(ctx, me)) ?: error("PureTD cube search failed")
         return MatchCubeSearch(met, tree, levels, away(ctx, me), away(ctx, Player.other(me)), ctx.crawford)
     }
 

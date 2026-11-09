@@ -23,9 +23,14 @@ class MatchCubeSearchTest {
         val (s, match) = ctx("aBaB--C-A---dE---d-e----B-:0:0:1:00:0:1:0:3:10")
         val money = match.copy(matchLength = 0, score = listOf(0, 0))
         for (p in 2..3) {
-            val a = e!!.cubeDecision(s.board, match, Depth(p).code).probs
+            // With moves picked by money equity in both, the tree gives the n-ply probabilities exactly.
+            e!!.matchAwareSearch = false
+            val a = try { e.cubeDecision(s.board, match, Depth(p).code).probs } finally { e.matchAwareSearch = true }
             val b = e.cubeDecision(s.board, money, Depth(p).code).probs
             for (i in 0 until 5) assertEquals("$p-ply probability $i", b[i], a[i], 1e-4f)
+            // Picking the moves by match-winning chance changes them a little here.
+            val c = e.cubeDecision(s.board, match, Depth(p).code).probs
+            for (i in 0 until 5) assertEquals("$p-ply match-aware probability $i", b[i], c[i], 0.01f)
         }
     }
 

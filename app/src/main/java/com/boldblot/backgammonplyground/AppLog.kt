@@ -56,14 +56,21 @@ object AppLog {
         }
     }
 
-    /** Opens the email app with the support address, the phone and app versions and the log attached. */
+    /** Opens the email app with the support address, the phone and app versions, and the settings and log attached. */
     fun sendReport(context: Context) {
         i("Error report opened")
         val out = File(context.cacheDir, "reports").also { it.mkdirs() }
         val name = "plyground-log-${SimpleDateFormat("yyyyMMdd-HHmm", Locale.ROOT).format(Date())}.txt"
         val copy = File(out, name)
         out.listFiles()?.forEach { it.delete() }
-        synchronized(this) { copy.writeText(file?.takeIf { it.exists() }?.readText() ?: "(empty log)\n") }
+        // The settings first (all of them), then the log.
+        val settings = runCatching {
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withTimeoutOrNull(2000) { (context.applicationContext as PlyGroundApp).settings.reportText() }
+            }
+        }.getOrNull() ?: "(not available)\n"
+        val header = "Settings\n$settings\n--- Log ---\n"
+        synchronized(this) { copy.writeText(header + (file?.takeIf { it.exists() }?.readText() ?: "(empty log)\n")) }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", copy)
         val body = """
             |What happened, and what did you do just before?

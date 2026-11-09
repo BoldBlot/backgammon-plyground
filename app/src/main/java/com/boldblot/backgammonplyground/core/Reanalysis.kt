@@ -1,7 +1,5 @@
 package com.boldblot.backgammonplyground.core
 
-import kotlin.math.abs
-
 /**
  * Analyzes recorded decisions again, at other depths: the
  * review's "Analyze again". Autofinish decisions stay unanalyzed, as when they were played.
@@ -16,24 +14,11 @@ class Reanalysis(
 ) {
     private val controller = MatchController(engine, DiceSource.secure(), AnalysisSettings(plies = checkerDepth, cubePlies = cubeDepth))
 
-    /** The cube decision for [ctx].onRoll; with [shortcut], 2-ply when that is clear (see [CLEAR_MARGIN]), else the full depth. */
-    private fun cube(board: Board, ctx: CubeContext, kind: DecisionKind): CubeEval {
-        if (shortcut && Depth.of(cubeDepth).plies > 2) {
-            val e = engine.cubeDecision(board, ctx, Depth(2).code)
-            val margin = when (kind) {
-                DecisionKind.DOUBLE, DecisionKind.NO_DOUBLE -> if (e.cubeAvailable) abs(e.noDouble - e.afterDouble) else 0f
-                DecisionKind.TAKE, DecisionKind.PASS, DecisionKind.BEAVER -> abs(e.doubleTake - e.doublePass)
-                else -> 0f
-            }
-            if (margin > CLEAR_MARGIN) return e
-        }
-        return engine.cubeDecision(board, ctx, cubeDepth)
-    }
+    /** The cube decision for [ctx].onRoll; with [shortcut], 2-ply when that is clear (see [CubeShortcut]), else the full depth. */
+    private fun cube(board: Board, ctx: CubeContext, kind: DecisionKind): CubeEval =
+        if (shortcut) CubeShortcut.cubeDecision(engine, board, ctx, cubeDepth, kind) else engine.cubeDecision(board, ctx, cubeDepth)
 
     companion object {
-        /** Normalized equity between the two options of a cube decision beyond which 2-ply is taken as settled. */
-        const val CLEAR_MARGIN = 0.3f
-
         /** Whether [g] has computer decisions that were never analyzed (computer analysis off, or still pending). */
         fun unanalyzedCpu(g: GameState): Boolean =
             g.decisions.any { it.player == Player.CPU && !it.auto && it.checker == null && it.cubeEval == null }
