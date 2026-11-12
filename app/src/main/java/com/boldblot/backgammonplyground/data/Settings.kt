@@ -12,6 +12,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.boldblot.backgammonplyground.core.CpuLevel
 import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.EngineKind
+import com.boldblot.backgammonplyground.core.GameSearch
 import com.boldblot.backgammonplyground.core.MistakeRate
 import com.boldblot.backgammonplyground.core.MoveFilter
 import com.boldblot.backgammonplyground.core.PureTdNet
@@ -116,10 +117,18 @@ enum class ErrorsSort(val label: String) { NO_FOLDER("No folder"), SPLIT("Checke
 enum class BlunderSort(val label: String) { BIGGEST("Biggest first"), NEWEST("Newest first") }
 
 /** The analysis depth while mistakes are shown immediately (Intuition training); [plies] 0 = as in Settings → Analysis. */
-enum class IntuitionDepth(val label: String, val plies: Int) { SAME("Same as Analysis", 0), ONE("1-ply", 1), TWO("2-ply", 2), THREE("3-ply", 3) }
+enum class IntuitionDepth(val label: String, val plies: Int) {
+    SAME("Same as Analysis", 0), ONE("1-ply", 1), TWO("2-ply", 2), THREE("3-ply", 3),
+    /** Matches only (money games: 3-ply): [plies] is the checker [GameSearch] code; cube decisions [GameSearch.C44]. */
+    G36("3/36/7", GameSearch.G36.code), G144("3/144/7", GameSearch.G144.code),
+}
 
 /** How deep autofinish looks when it plays the human's side; never noise. */
-enum class AutoFinishDepth(val label: String, val plies: Int) { ONE("1-ply", 1), TWO("2-ply", 2), THREE("3-ply", 3) }
+enum class AutoFinishDepth(val label: String, val plies: Int) {
+    ONE("1-ply", 1), TWO("2-ply", 2), THREE("3-ply", 3),
+    /** Matches only (money games: 3-ply): [plies] is the checker [GameSearch] code; cube decisions [GameSearch.C44]. */
+    G36("3/36/7", GameSearch.G36.code),
+}
 
 /** Pause after each move while autofinish plays the game out. */
 enum class AutoFinishSpeed(val label: String, val pauseMillis: Long) {
@@ -190,6 +199,23 @@ data class Settings(
     val moveFilter: MoveFilter = MoveFilter.WIDE,
     /** Cube analysis depth (XG plies 1-4); 4-ply halves the cube error of 3-ply against XG. */
     val cubePlies: Int = 4,
+    /**
+     * Match play's own depths, as [Depth] codes (plies, or a [GameSearch]); -1 = as money games above, which is
+     * where they start. Money games keep [checkerPlies], [moveFilter] and [cubePlies].
+     */
+    val matchChecker: Int = -1,
+    val matchCube: Int = -1,
+    /** Seconds after which a one-position analysis offers to stop (the search goes on until told). */
+    val analysisLimit: Int = 15,
+    /** The same for the searches of play: the computer's decisions, Intuition training, autofinish. */
+    val playLimit: Int = 5,
+    /**
+     * Analyses of whole games (during play, in the background, Analyze again): played-out games only for the
+     * checker plays the search before them calls an error (true), or for every decision.
+     */
+    val gamesOnErrorsOnly: Boolean = true,
+    /** A small ± beside cube decisions that came from played-out games: tap for their standard error. */
+    val showCubeSpread: Boolean = false,
     val blunderSort: BlunderSort = BlunderSort.BIGGEST,
     /** The order of a My positions folder: newest saved, or the biggest error made in the game (positions without one last). */
     val positionsSort: BlunderSort = BlunderSort.NEWEST,
@@ -360,11 +386,32 @@ data class Settings(
     val checkerDepth: Depth get() = Depth(checkerPlies, moveFilter)
     val cubeDepth: Depth get() = Depth(cubePlies)
 
+    /** The analysis depths for a match ([match]) or a money game. */
+    fun checkerDepth(match: Boolean): Depth = if (match && matchChecker >= 0) Depth.of(matchChecker) else checkerDepth
+    fun cubeDepth(match: Boolean): Depth = if (match && matchCube >= 0) Depth.of(matchCube) else cubeDepth
+
+    /** Both kinds of game in one number ([Depth.dual]): the engine takes the half that fits the position. */
+    val checkerCode: Int get() = Depth.dual(checkerDepth.code, checkerDepth(true).code)
+    val cubeCode: Int get() = Depth.dual(cubeDepth.code, cubeDepth(true).code)
+
     /** The depths decisions are analyzed at during play: in Intuition training [intuitionDepth] when set. */
-    val playCheckerDepth: Depth
-        get() = intuitionPlies?.let { Depth(it, moveFilter) } ?: checkerDepth
-    val playCubeDepth: Depth
-        get() = intuitionPlies?.let { Depth(it) } ?: cubeDepth
+    val playCheckerCode: Int
+        get() = when (val p = intuitionPlies) {
+            null -> checkerCode
+            in 1..Depth.MAX_SEARCH_PLIES -> Depth(p, moveFilter).code
+            else -> Depth.dual(Depth(3, moveFilter).code, p)
+        }
+    val playCubeCode: Int
+        get() = when (val p = intuitionPlies) {
+            null -> cubeCode
+            in 1..Depth.MAX_SEARCH_PLIES -> Depth(p).code
+            else -> Depth.dual(Depth(3).code, GameSearch.C44.code)
+        }
+    /** What autofinish plays the human's side with (see [AutoFinishDepth]). */
+    val autoCheckerCode: Int
+        get() = autoFinishDepth.plies.let { if (it <= 1) Depth(1).code else if (it <= Depth.MAX_SEARCH_PLIES) Depth(it, MoveFilter.NARROW).code else Depth.dual(Depth(3, MoveFilter.NARROW).code, it) }
+    val autoCubeCode: Int
+        get() = autoFinishDepth.plies.let { if (it <= Depth.MAX_SEARCH_PLIES) Depth(it.coerceAtLeast(1)).code else Depth.dual(Depth(3).code, GameSearch.C44.code) }
     private val intuitionPlies: Int?
         get() = intuitionDepth.plies.takeIf { it > 0 && trainingMode == TrainingMode.IMMEDIATE }
 
@@ -397,6 +444,12 @@ class SettingsStore(private val context: Context) {
         val moveFilter = stringPreferencesKey("move_filter")
         val welcomeSeen = stringPreferencesKey("welcome_shown_version")
         val cubePlies = intPreferencesKey("cube_plies")
+        val matchChecker = intPreferencesKey("match_checker_depth")
+        val matchCube = intPreferencesKey("match_cube_depth")
+        val analysisLimit = intPreferencesKey("analysis_limit_seconds")
+        val playLimit = intPreferencesKey("play_limit_seconds")
+        val gamesOnErrorsOnly = booleanPreferencesKey("games_on_errors_only")
+        val showCubeSpread = booleanPreferencesKey("show_cube_spread")
         val errorRate = floatPreferencesKey("mistake_errors")
         val blunderRate = floatPreferencesKey("mistake_blunders")
         val mistakeCheckerPlies = intPreferencesKey("mistake_checker_plies")
@@ -509,6 +562,12 @@ class SettingsStore(private val context: Context) {
             // Pruning is on or off now; the older ±0.04 and ±0.08 settings become on.
             moveFilter = p.enum(Keys.moveFilter, d.moveFilter).let { if (it == MoveFilter.ALL) it else MoveFilter.WIDE },
             cubePlies = (p[Keys.cubePlies] ?: d.cubePlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
+            matchChecker = p[Keys.matchChecker] ?: d.matchChecker,
+            matchCube = p[Keys.matchCube] ?: d.matchCube,
+            analysisLimit = (p[Keys.analysisLimit] ?: d.analysisLimit).coerceIn(1, 3600),
+            playLimit = (p[Keys.playLimit] ?: d.playLimit).coerceIn(1, 3600),
+            gamesOnErrorsOnly = p[Keys.gamesOnErrorsOnly] ?: d.gamesOnErrorsOnly,
+            showCubeSpread = p[Keys.showCubeSpread] ?: d.showCubeSpread,
             welcomeSeen = p[Keys.welcomeSeen] ?: d.welcomeSeen,
             blunderSort = p.enum(Keys.blunderSort, d.blunderSort),
             positionsSort = p.enum(Keys.positionsSort, d.positionsSort),
@@ -619,6 +678,12 @@ class SettingsStore(private val context: Context) {
             p[Keys.moveFilter] = s.moveFilter.name
             p[Keys.welcomeSeen] = s.welcomeSeen
             p[Keys.cubePlies] = s.cubePlies
+            p[Keys.matchChecker] = s.matchChecker
+            p[Keys.matchCube] = s.matchCube
+            p[Keys.analysisLimit] = s.analysisLimit
+            p[Keys.playLimit] = s.playLimit
+            p[Keys.gamesOnErrorsOnly] = s.gamesOnErrorsOnly
+            p[Keys.showCubeSpread] = s.showCubeSpread
             p[Keys.blunderSort] = s.blunderSort.name
             p[Keys.positionsSort] = s.positionsSort.name
             p[Keys.autoFinish] = s.autoFinishSpeed.name

@@ -90,6 +90,7 @@ object Elo {
         CpuLevel.GRANDMASTER -> 2050.0
         CpuLevel.STRONG -> 2060.0
         CpuLevel.MAXIMUM -> 2075.0
+        CpuLevel.NEW_BEST -> 2080.0
         CpuLevel.MISTAKES -> 2050.0
     }
 

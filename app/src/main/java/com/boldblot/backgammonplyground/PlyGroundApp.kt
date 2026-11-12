@@ -82,6 +82,9 @@ class PlyGroundApp : Application() {
                 engine.backgroundLow = it.backgroundPriority == BackgroundPriority.LOW
                 engine.net = it.puretdNet
                 engine.cubefulCheckers = it.cubefulCheckers
+                engine.analysisLimitMs = it.analysisLimit * 1000L
+                engine.playLimitMs = it.playLimit * 1000L
+                engine.gamesOnErrorsOnly = it.gamesOnErrorsOnly
             }
         }
     }

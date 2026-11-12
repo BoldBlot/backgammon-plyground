@@ -25,6 +25,13 @@ Compose UI (ui/*)  ──>  GameViewModel  ──>  MatchController (core, pure 
 - Match play for PureTD uses our own match equity table and match cube formulas
   (`core/CubeMath.kt`), not copied from any other program; the match cube search is
   `engine/MatchCubeSearch.kt` over a tree from `ptd_cube_tree`.
+- Match play with PureTD also has searches that end in short played-out games
+  (`core/AnalysisEngine.kt` `GameSearch`, `engine/GamesSearch.kt`): a funnel in
+  `SearchEngine.rank` for checker plays, and No double against Double/take on the same dice for
+  cube decisions. Money games and the other engines fall back to the plies before the games.
+- A search someone waits for is watched (`EngineService.run` with a `Waiting`): it reports to a
+  `SearchMonitor`, shows in `ui/components/SearchOverlay.kt`, and can be stopped; it then
+  returns what it has, with 100 added to its depth code (`Depth.incomplete`).
 - GNU Backgammon (`engine/gnubg`, our C API in `engine/src/bgengine.c`) and Open Sage
   (`engine/sage`) are unchanged; the JNI bridges are in `app/src/main/cpp`.
 - Every engine call runs on one dedicated thread (`EngineService`), since the engines keep

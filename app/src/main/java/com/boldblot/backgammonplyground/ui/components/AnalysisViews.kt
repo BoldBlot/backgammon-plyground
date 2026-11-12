@@ -57,6 +57,9 @@ fun fmt(v: Double, digits: Int = 1): String = String.format(Locale.US, "%.${digi
 /** The unit errors are shown in (Settings → Display), provided at the top of the app. */
 val LocalErrorUnit = staticCompositionLocalOf { ErrorUnit.EQ }
 
+/** Cube decisions from played-out games show a small ± that opens their standard error (Settings → Analysis). */
+val LocalCubeSpread = staticCompositionLocalOf { false }
+
 /** Match scores as "2-away, 3-away" instead of the score and the match length (Settings → Display). */
 val LocalScoreAway = staticCompositionLocalOf { false }
 
@@ -492,8 +495,21 @@ fun CubeTable(
         val human = c.human to c.humanRim
         val cpu = c.cpu to c.cpuRim
         if (eval.probs.size >= 5) ChancesRows(eval.probs, if (rollerHuman) human else cpu, if (rollerHuman) cpu else human)
-        Text(
-            "${eval.label} · cubeless chances",
+        val spread = eval.spread?.takeIf { LocalCubeSpread.current }
+        val spreadShown = androidx.compose.runtime.remember(eval) { androidx.compose.runtime.mutableStateOf(false) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "${eval.label} · cubeless chances",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // Played-out games: a small ± that opens their standard error (a setting, off by default).
+            if (spread != null) Text(
+                " ±", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable { spreadShown.value = !spreadShown.value }.padding(horizontal = 6.dp),
+            )
+        }
+        if (spread != null && spreadShown.value) Text(
+            "No double against Double/take: ± ${"%.3f".format(java.util.Locale.US, spread)} (standard error of the played-out games). Closer than that is a toss-up.",
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

@@ -1,5 +1,6 @@
 package com.boldblot.backgammonplyground.ui.position
 
+import com.boldblot.backgammonplyground.engine.Waiting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.boldblot.backgammonplyground.PlyGroundApp
@@ -53,12 +54,12 @@ data class PositionState(
     /** Engine and level chosen on this screen; null = the analysis depths in Settings. */
     /** The engine picked on this screen (null: the analysis engine from Settings). */
     val engineChoice: EngineKind? = null,
-    val level: Pair<Depth, Int>? = null,
+    val level: Pair<Depth, Depth>? = null,
 ) {
     /** Checker depth and cube plies used by the next analysis. */
     val engine: EngineKind get() = engineChoice ?: settings.analysisEngine
-    val checkerDepth: Depth get() = level?.first ?: settings.checkerDepth
-    val cubePlies: Int get() = level?.second ?: settings.cubePlies
+    val checkerDepth: Depth get() = level?.first ?: settings.checkerDepth(matchLength > 0)
+    val cubeDepth: Depth get() = level?.second ?: settings.cubeDepth(matchLength > 0)
 
     /** The parts of the position the user edits (what Undo restores). */
     val edited: Edited get() = Edited(board, onRoll, dice, matchLength, score, crawford, jacoby, cube)
@@ -279,7 +280,7 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
     fun setEngine(e: EngineKind) = _state.update { it.copy(engineChoice = e) }
 
     /** Sets the level of the next analysis (not an edit: the position and its results stay). */
-    fun setLevel(checker: Depth, cubePlies: Int) = _state.update { it.copy(level = checker to cubePlies) }
+    fun setLevel(checker: Depth, cube: Depth) = _state.update { it.copy(level = checker to cube) }
 
     /** Analyzes the position; returns the analysis job (null when it cannot start). */
     fun analyze(): Job? {
@@ -289,11 +290,11 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
         _state.update { it.copy(analyzing = true, message = null) }
         return viewModelScope.launch {
             val plies = st.checkerDepth.code
-            val cubePlies = Depth(st.cubePlies).code
+            val cubePlies = st.cubeDepth.code
             val ctx = st.ctx()
             val dice = if (st.hasDice) Dice(st.dice[0]!!, st.dice[1]!!) else null
             val result = runCatching {
-                app.engine.run(st.engine) {
+                app.engine.run(st.engine, Waiting.ANALYSIS) {
                     if (dice != null) MatchController(this, DiceSource.secure(), AnalysisSettings(plies = plies, cubePlies = cubePlies))
                         .analyzeChecker(st.board, ctx, dice, null, plies) to null
                     else null to cubeDecision(st.board, ctx, cubePlies)

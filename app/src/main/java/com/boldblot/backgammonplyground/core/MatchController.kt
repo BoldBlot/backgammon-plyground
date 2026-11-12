@@ -38,6 +38,9 @@ data class AnalysisSettings(
     val none: Boolean = false,
     /** XG plies with which autofinish plays the human's side (no noise). */
     val autoPlies: Int = 1,
+    /** Autofinish's depths as [Depth] codes, when they are more than plies (a [GameSearch] in matches); null = [autoPlies]. */
+    val autoChecker: Int? = null,
+    val autoCube: Int? = null,
     /**
      * The quick cube check (a [Depth] code; 0 = off): when the human rolls and this shallower analysis
      * finds doubling a blunder, it stands in for the analysis at [cubePlies].
@@ -124,6 +127,9 @@ class MatchController(
     fun analyzeChecker(board: Board, ctx: CubeContext, d: Dice, played: Move?, plies: Int = settings.plies): CheckerAnalysis {
         val r = engine.rankMoves(board, ctx, d.d1, d.d2, plies, played)
         val all = r.candidates
+        // What the analysis records: the depth for this kind of game, or what a stopped search reached.
+        @Suppress("NAME_SHADOWING")
+        val plies = all.firstOrNull()?.plies?.takeIf { it >= Depth.INCOMPLETE } ?: Depth.resolve(plies, ctx.matchLength > 0)
         if (all.isEmpty()) {
             return CheckerAnalysis(emptyList(), -1, 0f, 0f, 0f, legalMoves = 0, plies = plies, engine = engine.name.ifEmpty { null })
         }
@@ -391,6 +397,9 @@ class MatchController(
         return m.copy(game = next) to accepted
     }
 
+    /** The cube depth for winning chances: played-out games add nothing to them, so the plies before the games. */
+    private fun chancesDepth(m: MatchState): Int = Depth.of(Depth.resolve(settings.cubePlies, m.ctx().matchLength > 0)).plain.code
+
     /** The computer's gammon and backgammon chances while the human is to act. */
     private fun cpuWinningChances(m: MatchState): Pair<Float, Float> {
         val g = m.game
@@ -400,10 +409,10 @@ class MatchController(
             val best = engine.rankMoves(g.board, m.ctx(), d.d1, d.d2, settings.plies, null).candidates.firstOrNull()
             if (best != null) return best.probs[3] to best.probs[4]
             // No legal move: the computer is next on roll in the same position.
-            val p = engine.cubeDecision(g.board, m.ctx(Player.CPU), settings.cubePlies).probs
+            val p = engine.cubeDecision(g.board, m.ctx(Player.CPU), chancesDepth(m)).probs
             return p[1] to p[2]
         }
-        val p = engine.cubeDecision(g.board, m.ctx(Player.HUMAN), settings.cubePlies).probs
+        val p = engine.cubeDecision(g.board, m.ctx(Player.HUMAN), chancesDepth(m)).probs
         return p[3] to p[4]
     }
 
@@ -441,12 +450,12 @@ class MatchController(
     /** Autofinish: the human's checker play, the engine's best at [AnalysisSettings.autoPlies] (deeper looks: moves within 0.04). */
     fun autoMove(m: MatchState): Move {
         val d = requireNotNull(m.game.dice)
-        val depth = if (settings.autoPlies <= 1) Depth(1) else Depth(settings.autoPlies, MoveFilter.NARROW)
-        return engine.rankMoves(m.game.board, m.ctx(), d.d1, d.d2, depth.code, null).candidates.firstOrNull()?.move ?: Move.NONE
+        val depth = settings.autoChecker ?: (if (settings.autoPlies <= 1) Depth(1) else Depth(settings.autoPlies, MoveFilter.NARROW)).code
+        return engine.rankMoves(m.game.board, m.ctx(), d.d1, d.d2, depth, null).candidates.firstOrNull()?.move ?: Move.NONE
     }
 
     /** Autofinish: the engine's cube view for the human (as doubler before the roll, or as taker). */
-    fun autoCube(m: MatchState): CubeEval = engine.cubeDecision(m.game.board, m.ctx(), Depth(settings.autoPlies.coerceAtLeast(1)).code)
+    fun autoCube(m: MatchState): CubeEval = engine.cubeDecision(m.game.board, m.ctx(), settings.autoCube ?: Depth(settings.autoPlies.coerceAtLeast(1)).code)
 
     /** Ranked candidate plays for the human's current roll (the hint). */
     /** The best of [moves] (legal for the dice) at [plies], by the resulting position; null if none is legal. */

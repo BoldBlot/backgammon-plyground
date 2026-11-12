@@ -48,6 +48,9 @@ typedef struct {
      * match-winning chance (up to a constant), by which each side picks its 1-ply best move inside the
      * search. NULL = money cubeless equity. Set per call (the JNI layer passes a copy of the engine). */
     const float *match_w;
+    /* Non-NULL and pointing at a nonzero value: the search is abandoned as soon as its workers notice
+     * (the results are then meaningless and must be thrown away). */
+    const volatile int *stop;
 } ptd_engine;
 
 /*
@@ -91,6 +94,13 @@ int ptd_cube(const ptd_engine *e, const BoardState *s, int plies, int owner, int
  * race (else 0), and the average pip count of the two sides (zeros below a finished game).
  */
 void ptd_cube_tree(const ptd_engine *e, const BoardState *s, int levels, int *pts, float *leaf);
+
+/*
+ * One turn of a played-out game: s->turn plays roll (d1, d2) as inside the search (its 1-ply best move, by
+ * match_w in matches). next gets the position after it; out the mover's 5 probabilities there, 1 if it is a
+ * race (else 0) and the average pip count of the two sides. Returns the points the mover won, else 0.
+ */
+int ptd_play(const ptd_engine *e, const BoardState *s, int d1, int d2, BoardState *next, float out[7]);
 
 /*
  * Speed test on positions from a fixed self-play game (1-ply play from the start, every third

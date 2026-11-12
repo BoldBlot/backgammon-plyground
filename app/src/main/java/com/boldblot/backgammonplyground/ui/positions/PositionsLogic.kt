@@ -1,5 +1,6 @@
 package com.boldblot.backgammonplyground.ui.positions
 
+import com.boldblot.backgammonplyground.engine.Waiting
 import com.boldblot.backgammonplyground.PlyGroundApp
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -40,18 +41,23 @@ fun quizCountText(p: SavedPosition): String {
 }
 
 /** Analyzes [p] at the analysis depths in Settings, with the analysis engine. */
-suspend fun analyzePosition(app: PlyGroundApp, p: StudyPosition, s: Settings): PositionAnalysis =
-    analyzePosition(app, p, s.analysisEngine, s.checkerDepth, s.cubeDepth)
+suspend fun analyzePosition(app: PlyGroundApp, p: StudyPosition, s: Settings, waiting: Waiting? = null): PositionAnalysis {
+    val match = p.ctx().matchLength > 0
+    return analyzePosition(app, p, s.analysisEngine, s.checkerDepth(match), s.cubeDepth(match), waiting)
+}
 
 /** Analyzes [p] with [engine]: a checker play at [checker], a cube decision at [cube]. */
-suspend fun analyzePosition(app: PlyGroundApp, p: StudyPosition, engine: EngineKind, checker: Depth, cube: Depth): PositionAnalysis =
-    app.engine.run(engine) {
+suspend fun analyzePosition(app: PlyGroundApp, p: StudyPosition, engine: EngineKind, checker: Depth, cube: Depth, waiting: Waiting? = null): PositionAnalysis =
+    app.engine.run(engine, waiting) {
         val dice = p.dice
         if (dice != null) {
             val c = MatchController(this, DiceSource.secure(), AnalysisSettings(plies = checker.code, cubePlies = cube.code))
-            PositionAnalysis(checker = c.analyzeChecker(p.board, p.ctx(), dice, null, checker.code), label = "${engine.label} ${checker.label()}")
+            // The label says what was searched: without the games where they cannot be played, or stopped early.
+            val a = c.analyzeChecker(p.board, p.ctx(), dice, null, checker.code)
+            PositionAnalysis(checker = a, label = "${engine.label} ${Depth.of(a.plies).label()}")
         } else {
-            PositionAnalysis(cube = cubeDecision(p.board, p.ctx(), cube.code), label = "${engine.label} ${cube.label(cube = true)}")
+            val e = cubeDecision(p.board, p.ctx(), cube.code)
+            PositionAnalysis(cube = e, label = "${engine.label} ${Depth.of(e.plies ?: cube.code).label(cube = true)}")
         }
     }
 

@@ -35,7 +35,7 @@ import com.boldblot.backgammonplyground.ui.components.AnalysisLevelPicker
 data class ReanalyzeRequest(
     val engine: EngineKind,
     val checker: Depth,
-    val cubePlies: Int,
+    val cube: Depth,
     /** The whole match rather than the game shown. */
     val wholeMatch: Boolean = false,
     /** The computer's decisions too. */
@@ -51,9 +51,11 @@ fun ReanalyzeDialog(
     settings: Settings, gameNumber: Int?, onDismiss: () -> Unit,
     /** The computer's decisions are on by default: as in the settings, or because some of them were never analyzed. */
     cpuDefault: Boolean = settings.cpuAnalysis,
+    /** A match position or game: the match depths in Settings to start from, and the searches by played-out games on offer. */
+    match: Boolean = false,
     onStart: (ReanalyzeRequest) -> Unit,
 ) {
-    var r by remember { mutableStateOf(ReanalyzeRequest(settings.analysisEngine, settings.checkerDepth, settings.cubePlies, cpu = cpuDefault)) }
+    var r by remember { mutableStateOf(ReanalyzeRequest(settings.analysisEngine, settings.checkerDepth(match), settings.cubeDepth(match), cpu = cpuDefault)) }
     AlertDialog(
         onDismissRequest = onDismiss,
         // Wider than the default, so that four depth buttons fit across.
@@ -64,7 +66,7 @@ fun ReanalyzeDialog(
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 AnalysisLevelPicker(
                     engine = r.engine, onEngine = { r = r.copy(engine = it) },
-                    checker = r.checker, cubePlies = r.cubePlies, onChange = { c, cube -> r = r.copy(checker = c, cubePlies = cube) },
+                    checker = r.checker, cube = r.cube, onChange = { c, cube -> r = r.copy(checker = c, cube = cube) }, match = match,
                 )
                 if (gameNumber != null) {
                     Spacer(Modifier.height(10.dp))

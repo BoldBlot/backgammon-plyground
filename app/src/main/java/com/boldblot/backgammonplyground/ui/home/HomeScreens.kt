@@ -1,5 +1,8 @@
 package com.boldblot.backgammonplyground.ui.home
 
+import com.boldblot.backgammonplyground.ui.components.GAME_SEARCH_NOTE
+import com.boldblot.backgammonplyground.ui.components.CubeDepthPicker
+import com.boldblot.backgammonplyground.ui.components.CheckerDepthPicker
 import androidx.compose.runtime.produceState
 import com.boldblot.backgammonplyground.ui.components.errWithUnit
 import com.boldblot.backgammonplyground.ui.components.LocalErrorUnit
@@ -107,6 +110,7 @@ import com.boldblot.backgammonplyground.ui.components.LabelFilterButton
 import com.boldblot.backgammonplyground.core.Elo
 import com.boldblot.backgammonplyground.core.PerformanceTotals
 import com.boldblot.backgammonplyground.data.AnalysisTiming
+import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.data.AutoFinishDepth
 import com.boldblot.backgammonplyground.data.ErrorsMode
 import com.boldblot.backgammonplyground.data.ErrorsSort
@@ -264,7 +268,7 @@ fun NewMatchScreen(app: PlyGroundApp, hasMatch: Boolean, onStart: (MatchRules, C
     val s = settings ?: return
     var length by remember(s) { mutableStateOf(s.matchLength) }
     // The opponents are PR levels: PR <1 (Maximum), PR <2 (Strong), or the mistake-rate opponent.
-    var level by remember(s) { mutableStateOf(if (s.cpuLevel == CpuLevel.MAXIMUM || s.cpuLevel == CpuLevel.STRONG) s.cpuLevel else CpuLevel.MISTAKES) }
+    var level by remember(s) { mutableStateOf(if (s.cpuLevel == CpuLevel.MAXIMUM || s.cpuLevel == CpuLevel.STRONG || s.cpuLevel == CpuLevel.NEW_BEST) s.cpuLevel else CpuLevel.MISTAKES) }
     var cube by remember(s) { mutableStateOf(s.useCube) }
     var jacoby by remember(s) { mutableStateOf(s.jacoby) }
     var crawford by remember(s) { mutableStateOf(s.crawford) }
@@ -336,6 +340,7 @@ fun NewMatchScreen(app: PlyGroundApp, hasMatch: Boolean, onStart: (MatchRules, C
         }
         val strength: @Composable () -> Unit = {
             EngineChips(engine, { engine = it }, Modifier.padding(bottom = 4.dp))
+            LevelRow(CpuLevel.NEW_BEST.label, "Matches with PureTD: checker 3/36/7, cube 3/44/7 (short played-out games) · otherwise as PR <1", level == CpuLevel.NEW_BEST) { level = CpuLevel.NEW_BEST }
             LevelRow("PR <1 · World champion", "Checker 3-ply, all moves, cube 3-ply · no mistakes", level == CpuLevel.MAXIMUM) { level = CpuLevel.MAXIMUM }
             LevelRow("PR <2 · World class", "Checker 2-ply, all moves, cube 2-ply · no mistakes · faster", level == CpuLevel.STRONG) { level = CpuLevel.STRONG }
             val preset = MistakeRate.presets.firstOrNull { it.rate == mistakes }
@@ -853,7 +858,8 @@ private fun SettingsGroup.summary(s: Settings): String = when (this) {
         s.trainingMode.label,
         if (s.quietPlay) "analysis ${s.analysisTiming.label.lowercase()}" else s.feedback.label.lowercase(),
     ).joinToString(" · ")
-    SettingsGroup.ANALYSIS -> "${s.analysisEngine.label} · ${s.checkerPlies}-ply checker play · ${s.cubePlies}-ply cube"
+    SettingsGroup.ANALYSIS -> "${s.analysisEngine.label} · ${s.checkerPlies}-ply checker play · ${s.cubePlies}-ply cube" +
+        if (s.matchChecker >= 0 || s.matchCube >= 0) " · matches ${s.checkerDepth(true).label()}, cube ${s.cubeDepth(true).label(cube = true)}" else ""
     SettingsGroup.ENGINE -> if (s.analysisEngine != EngineKind.PURETD) {
         "Background analysis shares the game's engine (${s.analysisEngine.label})"
     } else {
@@ -960,7 +966,7 @@ private fun TrainingSettings(s: Settings, update: (f: (Settings) -> Settings) ->
                 "Analyze again there goes deeper). The engine starts on each decision while you think about it.",
         )
     }
-    if (during && !s.quietPlay && s.playCubeDepth.plies >= 3) {
+    if (during && !s.quietPlay && Depth.of(s.playCubeCode).plies >= 3) {
         Chips("Quick cube check", QuickCubeCheck.entries, s.quickCubeCheck, { it.label }) { v -> update { it.copy(quickCubeCheck = v) } }
         Note(
             "Cube checks in the endgame are known to slow the game down. A quick check at a lower depth can stand in: " +
@@ -1388,6 +1394,7 @@ private fun AnalysisSettings(s: Settings, update: (f: (Settings) -> Settings) ->
         "Analyzes your games, hints and positions, and gives PR, errors and luck. The computer plays with " +
             "the engine chosen in New match. Analyze again in the review can use another engine.",
     )
+    Text("Money games", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
     Chips("Checker play depth", (1..4).toList(), s.checkerPlies, { "$it-ply" }) { n -> update { it.copy(checkerPlies = n) } }
     if (s.checkerPlies == 4) {
         Text(FOUR_PLY_CHECKER_NOTE, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
@@ -1401,6 +1408,29 @@ private fun AnalysisSettings(s: Settings, update: (f: (Settings) -> Settings) ->
         "XG's ply numbering: 1-ply is the network alone, each further ply looks one roll deeper. Deeper is " +
             "stronger but slower; the speed test times each depth on this phone and recommends one.",
     )
+    Text("Match play", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+    val games = s.analysisEngine == EngineKind.PURETD
+    Text("Checker play depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+    CheckerDepthPicker(s.checkerDepth(true), games) { d -> update { it.copy(matchChecker = d.code) } }
+    Text("Cube decision depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+    CubeDepthPicker(s.cubeDepth(true), games) { d -> update { it.copy(matchCube = d.code) } }
+    if (games) Note(GAME_SEARCH_NOTE)
+    Toggle("Played-out games only for errors", s.gamesOnErrorsOnly) { v -> update { it.copy(gamesOnErrorsOnly = v) } }
+    Note(
+        "When whole games are analyzed (during play, in the background, Analyze again), games are played out only " +
+            "for the checker plays that the plies before them call an error. Off: for every decision, which takes " +
+            "far longer. An analysis of one position always plays them out.",
+    )
+    Toggle("± beside cube decisions from played-out games", s.showCubeSpread) { v -> update { it.copy(showCubeSpread = v) } }
+    Note("Tap the ± for the standard error of the games: a decision closer than that is a toss-up.")
+    Text("Long searches", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+    LimitPicker("An analysis offers to stop after", s.analysisLimit) { n -> update { it.copy(analysisLimit = n) } }
+    LimitPicker("During play, a search offers to stop after", s.playLimit) { n -> update { it.copy(playLimit = n) } }
+    Note(
+        "A search you wait for shows what it is doing. Past this time it offers to stop and show what it has so far " +
+            "(marked incomplete); it never stops by itself. Play covers the computer's decisions, Intuition training " +
+            "and autofinish.",
+    )
     OutlinedButton(onClick = onSpeedTest, modifier = Modifier.padding(top = 4.dp)) { Text("Speed test and recommendation") }
     speedTestLine(s)?.let { Note(it) }
     Toggle("Analyze the computer's decisions too", s.cpuAnalysis) { v -> update { it.copy(cpuAnalysis = v) } }
@@ -1408,6 +1438,24 @@ private fun AnalysisSettings(s: Settings, update: (f: (Settings) -> Settings) ->
         "Used for the computer's PR and its moves in review. Off (the default) makes the computer move " +
             "sooner and the phone stay cooler; it then has no PR. Analyze again in the review can still " +
             "analyze its moves later.",
+    )
+}
+
+/** Seconds before a long search offers to stop: 5, 10, 15 or 30, or any other number typed in. */
+@Composable
+private fun LimitPicker(label: String, value: Int, onPick: (Int) -> Unit) {
+    val choices = listOf(5, 10, 15, 30)
+    Chips(label, choices, value, { "$it s" }, onPick = onPick)
+    var text by remember(value) { mutableStateOf(if (value in choices) "" else value.toString()) }
+    OutlinedTextField(
+        value = text,
+        onValueChange = { t ->
+            text = t.filter { it.isDigit() }.take(4)
+            text.toIntOrNull()?.takeIf { it in 1..3600 }?.let(onPick)
+        },
+        label = { Text("Other (seconds)") }, singleLine = true,
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+        modifier = Modifier.padding(bottom = 4.dp),
     )
 }
 

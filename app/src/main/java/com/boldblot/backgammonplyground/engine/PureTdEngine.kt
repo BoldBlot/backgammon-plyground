@@ -5,6 +5,7 @@ import com.boldblot.backgammonplyground.core.CubeContext
 import com.boldblot.backgammonplyground.core.CubeEval
 import com.boldblot.backgammonplyground.core.CubeView
 import com.boldblot.backgammonplyground.core.Depth
+import com.boldblot.backgammonplyground.core.GameSearch
 import com.boldblot.backgammonplyground.core.MatchCube
 import com.boldblot.backgammonplyground.core.MatchEquityTable
 import com.boldblot.backgammonplyground.core.Player
@@ -32,6 +33,41 @@ class PureTdEngine(
     internal var matchAwareSearch: Boolean = true
 
     override val name: String get() = netName
+
+    /** Worker threads for the played-out games ([GameSearch]), and what each does first (its priority); set by [EngineService]. */
+    @Volatile var gameThreads: Int = Runtime.getRuntime().availableProcessors()
+    @Volatile var workerInit: (() -> Unit)? = null
+
+    private val games by lazy { GamesSearch(handle) }
+
+    override fun requestStop() = PureTdNative.nativeSetStop(handle, true)
+    override fun clearStop() = PureTdNative.nativeSetStop(handle, false)
+
+    override fun playsGames(ctx: CubeContext): Boolean = ctx.matchLength > 0 && matchAwareSearch
+
+    /** The cube for [player] as the games count it: 0 centred, 1 its own, 2 the opponent's. */
+    private fun cubeOwner(ctx: CubeContext, player: Int) = when (view(ctx, player)) { CubeView.CENTRED -> 0; CubeView.MINE -> 1; CubeView.THEIRS -> 2 }
+
+    override fun gameValues(ctx: CubeContext, posts: List<Board>, search: GameSearch): Pair<List<Float>, Int>? {
+        val me = ctx.onRoll
+        val r = games.posts(
+            posts.map { state(it, me, 1) }, away(ctx, me), away(ctx, Player.other(me)), ctx.crawford, cubeOwner(ctx, me), ctx.cube.value,
+            search.games, search.turns, gameThreads, monitor, workerInit,
+        ) ?: return null
+        return r.first.map { it.toFloat() } to r.second
+    }
+
+    override fun gamesCube(board: Board, ctx: CubeContext, search: GameSearch, base: CubeEval): Pair<CubeEval, Boolean>? {
+        if (!base.cubeAvailable) return null
+        val margin = minOf(kotlin.math.abs(base.afterDouble - base.noDouble), kotlin.math.abs(base.doubleTake - base.doublePass))
+        if (margin > GameSearch.CUBE_CLEAR) return null
+        val me = ctx.onRoll
+        val r = games.cube(
+            state(board, me, 0), away(ctx, me), away(ctx, Player.other(me)), ctx.crawford, cubeOwner(ctx, me), ctx.cube.value,
+            search.games, search.turns, gameThreads, monitor, workerInit,
+        ) ?: return null
+        return evalOf(r.nd, r.dt, base.doublePass.toDouble(), true, base.probs).copy(spread = r.spread.toFloat()) to (r.played == r.games)
+    }
 
 
     /**

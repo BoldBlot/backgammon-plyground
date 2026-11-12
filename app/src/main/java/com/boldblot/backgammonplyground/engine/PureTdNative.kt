@@ -16,6 +16,8 @@ object PureTdNative {
     @JvmStatic external fun nativeShare(handle: Long, threads: Int): Long
     /** Worker threads for [handle]'s next searches. */
     @JvmStatic external fun nativeSetThreads(handle: Long, threads: Int)
+    /** Abandons ([stop]) the search running on [handle], from any thread; clear it before the next search. Its results are meaningless. */
+    @JvmStatic external fun nativeSetStop(handle: Long, stop: Boolean)
     /** Whether [handle] has the bear-off table (exact values once both sides are bearing off). */
     @JvmStatic external fun nativeHasBearoff(handle: Long): Boolean
     /** Probabilities for the side that just moved (turn = the other side), 5 per position. */
@@ -27,6 +29,12 @@ object PureTdNative {
      * won at every node (level 1 first), then 7 floats per leaf (on-roll probabilities, race, average pips).
      */
     @JvmStatic external fun nativeCubeTree(handle: Long, state: IntArray, levels: Int, matchWeights: FloatArray?): FloatArray?
+    /**
+     * One rollout turn: the side to move in [io] (int[29]) plays roll ([d1], [d2]) as inside the search (1-ply
+     * best, by [matchWeights] in matches); [io] becomes the position after it. [out] gets the mover's 5
+     * probabilities, race (1/0) and the average pip count. Returns the points the mover won, else 0.
+     */
+    @JvmStatic external fun nativePlay(handle: Long, io: IntArray, d1: Int, d2: Int, matchWeights: FloatArray?, out: FloatArray): Int
     /** Resulting positions (int[29] each) of every legal play with dice (d1, d2). */
     @JvmStatic external fun nativeLegalStates(state: IntArray, d1: Int, d2: Int): IntArray?
     /**

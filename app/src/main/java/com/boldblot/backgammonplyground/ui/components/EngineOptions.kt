@@ -14,6 +14,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.EngineKind
+import com.boldblot.backgammonplyground.core.GameSearch
 import com.boldblot.backgammonplyground.core.MIN_SEARCHED
 import com.boldblot.backgammonplyground.core.MoveFilter
 
@@ -47,32 +48,64 @@ fun PlyChips(selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifi
 
 /**
  * Engine and analysis level: checker play depth, the moves searched to that depth, and cube depth.
- * [onChange] gets the new checker depth and cube plies.
+ * [match] (a match position, with PureTD) adds the searches by played-out games ([GameSearch]).
+ * [onChange] gets the new checker and cube depths.
  */
 @Composable
 fun AnalysisLevelPicker(
     engine: EngineKind, onEngine: (EngineKind) -> Unit,
-    checker: Depth, cubePlies: Int, onChange: (Depth, Int) -> Unit,
+    checker: Depth, cube: Depth, onChange: (Depth, Depth) -> Unit,
     modifier: Modifier = Modifier,
+    match: Boolean = false,
 ) {
     val small = MaterialTheme.typography.bodySmall
+    val games = match && engine == EngineKind.PURETD
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text("Engine", style = small)
-        EngineChips(engine, onEngine)
+        EngineChips(engine, { e ->
+            onEngine(e)
+            // The other engines play no games out: back to the plies before them.
+            if (e != EngineKind.PURETD && (checker.search != null || cube.search != null)) onChange(checker.plain, Depth(cube.plies))
+        })
         Text("Checker play depth", style = small, modifier = Modifier.padding(top = 4.dp))
-        PlyChips(checker.plies, { onChange(checker.copy(plies = it), cubePlies) })
-        if (checker.plies == 4) {
-            Text(FOUR_PLY_CHECKER_NOTE, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-        }
-        if (checker.plies > 1) {
-            Text("Pruning", style = small, modifier = Modifier.padding(top = 4.dp))
-            EqualChips(PRUNING, if (checker.filter == MoveFilter.ALL) MoveFilter.ALL else MoveFilter.WIDE, { if (it == MoveFilter.ALL) "Off" else "On" }, { onChange(checker.copy(filter = it), cubePlies) })
-            Text(PRUNING_NOTE, style = MaterialTheme.typography.labelSmall)
-        }
+        CheckerDepthPicker(checker, games) { onChange(it, cube) }
         Text("Cube depth", style = small, modifier = Modifier.padding(top = 4.dp))
-        PlyChips(cubePlies, { onChange(checker, it) })
+        CubeDepthPicker(cube, games) { onChange(checker, it) }
+        if (games) Text(GAME_SEARCH_NOTE, style = MaterialTheme.typography.labelSmall)
     }
 }
+
+/** Checker play depth: plies and pruning, and with [games] the searches by played-out games. */
+@Composable
+fun CheckerDepthPicker(depth: Depth, games: Boolean, onChange: (Depth) -> Unit) {
+    val filter = if (depth.filter == MoveFilter.ALL) MoveFilter.ALL else MoveFilter.WIDE
+    PlyChips(if (depth.search == null) depth.plies else 0, { onChange(Depth(it, filter)) })
+    if (games) {
+        val all = GameSearch.checker
+        EqualChips<GameSearch?>(all.take(3), depth.search, { it?.label ?: "" }, { onChange(Depth(it!!.plies, MoveFilter.WIDE, it)) })
+        EqualChips<GameSearch?>(all.drop(3), depth.search, { it?.label ?: "" }, { onChange(Depth(it!!.plies, MoveFilter.WIDE, it)) })
+    }
+    if (depth.search == null && depth.plies == 4) {
+        Text(FOUR_PLY_CHECKER_NOTE, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+    }
+    if (depth.search == null && depth.plies > 1) {
+        Text("Pruning", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+        EqualChips(PRUNING, filter, { if (it == MoveFilter.ALL) "Off" else "On" }, { onChange(depth.copy(filter = it)) })
+        Text(PRUNING_NOTE, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+/** Cube depth: plies, and with [games] the searches by played-out games. */
+@Composable
+fun CubeDepthPicker(depth: Depth, games: Boolean, onChange: (Depth) -> Unit) {
+    PlyChips(if (depth.search == null) depth.plies else 0, { onChange(Depth(it)) })
+    if (games) EqualChips<GameSearch?>(GameSearch.cubes, depth.search, { it?.label ?: "" }, { onChange(Depth(it!!.plies, MoveFilter.WIDE, it)) })
+}
+
+/** Under the played-out-games chips, wherever they are offered. */
+const val GAME_SEARCH_NOTE = "X/YY/Z (experimental, matches with PureTD): X-ply first, then YY short played-out games of Z turns " +
+    "each, for the best few plays or for a close cube decision. More games are slower and steadier. " +
+    "\"4-ply, fast\" narrows the plays at 2-ply and 3-ply before 4-ply."
 
 /** The checker search's two root filters, as offered in Settings and Analyze. */
 val PRUNING = listOf(MoveFilter.WIDE, MoveFilter.ALL)

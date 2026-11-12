@@ -10,6 +10,13 @@ import com.boldblot.backgammonplyground.core.EngineKind
 import com.boldblot.backgammonplyground.core.MatchEquityTable
 import com.boldblot.backgammonplyground.core.PureTdNet
 import com.boldblot.backgammonplyground.core.Move
+import com.boldblot.backgammonplyground.core.SearchMonitor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -17,6 +24,15 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.EnumMap
 import java.util.concurrent.Executors
+
+/** Who waits for a search: the limits differ (Settings → Analysis). */
+enum class Waiting { ANALYSIS, PLAY }
+
+/**
+ * A search someone waits for, as the screen shows it: what it is doing, [done] of [total] steps (0 of 0: not
+ * counted), when it started ([startedAt], elapsed real time) and after how long the notice comes up.
+ */
+data class SearchProgress(val id: Long, val waiting: Waiting, val what: String, val done: Int, val total: Int, val startedAt: Long, val limitMs: Long)
 
 /**
  * Owns the engines (PureTD, GNU Backgammon, Open Sage). They are not thread-safe, so every call
@@ -59,6 +75,21 @@ class EngineService(private val context: Context) {
     @Volatile var backgroundThreads: Int = defaultBackgroundThreads(cores)
     /** The background analysis runs at low priority: Android gives the game's searches the cores first. */
     @Volatile var backgroundLow: Boolean = true
+
+    /** After this long a watched search offers to stop (Settings → Analysis): one-position analyses, and play. */
+    @Volatile var analysisLimitMs: Long = 15_000
+    @Volatile var playLimitMs: Long = 5_000
+    /** [SearchEngine.gamesOnErrorsOnly] for everything but the analysis of one position (Settings → Analysis). */
+    @Volatile var gamesOnErrorsOnly: Boolean = true
+
+    private val _progress = MutableStateFlow<SearchProgress?>(null)
+    /** The watched search running now ([run] with a [Waiting]), for the progress bar and the notice. */
+    val progress: StateFlow<SearchProgress?> = _progress
+    @Volatile private var watched: SearchMonitor? = null
+    private var searchId = 0L
+
+    /** Stops the watched search: it returns what it has ([com.boldblot.backgammonplyground.core.Depth.incomplete]). */
+    fun stopSearch() { watched?.requestStop() }
 
     /** The background analysis has its own slot (only PureTD can have a second copy). */
     val twoSlots: Boolean get() = analysisKind == EngineKind.PURETD
@@ -140,14 +171,49 @@ class EngineService(private val context: Context) {
         Ptd(handle, PureTdEngine(handle, netName = n.engineName))
     }
 
-    /** Runs [block] on the engine thread with [kind]'s engine (the analysis engine by default). */
-    suspend fun <T> run(kind: EngineKind? = null, block: SearchEngine.() -> T): T {
+    /**
+     * Runs [block] on the engine thread with [kind]'s engine (the analysis engine by default). With [waiting]
+     * (someone waits for the result) the search is watched: it shows in [progress], can be stopped
+     * ([stopSearch]) and stops when the caller is cancelled.
+     */
+    suspend fun <T> run(kind: EngineKind? = null, waiting: Waiting? = null, block: SearchEngine.() -> T): T {
         start()
         return withContext(dispatcher) {
             val threads = gameThreads.coerceIn(1, cores)
             PureTdNative.nativeSetThreads(ptdHandle, threads)
             if (sageHandle != 0L) SageNative.nativeSetThreads(sageHandle, threads)
-            get(kind ?: analysisKind).block()
+            val e = get(kind ?: analysisKind)
+            // The analysis of one position always plays its games out.
+            e.gamesOnErrorsOnly = gamesOnErrorsOnly && waiting != Waiting.ANALYSIS
+            (e as? PureTdEngine)?.let { it.gameThreads = threads; it.workerInit = { Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT) } }
+            if (waiting == null) return@withContext e.block()
+            val mon = SearchMonitor()
+            val id = ++searchId
+            val started = android.os.SystemClock.elapsedRealtime()
+            val limit = if (waiting == Waiting.PLAY) playLimitMs else analysisLimitMs
+            coroutineScope {
+                var finished = false
+                val ticker = launch(Dispatchers.Default) {
+                    try {
+                        while (true) {
+                            _progress.value = SearchProgress(id, waiting, mon.what, mon.done, mon.total, started, limit)
+                            delay(150)
+                        }
+                    } finally {
+                        // The caller went away (left the screen): nobody waits for the result any more.
+                        if (!finished) mon.requestStop()
+                    }
+                }
+                e.monitor = mon
+                watched = mon
+                try { e.block() } finally {
+                    finished = true
+                    e.monitor = null
+                    watched = null
+                    ticker.cancel()
+                    _progress.value = null
+                }
+            }
         }
     }
 
@@ -164,6 +230,10 @@ class EngineService(private val context: Context) {
             val b = backgrounds[n] ?: openBackground(n, threads)
             PureTdNative.nativeSetThreads(b.handle, threads)
             b.engine.cubefulCheckers = cubefulCheckers
+            b.engine.gamesOnErrorsOnly = gamesOnErrorsOnly
+            b.engine.gameThreads = threads
+            val priority = if (backgroundLow) Process.THREAD_PRIORITY_BACKGROUND else Process.THREAD_PRIORITY_DEFAULT
+            b.engine.workerInit = { Process.setThreadPriority(priority) }
             b.engine.block()
         }
     }

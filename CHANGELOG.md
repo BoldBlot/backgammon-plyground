@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.8.10 — 2026-11-12 (build 73, internal test)
+
+- Matches with PureTD: new, experimental analysis depths that end in short played-out games, named
+  X/YY/Z: X-ply first, then YY games of Z turns each. Checker play: 3/36/7, 3/108/7, 3/144/7 and
+  3/288/7 (the games are played for the best 3 to 5 plays, on the same dice), and "4-ply, fast"
+  (2-ply and 3-ply narrow the plays before 4-ply). Cube decisions: 3/44/7, 3/48/11 and 3/288/11
+  (played out when 3-ply leaves the decision closer than 0.1). In each game both sides play 1-ply
+  moves by match-winning chance and handle the cube; the luck of every roll is taken off the result,
+  which is why so few games are enough. The same position always gives the same values. On
+  406 cube decisions and 186 checker plays that XG rolled out, the equity lost per
+  decision fell from 0.0029 (4-ply) to 0.0015 (3/44/7, about the same time) and
+  0.0009 (3/288/11); for checker plays from 0.0051 (4-ply) to 0.0030 (3/144/7).
+  Timed on a PC only so far.
+- Settings → Analysis now has separate depths for money games (as before) and for match play (the
+  plies, plus the new depths). Match play starts with your money settings.
+- A search you wait for now shows a progress bar that says what it is doing ("3-ply on 16 plays",
+  "Played-out games: 96 of 144"). Past a time you set (5, 10, 15 or 30 s, or any number of seconds;
+  15 s for an analysis, 5 s during play) it offers to keep waiting, to stop, or to stop and open
+  the settings. It never stops by itself. A stopped search shows what it has, marked "incomplete":
+  the games played so far, or the last ply that finished. Leaving the screen stops it too.
+- Settings → Analysis, "Played-out games only for errors" (on): when whole games are analyzed
+  (during play, in the background, Analyze again), games are played out only for the checker plays
+  that 3-ply calls an error. An analysis of one position always plays them out.
+- Settings → Analysis, "± beside cube decisions from played-out games" (off): a small ± under the
+  cube table opens the standard error of the games.
+- New opponent "New Best (experimental)": in matches with PureTD it plays 3/36/7 and doubles by
+  3/44/7; in money games and with the other engines it plays as PR <1.
+- Intuition training and autofinish can use 3/36/7 (and Intuition 3/144/7) in matches; in money
+  games they use 3-ply.
+- Speed test: also times the new depths and recommends match settings: the deepest whose average
+  stays within half the time an analysis may take before it offers to stop.
+
 ## 0.8.9 — 2026-11-09 (build 72)
 
 - PureTD, matches: inside its search, each side now picks its moves by its match-winning chance at

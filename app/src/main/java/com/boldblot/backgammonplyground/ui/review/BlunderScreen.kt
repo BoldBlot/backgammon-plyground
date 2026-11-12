@@ -1,5 +1,6 @@
 package com.boldblot.backgammonplyground.ui.review
 
+import com.boldblot.backgammonplyground.engine.Waiting
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -220,8 +221,8 @@ class BlunderViewModel(val app: PlyGroundApp, private val startId: Long, private
         viewModelScope.launch {
             val result = runCatching {
                 val jacoby = app.repository.match(b.entity.matchId)?.jacoby ?: true
-                val re = Reanalysis(app.engine.of(r.engine), r.checker.code, Depth(r.cubePlies).code)
-                val d = app.engine.run { re.decision(b.decision, b.entity.matchLength, jacoby) }
+                val re = Reanalysis(app.engine.of(r.engine), r.checker.code, r.cube.code)
+                val d = app.engine.run(r.engine, Waiting.ANALYSIS) { re.decision(b.decision, b.entity.matchLength, jacoby) }
                 SavedBlunder(app.repository.saveReanalyzedBlunder(b.entity, d), d)
             }
             _state.update { st ->
@@ -230,7 +231,7 @@ class BlunderViewModel(val app: PlyGroundApp, private val startId: Long, private
                         st.copy(
                             analyzing = false, candidate = null,
                             blunders = st.blunders.map { if (it.entity.id == nb.entity.id) nb else it },
-                            message = "Analyzed again: ${r.engine.label} ${r.checker.label()}, cube ${r.cubePlies}-ply.",
+                            message = "Analyzed again: ${r.engine.label} ${r.checker.label()}, cube ${r.cube.label(cube = true)}.",
                         )
                     },
                     onFailure = { e -> st.copy(analyzing = false, message = "Analysis failed: ${e.message}") },
@@ -478,7 +479,7 @@ private fun Detail(st: BlunderState, b: SavedBlunder, vm: BlunderViewModel) {
                 Text(it, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f).clickable(onClick = vm::dismissMessage))
             }
         }
-        if (ask) ReanalyzeDialog(st.settings, gameNumber = null, onDismiss = { ask = false }, onStart = { ask = false; vm.reanalyze(it) })
+        if (ask) ReanalyzeDialog(st.settings, gameNumber = null, onDismiss = { ask = false }, match = (st.current?.entity?.matchLength ?: 0) > 0, onStart = { ask = false; vm.reanalyze(it) })
         Spacer(Modifier.height(4.dp))
         when {
             d.checker != null && d.checker.candidates.isNotEmpty() -> CandidateList(

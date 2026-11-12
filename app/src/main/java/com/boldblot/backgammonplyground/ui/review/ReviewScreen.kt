@@ -1,5 +1,6 @@
 package com.boldblot.backgammonplyground.ui.review
 
+import com.boldblot.backgammonplyground.engine.Waiting
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -331,7 +332,7 @@ class ReviewViewModel(
         _state.update { it.copy(cubeShown = true, turnCube = TurnCube(rec, null, true, busy = true)) }
         viewModelScope.launch {
             val s = _state.value.settings
-            val e = runCatching { app.engine.run { cubeDecision(d.board, ctx, Depth(s.cubePlies).code) } }.getOrNull()
+            val e = runCatching { app.engine.run(waiting = Waiting.ANALYSIS) { cubeDecision(d.board, ctx, s.cubeCode) } }.getOrNull()
             _state.update { st2 ->
                 if (st2.decisions.getOrNull(st2.position)?.value !== d) st2
                 else st2.copy(turnCube = TurnCube(rec, e, e?.cubeAvailable ?: false))
@@ -385,7 +386,7 @@ class ReviewViewModel(
         val match = s.match ?: return
         if (reanalysis?.isActive == true) return
         val targets = if (r.wholeMatch) s.games.indices.toList() else listOf(s.gameIndex)
-        val re = Reanalysis(app.engine.of(r.engine), r.checker.code, Depth(r.cubePlies).code)
+        val re = Reanalysis(app.engine.of(r.engine), r.checker.code, r.cube.code)
         val total = targets.sumOf { i -> s.games[i].second.decisions.count { re.wanted(it, r.cpu) } }
         reanalysis = viewModelScope.launch {
             var done = 0
@@ -397,7 +398,7 @@ class ReviewViewModel(
                     val decisions = g.decisions.toMutableList()
                     for ((k, d) in g.decisions.withIndex()) {
                         if (!re.wanted(d, r.cpu)) continue
-                        decisions[k] = app.engine.run { re.decision(d, match.length, match.jacoby) }
+                        decisions[k] = app.engine.run(r.engine) { re.decision(d, match.length, match.jacoby) }
                         done++
                         _state.update { it.copy(progress = done to total) }
                     }
@@ -406,7 +407,7 @@ class ReviewViewModel(
                     games++
                     _state.update { st -> st.copy(games = st.games.toMutableList().also { it[i] = e2 to g2 }) }
                 }
-                val depth = "${r.engine.label} ${r.checker.label()}, cube ${r.cubePlies}-ply"
+                val depth = "${r.engine.label} ${r.checker.label()}, cube ${r.cube.label(cube = true)}"
                 _state.update { it.copy(progress = null, message = "Analyzed again: $depth.") }
             } catch (c: kotlinx.coroutines.CancellationException) {
                 _state.update { it.copy(progress = null, message = "Stopped. $games of ${targets.size} games were analyzed again.") }
@@ -522,6 +523,7 @@ private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, cap
             st.settings, gameNumber = st.games.getOrNull(st.gameIndex)?.first?.number,
             onDismiss = { ask = false },
             cpuDefault = st.settings.cpuAnalysis || st.games.any { (_, g) -> Reanalysis.unanalyzedCpu(g) },
+            match = (st.match?.length ?: 0) > 0,
             onStart = { ask = false; vm.reanalyze(it) },
         )
     }

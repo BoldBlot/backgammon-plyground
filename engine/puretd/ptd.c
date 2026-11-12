@@ -404,7 +404,10 @@ struct pool {
 static void *worker(void *arg) {
     pool *p = arg;
     scratch *sc = malloc(sizeof *sc);
-    for (int t; (t = atomic_fetch_add(&p->next, 1)) < p->n_tasks;) p->fn(p, sc, t);
+    for (int t; (t = atomic_fetch_add(&p->next, 1)) < p->n_tasks;) {
+        if (p->e->stop && *p->e->stop) break;   /* abandoned: the caller throws the results away */
+        p->fn(p, sc, t);
+    }
     free(sc);
     return NULL;
 }
@@ -677,6 +680,18 @@ static void race_and_pips(const BoardState *s, float *race, float *pips) {
     *pips = (white + black) / 2.0f;
 }
 
+/* One turn of a rollout game: s->turn plays roll (d1, d2) as the search does inside its tree (1-ply best,
+ * by e->match_w in matches). *next gets the position after it (the other side to roll); out gets the
+ * mover's 5 probabilities after the play, then 1 if *next is a race (else 0) and its average pip count.
+ * Returns the points (1-3) the mover won if the play ended the game, else 0. Uses one scratch per thread. */
+int ptd_play(const ptd_engine *e, const BoardState *s, int d1, int d2, BoardState *next, float out[7]) {
+    static _Thread_local scratch *sc;
+    if (!sc) sc = malloc(sizeof *sc);
+    best_1ply(e, sc, s, d1, d2, next, out);
+    race_and_pips(next, &out[5], &out[6]);
+    return game_points(next);
+}
+
 static long level_offset(int k) { long o = 0, n = 21; for (int j = 1; j < k; j++) { o += n; n *= 21; } return o; }
 
 typedef struct { int levels; int *pts; float *leaf; } tree_out;
@@ -685,6 +700,7 @@ typedef struct { int levels; int *pts; float *leaf; } tree_out;
 static void tree_rec(const ptd_engine *e, scratch *sc, const tree_out *t, const BoardState *s, int level, long idx, int dead) {
     BoardState kids[21];
     int pts[21];
+    if (e->stop && *e->stop) return;
     for (int r = 0; r < 21; r++) {
         pts[r] = 0;
         kids[r] = *s;

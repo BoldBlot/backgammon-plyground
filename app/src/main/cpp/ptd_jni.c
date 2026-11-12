@@ -20,6 +20,7 @@ typedef struct {
     ptd_bearoff *bearoff;
     ptd_engine e;
     int shared;                 /* made by nativeShare: the networks belong to another handle */
+    volatile int stop;          /* nativeSetStop: abandon this handle's running search */
 } handle;
 
 static void to_state(const jint *v, BoardState *s)
@@ -53,6 +54,7 @@ FN(nativeOpen)(JNIEnv *env, jclass cls, jstring cubeless, jstring cubeful, jstri
     h->e.cubeful = h->cubeful;
     h->e.bearoff = h->bearoff;
     h->e.threads = threads;
+    h->e.stop = &h->stop;
     return (jlong)(intptr_t)h;
 }
 
@@ -84,7 +86,18 @@ FN(nativeShare)(JNIEnv *env, jclass cls, jlong ptr, jint threads)
     *c = *h;
     c->shared = 1;
     c->e.threads = threads;
+    c->stop = 0;
+    c->e.stop = &c->stop;
     return (jlong)(intptr_t)c;
+}
+
+/* Abandons (stop) the search running on ptr, from any thread, or clears the request before the next one.
+ * An abandoned search returns at once with meaningless results. */
+JNIEXPORT void JNICALL
+FN(nativeSetStop)(JNIEnv *env, jclass cls, jlong ptr, jboolean stop)
+{
+    handle *h = (handle *)(intptr_t)ptr;
+    if (h) h->stop = stop ? 1 : 0;
 }
 
 /* Worker threads for ptr's next searches (call between searches, on the thread that searches). */
@@ -204,6 +217,28 @@ JNIEXPORT void JNICALL
 FN(nativeBenchCancel)(JNIEnv *env, jclass cls)
 {
     ptd_bench_cancel();
+}
+
+/* One rollout turn (ptd_play): io holds the position (int[29]) and gets the next one; out gets 7 floats.
+ * Returns the points won by the mover if the game ended, else 0; -1 on bad arguments. */
+JNIEXPORT jint JNICALL
+FN(nativePlay)(JNIEnv *env, jclass cls, jlong ptr, jintArray io, jint d1, jint d2, jfloatArray weights, jfloatArray out)
+{
+    handle *h = (handle *)(intptr_t)ptr;
+    ptd_engine e;
+    float w[10], o[7];
+    if (!h || (*env)->GetArrayLength(env, io) != STATE_INTS || (*env)->GetArrayLength(env, out) != 7) return -1;
+    if (!with_weights(env, h, weights, &e, w)) return -1;
+    jint v[STATE_INTS];
+    (*env)->GetIntArrayRegion(env, io, 0, STATE_INTS, v);
+    BoardState s, n;
+    to_state(v, &s);
+    int pts = ptd_play(&e, &s, d1, d2, &n, o);
+    for (int i = 0; i < 24; i++) v[i] = n.points[i];
+    v[24] = n.bar[0]; v[25] = n.bar[1]; v[26] = n.off[0]; v[27] = n.off[1]; v[28] = n.turn;
+    (*env)->SetIntArrayRegion(env, io, 0, STATE_INTS, v);
+    (*env)->SetFloatArrayRegion(env, out, 0, 7, o);
+    return pts;
 }
 
 /* The match cube search tree (ptd_cube_tree): float[nodes + 7 * leaves], the points of every node

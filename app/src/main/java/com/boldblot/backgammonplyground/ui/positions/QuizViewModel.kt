@@ -1,5 +1,6 @@
 package com.boldblot.backgammonplyground.ui.positions
 
+import com.boldblot.backgammonplyground.engine.Waiting
 import com.boldblot.backgammonplyground.core.StudyPosition
 import com.boldblot.backgammonplyground.data.QuizTheirCube
 import com.boldblot.backgammonplyground.data.QuizMyCube
@@ -436,7 +437,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
         viewModelScope.launch {
             try {
                 val p = sp.position
-                val a = analyzePosition(app, p, r.engine, r.checker, Depth(r.cubePlies))
+                val a = analyzePosition(app, p, r.engine, r.checker, r.cube, Waiting.ANALYSIS)
                 val kept = !old.deleted && old.removed == null
                 if (kept) app.positions.setAnalysis(sp.id, a)
                 // An answer of the cube action alone is judged again with the opponent's best answer by the new analysis.

@@ -17,6 +17,12 @@ enum class CpuLevel(val engineLevel: Int, val label: String, val description: St
     /** PR <1: 3-ply on every legal move, cube 3-ply. */
     MAXIMUM(8, "Maximum", "3-ply, every legal move"),
 
+    /**
+     * Match play with PureTD: checker play [GameSearch.G36], cube [GameSearch.C44] (short played-out games).
+     * In money games, and with the other engines, it plays as [MAXIMUM].
+     */
+    NEW_BEST(11, "New Best (experimental)", "Matches: 3-ply, then short played-out games"),
+
     /** Plays at Grandmaster depth but makes errors and blunders at a set rate ([MistakeRate]). */
     MISTAKES(9, "Mistake rate", "Errors and blunders at a set rate");
 
@@ -54,6 +60,8 @@ data class CubeEval(
     val engine: String? = null,
     /** Its depth ([Depth] code); null in analyses saved before 0.7.11. */
     val plies: Int? = null,
+    /** Standard error of No double minus Double/take, when the decision came from played-out games ([GameSearch]). */
+    val spread: Float? = null,
 ) {
     /** "PureTD 4-ply"; "Engine unknown, 4-ply" or "Engine unknown" for what older analyses recorded. */
     val label: String get() {
@@ -99,31 +107,100 @@ enum class MoveFilter(val within: Float, val label: String) {
 }
 
 /**
- * An analysis depth: XG plies (1 = network only, up to [MAX_SEARCH_PLIES]) and, for checker play,
- * the root [filter]. Passed to the engine and stored with analyses as [code]: 10 × plies + filter
- * (11-43), or the short codes 0 = 1-ply, 1-3 = 3-ply within 0.04 / 0.08 / 0.16 and 4 = 3-ply for
- * every legal move.
+ * Searches that end in short played-out games (match play, PureTD only; elsewhere they fall back to [plies]
+ * with pruning). Named X/YY/Z: X plies first, then YY games of Z turns each. Checker play: every play at
+ * 1-ply, [plies] for the 16 best within 0.16, then the games for the [plays] best within [within], all on the
+ * same dice. Cube decisions: [plies] first, then the games for No double and Double/take when [plies] leaves
+ * the decision closer than [CUBE_CLEAR]. [FAST4] has no games: 2-ply, 3-ply (8 plays within 0.08), then 4-ply
+ * for the 3 best within 0.04. [code] is what analyses store (see [Depth]); never change one.
  */
-data class Depth(val plies: Int, val filter: MoveFilter = MoveFilter.ALL) {
-    val code: Int get() = 10 * plies + filter.ordinal
+enum class GameSearch(val code: Int, val label: String, val cube: Boolean, val plies: Int, val games: Int, val turns: Int, val plays: Int = 0, val within: Float = 0f) {
+    FAST4(50, "4-ply, fast", false, 4, 0, 0, 3, 0.04f),
+    G36(51, "3/36/7", false, 3, 36, 7, 3, 0.04f),
+    G108(52, "3/108/7", false, 3, 108, 7, 4, 0.06f),
+    G144(53, "3/144/7", false, 3, 144, 7, 4, 0.06f),
+    G288(54, "3/288/7", false, 3, 288, 7, 5, 0.08f),
+    C44(61, "3/44/7", true, 3, 44, 7),
+    C48(62, "3/48/11", true, 3, 48, 11),
+    C288(63, "3/288/11", true, 3, 288, 11);
 
-    /** "1-ply", "3-ply, pruned", "4-ply, all moves", "3-ply ±0.04"; [cube] leaves the filter out. */
+    companion object {
+        /** A cube decision [plies] settles by this much (normalized equity) is not played out. */
+        const val CUBE_CLEAR = 0.1f
+        val checker: List<GameSearch> get() = entries.filter { !it.cube }
+        val cubes: List<GameSearch> get() = entries.filter { it.cube }
+        fun of(code: Int): GameSearch? = entries.firstOrNull { it.code == code }
+    }
+}
+
+/**
+ * An analysis depth: XG plies (1 = network only, up to [MAX_SEARCH_PLIES]) and, for checker play,
+ * the root [filter]; or a [search] by played-out games (then [plies] is its first stage).
+ * Passed to the engine and stored with analyses as [code]: 10 × plies + filter (11-43), a
+ * [GameSearch.code] (50-69), or the short codes 0 = 1-ply, 1-3 = 3-ply within 0.04 / 0.08 / 0.16 and
+ * 4 = 3-ply for every legal move. 100 more marks a search the user stopped early ([incomplete]): its
+ * values are those of the last stage that finished, or of the games played so far.
+ *
+ * Settings hand the engines one number for both kinds of game ([dual]): the engine takes the half
+ * that fits the position ([resolve]) and records that.
+ */
+data class Depth(val plies: Int, val filter: MoveFilter = MoveFilter.ALL, val search: GameSearch? = null, val incomplete: Boolean = false) {
+    val code: Int get() = (search?.code ?: (10 * plies + filter.ordinal)) + (if (incomplete) INCOMPLETE else 0)
+
+    /** "1-ply", "3-ply, pruned", "4-ply, all moves", "3-ply ±0.04", "3/144/7"; [cube] leaves the filter out. */
     fun label(cube: Boolean = false): String = when {
+        search != null -> search.label
         plies <= 1 || cube -> "$plies-ply"
         filter == MoveFilter.ALL || filter == MoveFilter.WIDE -> "$plies-ply, ${filter.label}"
         else -> "$plies-ply ${filter.label}"
-    }
+    } + (if (incomplete) ", incomplete" else "")
+
+    /** The depth without its played-out games: what a money game or another engine searches instead. */
+    val plain: Depth get() = if (search == null) this else Depth(search.plies, MoveFilter.WIDE, incomplete = incomplete)
 
     companion object {
         const val MAX_SEARCH_PLIES = 4
+        /** Added to a code when the search was stopped early. */
+        const val INCOMPLETE = 100
+        private const val DUAL = 1000
 
         fun of(code: Int): Depth = when {
+            code >= DUAL -> of(code % DUAL)
+            code >= INCOMPLETE -> of(code - INCOMPLETE).copy(incomplete = true)
+            code >= 50 -> GameSearch.of(code)?.let { Depth(it.plies, MoveFilter.WIDE, it) } ?: Depth(MAX_SEARCH_PLIES, MoveFilter.WIDE)
             code >= 10 -> Depth((code / 10).coerceIn(1, MAX_SEARCH_PLIES), MoveFilter.entries[(code % 10).coerceAtMost(MoveFilter.ALL.ordinal)])
             code <= 0 -> Depth(1)
             code >= MAX_PLIES -> Depth(3, MoveFilter.ALL)
             else -> Depth(3, MoveFilter.entries[code - 1])
         }
+
+        /** One number for [money] games and [match] play (both plain codes). */
+        fun dual(money: Int, match: Int): Int = if (money == match) money else money + DUAL * (match + 1)
+
+        /** The plain code of [code] for a match ([match]) or a money game; plain codes come back as they are. */
+        fun resolve(code: Int, match: Boolean): Int = if (code < DUAL) code else if (match) code / DUAL - 1 else code % DUAL
     }
+}
+
+/**
+ * What a running search tells the screen, and how the screen stops it. The engine reports from its own
+ * thread; [requestStop] may come from any thread. A stopped search returns what it has ([Depth.incomplete]).
+ */
+class SearchMonitor {
+    @Volatile var stop: Boolean = false
+        private set
+    /** What is being worked on ("3-ply on 16 plays", "Games"), with [done] of [total] steps (0 of 0: not counted). */
+    @Volatile var what: String = ""
+        private set
+    @Volatile var done: Int = 0
+        private set
+    @Volatile var total: Int = 0
+        private set
+    /** Set by the engine: makes its native search return at once. */
+    @Volatile var onStop: (() -> Unit)? = null
+
+    fun report(what: String, done: Int, total: Int) { this.what = what; this.done = done; this.total = total }
+    fun requestStop() { stop = true; onStop?.invoke() }
 }
 
 /** What an analysis label says when the engine was not recorded (analyses made before 0.7.11). */
@@ -146,6 +223,10 @@ enum class PureTdNet(val label: String, val cubeless: String, val cubeful: Strin
 
 /** An evaluation engine (PureTD, GNU Backgammon, Open Sage). All methods are blocking. */
 interface AnalysisEngine {
+    /** Progress and stop requests of the searches run while it is set (one-position analyses the user waits for). */
+    var monitor: SearchMonitor?
+        get() = null
+        set(_) {}
     /** "PureTD", "GNU BG", "Open Sage"; recorded with each analysis. */
     val name: String get() = ""
     fun rankMoves(board: Board, ctx: CubeContext, d1: Int, d2: Int, plies: Int, played: Move?): RankResult

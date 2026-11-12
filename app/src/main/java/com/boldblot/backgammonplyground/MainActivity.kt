@@ -114,8 +114,9 @@ class MainActivity : ComponentActivity() {
             val errorUnit by androidx.compose.runtime.remember { app.settings.settings.map { it.errorUnit } }.collectAsState(initial = com.boldblot.backgammonplyground.data.ErrorUnit.EQ)
             val checkerStyle by androidx.compose.runtime.remember { app.settings.settings.map { it.checkerStyle } }.collectAsState(initial = com.boldblot.backgammonplyground.data.CheckerStyle.RIMMED)
             val scoreAway by androidx.compose.runtime.remember { app.settings.settings.map { it.scoreAway } }.collectAsState(initial = false)
+            val cubeSpread by androidx.compose.runtime.remember { app.settings.settings.map { it.showCubeSpread } }.collectAsState(initial = false)
             GammonTheme {
-                androidx.compose.runtime.CompositionLocalProvider(com.boldblot.backgammonplyground.ui.components.LocalScoreAway provides scoreAway, com.boldblot.backgammonplyground.ui.components.LocalErrorUnit provides errorUnit, com.boldblot.backgammonplyground.ui.components.LocalCheckerStyle provides checkerStyle) {
+                androidx.compose.runtime.CompositionLocalProvider(com.boldblot.backgammonplyground.ui.components.LocalScoreAway provides scoreAway, com.boldblot.backgammonplyground.ui.components.LocalCubeSpread provides cubeSpread, com.boldblot.backgammonplyground.ui.components.LocalErrorUnit provides errorUnit, com.boldblot.backgammonplyground.ui.components.LocalCheckerStyle provides checkerStyle) {
                     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                         Box(Modifier.fillMaxSize().safeDrawingPadding()) { AppNav() }
                     }
@@ -319,6 +320,8 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        // The search someone is waiting for: what it is doing, and past its limit the offer to stop.
+        com.boldblot.backgammonplyground.ui.components.SearchOverlay(app.engine, onSettings = { nav.navigate("settings/ANALYSIS") })
         // Back from a screen opened over the game (review, settings) goes straight back, like the
         // screen's arrow, without the back gesture's preview: the game's end-of-game summary is a
         // dialog window, and drawing it in the preview of a cancelled gesture could lose it.

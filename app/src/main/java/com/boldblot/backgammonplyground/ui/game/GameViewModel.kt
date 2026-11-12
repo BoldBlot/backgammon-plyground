@@ -1,5 +1,6 @@
 package com.boldblot.backgammonplyground.ui.game
 
+import com.boldblot.backgammonplyground.engine.Waiting
 import com.boldblot.backgammonplyground.AppLog
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -264,12 +265,12 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     init {
         viewModelScope.launch {
             app.settings.settings.collect { s ->
-                val checker = s.playCheckerDepth.code
+                val checker = s.playCheckerCode
                 controller.settings = AnalysisSettings(
-                    plies = checker, cubePlies = s.playCubeDepth.code, cpuPlies = if (s.cpuAnalysis) checker else null,
+                    plies = checker, cubePlies = s.playCubeCode, cpuPlies = if (s.cpuAnalysis) checker else null,
                     deferred = s.quietPlay && s.analysisTiming == AnalysisTiming.BACKGROUND,
                     none = s.quietPlay && s.analysisTiming == AnalysisTiming.NONE,
-                    autoPlies = s.autoFinishDepth.plies,
+                    autoPlies = s.autoFinishDepth.plies.coerceAtMost(3), autoChecker = s.autoCheckerCode, autoCube = s.autoCubeCode,
                     quickCubePlies = if (s.quietPlay || s.quickCubeCheck == QuickCubeCheck.OFF) 0 else Depth(s.quickCubeCheck.plies).code,
                 )
                 val meterOn = s.meter != MeterMode.OFF && _state.value.settings.meter == MeterMode.OFF
@@ -387,7 +388,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     private suspend fun <T> engine(text: String? = null, block: () -> T): T {
         _state.update { it.copy(busy = true, busyText = text) }
         try {
-            return engineService.run { block() }
+            return engineService.run(waiting = Waiting.PLAY) { block() }
         } catch (e: Throwable) {
             if (e !is kotlinx.coroutines.CancellationException) AppLog.error("Engine call failed (${text ?: "no text"})", e)
             throw e
@@ -524,12 +525,12 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         if (cpuStepsFor == m) return
         cpuStepsFor = m
         val first = viewModelScope.async {
-            engineService.run { controller.cpuStep(m).let { Triple(m, it.first, it.second) } }
+            engineService.run(waiting = Waiting.PLAY) { controller.cpuStep(m).let { Triple(m, it.first, it.second) } }
         }
         val second = viewModelScope.async {
             val f = first.await()
             if (f.third != MatchController.CpuAction.Rolled) null
-            else engineService.run { controller.cpuStep(f.second).let { Triple(f.second, it.first, it.second) } }
+            else engineService.run(waiting = Waiting.PLAY) { controller.cpuStep(f.second).let { Triple(f.second, it.first, it.second) } }
         }
         cpuSteps = listOf(first, second)
     }
@@ -1400,7 +1401,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         val started = android.os.SystemClock.elapsedRealtime()
         val done = try {
             val work: com.boldblot.backgammonplyground.engine.SearchEngine.() -> DecisionRecord = {
-                Reanalysis(this, s.checkerDepth.code, s.cubeDepth.code, shortcut = true).decision(p.decision, p.matchLength, p.jacoby)
+                Reanalysis(this, s.checkerCode, s.cubeCode, shortcut = true).decision(p.decision, p.matchLength, p.jacoby)
             }
             (if (engineService.twoSlots) engineService.runBackground(work) else engineService.run(block = work)).also {
                 val ms = (android.os.SystemClock.elapsedRealtime() - started).toDouble()

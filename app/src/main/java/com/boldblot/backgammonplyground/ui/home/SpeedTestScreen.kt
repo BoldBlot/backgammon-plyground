@@ -1,5 +1,11 @@
 package com.boldblot.backgammonplyground.ui.home
 
+import kotlinx.coroutines.flow.first
+import com.boldblot.backgammonplyground.engine.PureTdEngine
+import com.boldblot.backgammonplyground.core.SearchMonitor
+import com.boldblot.backgammonplyground.core.PositionIds
+import com.boldblot.backgammonplyground.core.MatchEquityTable
+import com.boldblot.backgammonplyground.core.GameSearch
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -55,6 +61,42 @@ private const val BUDGET_MS = 20_000.0
 /** Checker play timed with pruning off, then on. */
 private val FILTERS = listOf(MoveFilter.ALL, MoveFilter.WIDE)
 
+/** One timed search of the match part: a checker play (dice set) or a cube decision. */
+private class MatchSample(val board: com.boldblot.backgammonplyground.core.Board, val ctx: com.boldblot.backgammonplyground.core.CubeContext, val d1: Int, val d2: Int)
+
+/**
+ * Positions for timing the match searches, from a fixed 1-ply self-play game of a 7-point match: every
+ * third checker play, and the positions before a roll where the cube decision is close at 1-ply (so that
+ * the games are played out, as they are for the decisions that matter).
+ */
+private fun matchSamples(e: PureTdEngine, checker: Int, cube: Int): Pair<List<MatchSample>, List<MatchSample>> {
+    val start = PositionIds.parseXgid("-b----E-C---eE---c-e----B-:0:0:1:00:0:0:0:7:10")
+    val rnd = java.util.Random(20261112)
+    val plays = ArrayList<MatchSample>()
+    val cubes = ArrayList<MatchSample>()
+    var board = start.board
+    var p = start.onRoll
+    var n = 0
+    repeat(4000) {
+        if (plays.size >= checker && cubes.size >= cube) return@repeat
+        val ctx = com.boldblot.backgammonplyground.core.CubeContext(start.matchLength, start.score, start.crawford, start.jacoby, start.cube, p)
+        if (cubes.size < cube) {
+            val c = e.cubeDecision(board, ctx, 0)
+            if (c.cubeAvailable && kotlin.math.abs(c.noDouble - c.doubleTake) < 0.08f && c.doubleTake < c.doublePass) cubes += MatchSample(board, ctx, 0, 0)
+        }
+        val d1 = rnd.nextInt(6) + 1
+        val d2 = rnd.nextInt(6) + 1
+        val best = e.rankMoves(board, ctx, d1, d2, 0, null).candidates.firstOrNull()
+        if (best != null) {
+            if (n++ % 3 == 2 && plays.size < checker && d1 != d2) plays += MatchSample(board, ctx, d1, d2)
+            board = board.applyMove(p, best.move)
+        }
+        if (board.off(p) == 15) board = start.board
+        p = com.boldblot.backgammonplyground.core.Player.other(p)
+    }
+    return plays to cubes
+}
+
 /** Positions timed per depth (deeper is slower, so fewer). */
 private fun samples(plies: Int) = when (plies) { 1 -> 60; 2 -> 24; else -> 10 }
 
@@ -83,6 +125,10 @@ fun SpeedTestScreen(app: PlyGroundApp, onBack: () -> Unit) {
     var running by remember { mutableStateOf(false) }
     var checker by remember { mutableStateOf<Depth?>(null) }
     var cube by remember { mutableStateOf<Int?>(null) }
+    var matchChecker by remember { mutableStateOf<Depth?>(null) }
+    var matchCube by remember { mutableStateOf<Depth?>(null) }
+    /** The match part's running search, for Stop. */
+    var monitor by remember { mutableStateOf<SearchMonitor?>(null) }
     var applied by remember { mutableStateOf(false) }
     var stopping by remember { mutableStateOf(false) }
     val cores = Runtime.getRuntime().availableProcessors()
@@ -104,13 +150,16 @@ fun SpeedTestScreen(app: PlyGroundApp, onBack: () -> Unit) {
             Text(
                 "Times each analysis depth on this phone and recommends the deepest settings that stay " +
                     "within about 1 s per checker play (3 s on doubles) and 1.5 s per cube decision. " +
-                    "It takes up to a few minutes (each measurement at most 20 s) and keeps all cores " +
-                    "busy; the phone may get warm. 4-ply checker play is not timed (research only).",
+                    "For matches it also times the searches by played-out games, and recommends the deepest " +
+                    "whose average stays within half the time an analysis may take before it offers to stop " +
+                    "(Settings → Analysis). It takes several minutes (each measurement at most 20 s) and keeps " +
+                    "all cores busy; the phone may get warm. Plain 4-ply checker play is not timed (research only).",
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (running) OutlinedButton(enabled = !stopping, onClick = {
                     stopping = true
                     PureTdNative.nativeBenchCancel()
+                    monitor?.requestStop()
                 }) { Text(if (stopping) "Stopping…" else "Stop") }
                 Button(enabled = !running, onClick = {
                     running = true
@@ -118,6 +167,8 @@ fun SpeedTestScreen(app: PlyGroundApp, onBack: () -> Unit) {
                     applied = false
                     checker = null
                     cube = null
+                    matchChecker = null
+                    matchCube = null
                     lines.clear()
                     lines += "${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}, $cores cores"
                     scope.launch {
@@ -171,18 +222,68 @@ fun SpeedTestScreen(app: PlyGroundApp, onBack: () -> Unit) {
                                     if (ms > 4 * CUBE_TARGET_MS) break
                                 }
                             }
+                            // Match play: the searches by played-out games, timed on the same engine. The deepest
+                            // whose average stays within half the time an analysis may take before it offers to stop.
+                            var bestMatchChecker: Depth = bestChecker ?: Depth(1)
+                            var bestMatchCube: Depth = Depth(bestCube)
+                            if (!stopping) {
+                                val limitMs = app.settings.settings.first().analysisLimit * 1000.0
+                                val target = limitMs / 2
+                                val mon = SearchMonitor()
+                                monitor = mon
+                                val e = PureTdEngine(h, MatchEquityTable()).also { it.gameThreads = cores; it.monitor = mon }
+                                /** Average milliseconds of [search] over the samples, stopping once [BUDGET_MS] is spent. */
+                                suspend fun timeMatch(samples: List<MatchSample>, code: Int): Pair<Double, String> = withContext(Dispatchers.Default) {
+                                    var total = 0.0
+                                    var done = 0
+                                    for (x in samples) {
+                                        val t0 = System.nanoTime()
+                                        if (x.d1 > 0) e.rankMoves(x.board, x.ctx, x.d1, x.d2, code, null) else e.cubeDecision(x.board, x.ctx, code)
+                                        if (mon.stop) break
+                                        total += (System.nanoTime() - t0) / 1e6
+                                        done++
+                                        if (total > BUDGET_MS) break
+                                    }
+                                    (if (done > 0) total / done else 0.0) to if (done < samples.size && !stopping) " (time limit, $done of ${samples.size})" else ""
+                                }
+                                val (plays, cubes) = withContext(Dispatchers.Default) { matchSamples(e, 6, 4) }
+                                lines += "Match play, played-out games (X/YY/Z)"
+                                lines += "  checker play"
+                                for (g in GameSearch.checker) {
+                                    val (ms, note) = timeMatch(plays, g.code)
+                                    if (stopping) break
+                                    lines += "    ${g.label}: ${fmt(ms)}$note"
+                                    if (g.games > 0 && ms <= target) bestMatchChecker = Depth(g.plies, MoveFilter.WIDE, g)
+                                    if (g.games > 0 && ms > 2 * target) break
+                                }
+                                if (!stopping) lines += "  close cube decisions"
+                                if (!stopping) for (g in GameSearch.cubes) {
+                                    val (ms, note) = timeMatch(cubes, g.code)
+                                    if (stopping) break
+                                    lines += "    ${g.label}: ${fmt(ms)}$note"
+                                    if (ms <= target) bestMatchCube = Depth(g.plies, MoveFilter.WIDE, g)
+                                    if (ms > 2 * target) break
+                                }
+                                e.monitor = null
+                            }
                             if (stopping) {
                                 lines += "Stopped."
                             } else {
                                 checker = bestChecker ?: Depth(1)
                                 cube = bestCube
-                                lines += "Recommended: checker play ${checker!!.label()}, cube decisions $bestCube-ply"
+                                matchChecker = bestMatchChecker
+                                matchCube = bestMatchCube
+                                val money = "checker play ${checker!!.label()}, cube decisions $bestCube-ply"
+                                val match = "checker play ${bestMatchChecker.label()}, cube decisions ${bestMatchCube.label(cube = true)}"
+                                lines += "Recommended for money games: $money"
+                                lines += "Recommended for matches: $match"
                                 // Kept, so that the welcome screen, Settings and About can say it was run.
-                                val result = "checker play ${checker!!.label()}, cube decisions $bestCube-ply"
+                                val result = if (money == match) money else "$money; in matches $match"
                                 app.settings.update { it.copy(speedTestAt = System.currentTimeMillis(), speedTestResult = result) }
                             }
                         } finally {
                             // Also when the screen is left (the coroutine is cancelled): free the test's engine.
+                            monitor = null
                             withContext(NonCancellable + Dispatchers.Default) { PureTdNative.nativeClose(h) }
                             running = false
                             stopping = false
@@ -201,7 +302,14 @@ fun SpeedTestScreen(app: PlyGroundApp, onBack: () -> Unit) {
             if (c != null && k != null && !running) {
                 Button(enabled = !applied, onClick = {
                     applied = true
-                    scope.launch { app.settings.update { it.copy(checkerPlies = c.plies, moveFilter = c.filter, cubePlies = k) } }
+                    scope.launch {
+                        app.settings.update {
+                            it.copy(
+                                checkerPlies = c.plies, moveFilter = c.filter, cubePlies = k,
+                                matchChecker = matchChecker?.code ?: -1, matchCube = matchCube?.code ?: -1,
+                            )
+                        }
+                    }
                 }) { Text(if (applied) "Applied" else "Use the recommendation") }
             }
         }

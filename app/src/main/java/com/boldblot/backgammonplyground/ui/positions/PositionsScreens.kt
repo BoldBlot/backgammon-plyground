@@ -1,5 +1,6 @@
 package com.boldblot.backgammonplyground.ui.positions
 
+import com.boldblot.backgammonplyground.engine.Waiting
 import androidx.compose.material.icons.filled.Refresh
 import com.boldblot.backgammonplyground.ui.review.ReanalyzeDialog
 import com.boldblot.backgammonplyground.ui.review.ReanalyzeRequest
@@ -314,9 +315,9 @@ fun MyPositionsScreen(
         }
     }
     analyzingFolder?.let { c ->
-        ReanalyzeDialog(folderSettings, gameNumber = null, onDismiss = { analyzingFolder = null }, onStart = { r ->
+        ReanalyzeDialog(folderSettings, gameNumber = null, onDismiss = { analyzingFolder = null }, match = true, onStart = { r ->
             analyzingFolder = null
-            FolderAnalysis.start(app, c.id, c.name, r.engine, r.checker, Depth(r.cubePlies))
+            FolderAnalysis.start(app, c.id, c.name, r.engine, r.checker, r.cube)
         })
     }
     if (newCategory) {
@@ -700,8 +701,8 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit, onSett
         scope.launch {
             val s = app.settings.settings.first()
             runCatching {
-                if (r == null) analyzePosition(app, cur.position, s)
-                else analyzePosition(app, cur.position, r.engine, r.checker, Depth(r.cubePlies))
+                if (r == null) analyzePosition(app, cur.position, s, Waiting.ANALYSIS)
+                else analyzePosition(app, cur.position, r.engine, r.checker, r.cube, Waiting.ANALYSIS)
             }
                 .onSuccess { app.positions.setAnalysis(cur.id, it); refresh++ }
                 .onFailure { Toast.makeText(context, "Analysis failed: ${it.message}", Toast.LENGTH_LONG).show() }
@@ -919,7 +920,7 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit, onSett
             }
         }
         if (reanalyzing) {
-            ReanalyzeDialog(settings, gameNumber = null, onDismiss = { reanalyzing = false }, onStart = { reanalyzing = false; analyze(it) })
+            ReanalyzeDialog(settings, gameNumber = null, onDismiss = { reanalyzing = false }, match = (p?.position?.ctx()?.matchLength ?: 0) > 0, onStart = { reanalyzing = false; analyze(it) })
         }
         if (removing) {
             AlertDialog(
@@ -1447,7 +1448,7 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
                     Text("Analyze again")
                 }
             }
-            if (asking) ReanalyzeDialog(st.settings, gameNumber = null, onDismiss = { asking = false }, onStart = { asking = false; vm.reanalyze(it) })
+            if (asking) ReanalyzeDialog(st.settings, gameNumber = null, onDismiss = { asking = false }, match = p.ctx().matchLength > 0, onStart = { asking = false; vm.reanalyze(it) })
             r.analysis.cube?.let { CubeTable(it, if (p.doubled) DecisionKind.TAKE else null, factorOf(p), p.beavers, colors = boardColorsFor(st.settings), rollerHuman = !p.doubled) }
             r.analysis.checker?.let { c ->
                 ReviewViewChips(st.view, true, vm::setView, null, Modifier.fillMaxWidth())

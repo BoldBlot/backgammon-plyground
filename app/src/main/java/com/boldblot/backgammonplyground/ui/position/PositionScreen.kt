@@ -363,7 +363,7 @@ private fun Controls(st: PositionState, vm: PositionViewModel, colors: BoardColo
         Labelled("Analysis") {
             AnalysisLevelPicker(
                 engine = st.engine, onEngine = vm::setEngine,
-                checker = st.checkerDepth, cubePlies = st.cubePlies, onChange = vm::setLevel,
+                checker = st.checkerDepth, cube = st.cubeDepth, onChange = vm::setLevel, match = st.matchLength > 0,
             )
         }
         Button(onClick = vm::analyze, enabled = !st.analyzing, modifier = Modifier.fillMaxWidth()) {
