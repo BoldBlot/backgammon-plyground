@@ -455,6 +455,12 @@ data class Settings(
     val quietPlay: Boolean get() = trainingMode == TrainingMode.AFTER_GAME || (trainingMode == TrainingMode.IMMEDIATE && feedback == FeedbackLevel.OFF)
 }
 
+/**
+ * The defaults of a new installation (from 0.8.15): PureTD's compact 4L network, and match play analyzed by short
+ * played-out games (checker 3/36/7, cube 3/44/7). Installations from before keep [Settings]'s defaults.
+ */
+val NEW_INSTALL = Settings(puretdNet = PureTdNet.COMPACT, matchChecker = GameSearch.G36.code, matchCube = GameSearch.C44.code)
+
 private val Context.dataStore by preferencesDataStore("settings")
 
 
@@ -574,7 +580,9 @@ class SettingsStore(private val context: Context) {
         this[key]?.let { v -> enumValues<E>().firstOrNull { it.name == v } } ?: default
 
     private fun read(p: Preferences): Settings {
-        val d = Settings()
+        // Nothing stored yet: a new installation, which starts from the newer defaults. An installation that has
+        // settings keeps the old defaults for the keys it lacks, so updating changes nothing it had.
+        val d = if (p.asMap().isEmpty()) NEW_INSTALL else Settings()
         return Settings(
             cpuLevel = p.enum(Keys.level, d.cpuLevel),
             matchLength = p[Keys.length] ?: d.matchLength,

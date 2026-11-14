@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.15 — 2026-11-14 (build 78, internal test)
+
+- Match Library: .xg files with a roll the player resigned after (no play made) failed to import
+  with "the move …: 1/1 1/1 1/1 1/1 is not legal". Such rolls are now read as resigned.
+- .xg import is more forgiving: a game that cannot be replayed (for example one whose position was
+  edited in eXtreme Gammon part-way through) is left out, and the rest of the match is imported;
+  the message after the import names the games left out.
+- Review of a match: Analyze again and Restore original analysis (for .xg imports, once analyzed
+  again) are in a ⋮ menu at the top. The notice about the .xg file's analysis and the message after
+  analyzing again or restoring are gone.
+- New installations start with PureTD's Compact 4L network, and match play analyzed with short
+  played-out games: checker 3/36/7, cube 3/44/7. Existing installations keep their settings.
+
 ## 0.8.14 — 2026-11-14 (build 77, internal test)
 
 - Match Library: an .xg file with a checker borne off by a larger die than it needed (a 6 from the

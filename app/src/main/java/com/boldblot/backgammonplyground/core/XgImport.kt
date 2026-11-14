@@ -131,11 +131,13 @@ object XgImport {
         var gameTurns = mutableListOf<Turn>()
         var cube: CubeRec? = null
         var open = false
+        var edited = false
         fun close() {
             if (!open) return
             cube?.let { gameTurns += Turn(it, null) }
             cube = null
-            games += MatImport.ParsedGame(number, score, entries)
+            // A position edited part-way cannot be replayed move by move: the game is left out.
+            games += MatImport.ParsedGame(number, score, entries, unreadable = if (edited) "the position was edited in eXtreme Gammon part-way through." else null)
             turns[number] = gameTurns
             open = false
         }
@@ -148,10 +150,12 @@ object XgImport {
                     score = listOf(b.getInt(at + 12), b.getInt(at + 16))
                     entries = mutableListOf()
                     gameTurns = mutableListOf()
+                    edited = false
                     open = true
                 }
                 T_CUBE -> if (open) {
                     val c = cubeRecord(data, b, at)
+                    if (data[at + 296].toInt() != 0) edited = true
                     cube?.let { gameTurns += Turn(it, null) }
                     cube = c
                     val column = column(c.actif)
@@ -169,6 +173,7 @@ object XgImport {
                 }
                 T_MOVE -> if (open) {
                     val m = moveRecord(data, b, at)
+                    if (data[at + 2528].toInt() != 0) edited = true
                     gameTurns += Turn(cube, m)
                     cube = null
                     val dice = runCatching { Dice(m.dice[0], m.dice[1]) }.getOrElse { fail("Game $number: an unreadable roll.") }
@@ -232,21 +237,24 @@ object XgImport {
 
     /**
      * The play made, from XG's eight numbers (from, to pairs; points 0..23 in the mover's frame, the bar 24, -1 after
-     * the last step). A checker borne off lands "below" point 0 by what is left of the die (-1 to -6): all of it is off (-1).
+     * the last step). A checker borne off lands "below" point 0 by what is left of the die (-1 to -6): all of it is off (-1). A record of
+     * zeros is a roll without a play (the player resigned after rolling).
      */
     internal fun playedSteps(raw: IntArray): List<Pair<Int, Int>> {
         val played = mutableListOf<Pair<Int, Int>>()
         for (i in 0 until 4) {
             val from = raw[2 * i]
             val to = raw[2 * i + 1]
-            if (from !in 0..24 || to !in -6..23) break
+            // All zeros: a roll without a play (the player resigned after rolling).
+            if (from !in 0..24 || to !in -6..23 || from == to) break
             played += from to to.coerceAtLeast(-1)
         }
         return played
     }
 
     private fun moveRecord(data: ByteArray, b: ByteBuffer, at: Int): MoveRec {
-        val played = playedSteps(IntArray(8) { b.getInt(at + 68 + 4 * it) })
+        // XG's "played" flag: 0 for a roll the player resigned after, whatever the step numbers hold.
+        val played = if (data[at + 2308].toInt() == 0) emptyList() else playedSteps(IntArray(8) { b.getInt(at + 68 + 4 * it) })
         val moves = at + 124
         val n = b.getInt(moves + 64).coerceIn(0, MAX_CANDIDATES)
         val plays = (0 until n).map { i ->
@@ -295,7 +303,7 @@ object XgImport {
             val turns = parsed.turns[g.number] ?: return@map g
             MatImport.ImportedGame(g.number, g.score, g.state.copy(decisions = analyzed(g.state.decisions, turns, you)))
         }
-        return MatImport.ImportedMatch(im.rules, im.names, im.startedAt, games, im.score, im.winner)
+        return MatImport.ImportedMatch(im.rules, im.names, im.startedAt, games, im.score, im.winner, im.skipped)
     }
 
     /**

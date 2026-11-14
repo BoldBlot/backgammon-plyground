@@ -29,7 +29,11 @@ object MatImport {
         class Wins(column: Int, val points: Int) : Entry(column)
     }
 
-    class ParsedGame(val number: Int, /** Score before the game by column. */ val score: List<Int>, val entries: List<Entry>)
+    class ParsedGame(
+        val number: Int, /** Score before the game by column. */ val score: List<Int>, val entries: List<Entry>,
+        /** Why the game cannot be replayed (an .xg game edited part-way), or null. */
+        val unreadable: String? = null,
+    )
 
     class ParsedMatch(
         val rules: MatchRules,
@@ -52,6 +56,8 @@ object MatImport {
         val score: List<Int>,
         /** The match winner (matches only, once someone reached the length). */
         val winner: Int?,
+        /** Games left out (with [MatImport.replay]'s skipBad): their numbers and why. */
+        val skipped: List<Pair<Int, String>> = emptyList(),
     )
 
     class FormatException(message: String) : Exception(message)
@@ -184,7 +190,11 @@ object MatImport {
      * Replays [p] with column [you] as [Player.HUMAN] (and the other as [Player.CPU]). Every
      * decision is marked for the background analysis. Games that were not finished are left out.
      */
-    fun replay(p: ParsedMatch, you: Int): ImportedMatch {
+    /**
+     * [p] replayed with column [you] as the player. A game that cannot be replayed fails the import, or with [skipBad]
+     * (.xg files, whose games stand on their own) is left out and listed in [ImportedMatch.skipped].
+     */
+    fun replay(p: ParsedMatch, you: Int, skipBad: Boolean = false): ImportedMatch {
         val rules = p.rules
         fun player(column: Int) = if (column == you) Player.HUMAN else Player.CPU
         val names = listOf(p.names[you], p.names[1 - you])
@@ -192,26 +202,33 @@ object MatImport {
         var crawfordDone = false
         var score = listOf(0, 0)
         var winner: Int? = null
+        val skipped = mutableListOf<Pair<Int, String>>()
         for (pg in p.games) {
             val before = listOf(pg.score[you], pg.score[1 - you])
             val crawford = !rules.isMoney && rules.crawford && !crawfordDone && before.any { it == rules.length - 1 }
             if (!rules.isMoney && before.any { it == rules.length - 1 }) crawfordDone = true
             val g = try {
+                pg.unreadable?.let { throw FormatException(it) }
                 replayGame(pg, rules, before, crawford, ::player)
-            } catch (e: FormatException) {
-                throw FormatException("Game ${pg.number}: ${e.message}")
-            } catch (e: IllegalArgumentException) {
-                throw FormatException("Game ${pg.number}: ${e.message}")
-            } catch (e: IllegalStateException) {
-                throw FormatException("Game ${pg.number}: ${e.message}")
+            } catch (e: Exception) {
+                val why = e.message ?: "it could not be read."
+                if (skipBad) {
+                    skipped += pg.number to why
+                    continue
+                }
+                if (e is FormatException || e is IllegalArgumentException || e is IllegalStateException) throw FormatException("Game ${pg.number}: $why")
+                throw e
             } ?: continue
             games += ImportedGame(pg.number, before, g)
             val r = g.result!!
             score = before.toMutableList().also { it[r.winner] += r.points }
             if (!rules.isMoney && score[r.winner] >= rules.length) winner = r.winner
         }
-        if (games.isEmpty()) throw FormatException("The file has no finished games.")
-        return ImportedMatch(rules, names, p.startedAt, games, score, winner)
+        if (games.isEmpty()) {
+            skipped.firstOrNull()?.let { (n, why) -> throw FormatException("Game $n: $why") }
+            throw FormatException("The file has no finished games.")
+        }
+        return ImportedMatch(rules, names, p.startedAt, games, score, winner, skipped)
     }
 
     /** One game replayed; null if it was not finished. */

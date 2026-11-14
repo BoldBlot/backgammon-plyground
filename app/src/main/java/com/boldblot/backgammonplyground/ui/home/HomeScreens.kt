@@ -638,7 +638,7 @@ fun HistoryScreen(
             importingXg = null
             scope.launch {
                 runCatching {
-                    withContext(Dispatchers.Default) { MatImport.replay(parsed, you).let { im -> if (xg != null) XgImport.withAnalysis(im, xg, you) else im } }
+                    withContext(Dispatchers.Default) { MatImport.replay(parsed, you, skipBad = xg != null).let { im -> if (xg != null) XgImport.withAnalysis(im, xg, you) else im } }
                 }
                     .onSuccess { im ->
                         val keys = app.repository.importMatch(im, both, withAnalysis = xg != null, minError = settings?.newErrorsMin ?: 0f)
@@ -652,7 +652,7 @@ fun HistoryScreen(
                                 xg == null -> "Imported $games; analyzing in the background."
                                 waiting == 0 -> "Imported $games with eXtreme Gammon's analysis."
                                 else -> "Imported $games with eXtreme Gammon's analysis; $waiting decision${if (waiting == 1) "" else "s"} without one ${if (waiting == 1) "is" else "are"} analyzed in the background."
-                            },
+                            } + im.skipped.joinToString("") { (n, why) -> " Game $n was left out: $why" },
                             Toast.LENGTH_LONG,
                         ).show()
                     }

@@ -133,6 +133,31 @@ class XgImportTest {
         assertEquals(listOf(24 to 18, 2 to 0), XgImport.playedSteps(intArrayOf(24, 18, 2, 0, -1, -1, -1, -1)))
         assertEquals(listOf(5 to -1, 5 to -1, 5 to -1, 4 to -1), XgImport.playedSteps(intArrayOf(5, -1, 5, -1, 5, -1, 4, -6)))
         assertEquals(emptyList<Pair<Int, Int>>(), XgImport.playedSteps(IntArray(8) { -1 }))
+        // A roll the player resigned after: XG leaves the play as zeros (was read as "1/1 1/1 1/1 1/1").
+        assertEquals(emptyList<Pair<Int, Int>>(), XgImport.playedSteps(IntArray(8)))
+    }
+
+    @Test
+    fun aGameThatCannotBeReplayedIsLeftOutOfAnXgImport() {
+        val parsed = XgImport.parse(bytes("match-11pt.xg")).match
+        val second = parsed.games[1]
+        val edited = MatImport.ParsedMatch(
+            parsed.rules, parsed.names, parsed.startedAt,
+            parsed.games.map { if (it === second) MatImport.ParsedGame(it.number, it.score, it.entries, unreadable = "the position was edited.") else it },
+        )
+        // A .mat-style import fails on it; an .xg import leaves the game out and keeps the rest.
+        assertThrows(MatImport.FormatException::class.java) { MatImport.replay(edited, 0) }
+        val im = MatImport.replay(edited, 0, skipBad = true)
+        assertEquals(listOf(second.number to "the position was edited."), im.skipped)
+        assertEquals(parsed.games.size - 1, im.games.size)
+        assertFalse(im.games.any { it.number == second.number })
+        assertEquals(im.skipped, XgImport.withAnalysis(im, XgImport.parse(bytes("match-11pt.xg")), 0).skipped)
+        // A broken game is left out the same way.
+        val broken = MatImport.ParsedMatch(
+            parsed.rules, parsed.names, parsed.startedAt,
+            parsed.games.map { if (it === second) MatImport.ParsedGame(it.number, it.score, it.entries.take(3) + it.entries.drop(5)) else it },
+        )
+        assertEquals(listOf(second.number), MatImport.replay(broken, 0, skipBad = true).skipped.map { it.first })
     }
 
     @Test

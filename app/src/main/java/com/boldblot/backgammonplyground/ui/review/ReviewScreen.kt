@@ -37,6 +37,8 @@ import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.CircularProgressIndicator
@@ -407,8 +409,8 @@ class ReviewViewModel(
                     games++
                     _state.update { st -> st.copy(games = st.games.toMutableList().also { it[i] = e2 to g2 }) }
                 }
-                val depth = "${r.engine.label} ${r.checker.label()}, cube ${r.cube.label(cube = true)}"
-                _state.update { it.copy(progress = null, message = "Analyzed again: $depth.") }
+                // Done: the new analysis shows in the review itself, so no message.
+                _state.update { it.copy(progress = null) }
             } catch (c: kotlinx.coroutines.CancellationException) {
                 _state.update { it.copy(progress = null, message = "Stopped. $games of ${targets.size} games were analyzed again.") }
                 throw c
@@ -429,7 +431,7 @@ class ReviewViewModel(
             val games = s.games.map { (e, g) ->
                 if (app.repository.reanalyzedSinceImport(e, g)) app.repository.restoreOriginal(e, g, match.length) ?: (e to g) else e to g
             }
-            _state.update { it.copy(games = games, candidate = null, message = "Restored the analysis from the .xg file (${com.boldblot.backgammonplyground.core.XgImport.ENGINE}).") }
+            _state.update { it.copy(games = games, candidate = null) }
         }
     }
 
@@ -509,12 +511,8 @@ private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, cap
             title(st.match), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f),
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
-        TextButton(onClick = { ask = true }, enabled = st.progress == null) {
-            Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(4.dp))
-            Text("Analyze again", maxLines = 1)
-        }
         ShareMenu(st, vm, capture)
+        MoreMenu(st, vm, onAnalyze = { ask = true })
     }
     st.progress?.let { (done, total) ->
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -529,21 +527,6 @@ private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, cap
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(msg, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
             TextButton(onClick = vm::dismissMessage) { Text("OK") }
-        }
-    }
-    // A match from an .xg file, analyzed again: the file's own analysis is kept and can be put back.
-    val restorable by androidx.compose.runtime.produceState(false, st.games) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            st.games.any { (e, g) -> e.originalRecord != null && vm.app.repository.reanalyzedSinceImport(e, g) }
-        }
-    }
-    if (restorable && st.progress == null) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "Analyzed again. The .xg file's own analysis (${com.boldblot.backgammonplyground.core.XgImport.ENGINE}) is kept.",
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = vm::restoreOriginal) { Text("Restore original") }
         }
     }
     if (ask) {
@@ -624,6 +607,34 @@ private fun GamePicker(st: ReviewState, vm: ReviewViewModel) {
  * Sharing: the position shown (XGID, board picture, board with the top five plays), and the game or
  * match as a .mat file, shared or saved, for analysis in XG or gnubg.
  */
+/** The ⋮ menu: Analyze again, and for a match from an .xg file, Restore original analysis (once analyzed again). */
+@Composable
+private fun MoreMenu(st: ReviewState, vm: ReviewViewModel, onAnalyze: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val fromXg = st.games.any { (e, _) -> e.originalRecord != null }
+    // The file's own analysis is kept: it can be put back once some game was analyzed again.
+    val restorable by androidx.compose.runtime.produceState(false, st.games) {
+        value = fromXg && kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            st.games.any { (e, g) -> e.originalRecord != null && vm.app.repository.reanalyzedSinceImport(e, g) }
+        }
+    }
+    Box {
+        IconButton(onClick = { open = true }) { Icon(Icons.Default.MoreVert, "More") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text("Analyze again") }, enabled = st.progress == null,
+                leadingIcon = { Icon(Icons.Default.Refresh, null) },
+                onClick = { open = false; onAnalyze() },
+            )
+            if (fromXg) DropdownMenuItem(
+                text = { Text("Restore original analysis") }, enabled = restorable && st.progress == null,
+                leadingIcon = { Icon(Icons.Default.Restore, null) },
+                onClick = { open = false; vm.restoreOriginal() },
+            )
+        }
+    }
+}
+
 @Composable
 private fun ShareMenu(st: ReviewState, vm: ReviewViewModel, capture: BoardCapture) {
     val context = LocalContext.current
