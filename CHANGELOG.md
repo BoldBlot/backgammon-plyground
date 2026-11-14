@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.16 — 2026-11-14 (build 79, internal test)
+
+- Match play with PureTD: a take that leaves the taker a redouble at no risk was valued far too low.
+  At 6-away against 2-away, for example, once the cube is on 2 any loss costs the trailer the match,
+  so the trailer redoubles at once; the cube formula valued the take as if the trailer kept the
+  cube on 2, about 0.2 too low, and called takes passes. With the played-out games depths (3/36/7
+  and the others) every play they valued could show -1.000. The take is now valued at the redoubled
+  cube. This also corrects 1-ply cube decisions at such scores and the values the deeper searches
+  end on.
+- Match play with PureTD now uses the Kazaross XG2 match equity table, as eXtreme Gammon and the
+  GNU Backgammon engine do, in place of the app's own table (the two were within 0.4%). Match
+  equities and errors of new analyses change slightly. Past 25-away, where Kazaross XG2 ends, the
+  table is carried on from its entries.
+- Move list: plays searched more deeply are listed first, and a line ("Only 3-ply below this
+  line") now marks where the plays searched less deeply start, as values on either side of it are
+  not on the same scale.
+
 ## 0.8.15 — 2026-11-14 (build 78)
 
 - Match Library: .xg files with a roll the player resigned after (no play made) failed to import

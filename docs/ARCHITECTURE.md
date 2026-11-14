@@ -22,8 +22,9 @@ Compose UI (ui/*)  ──>  GameViewModel  ──>  MatchController (core, pure 
 - `engine/puretd/ptd.c` is ours: the network evaluation (PureTD's wide networks at full
   precision, `assets/puretd/*.ptw`), the bear-off database, and the cube-aware money and match
   cube searches. The full list of what we added is in `engine/puretd/README.md`.
-- Match play for PureTD uses our own match equity table and match cube formulas
-  (`core/CubeMath.kt`), not copied from any other program; the match cube search is
+- Match play for PureTD uses the Kazaross XG2 match equity table (`core/KazarossMet.kt`, carried on
+  by a model of our own past 25-away) and our own match cube formulas (`core/CubeMath.kt`); the
+  match cube search is
   `engine/MatchCubeSearch.kt` over a tree from `ptd_cube_tree`.
 - Match play with PureTD also has searches that end in short played-out games
   (`core/AnalysisEngine.kt` `GameSearch`, `engine/GamesSearch.kt`): a funnel in

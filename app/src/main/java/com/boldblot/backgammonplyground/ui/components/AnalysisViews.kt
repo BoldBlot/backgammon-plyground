@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,6 +43,7 @@ import com.boldblot.backgammonplyground.core.CheckerAnalysis
 import com.boldblot.backgammonplyground.core.CubeEval
 import com.boldblot.backgammonplyground.core.DecisionMath
 import com.boldblot.backgammonplyground.core.DecisionKind
+import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.MoveNotation
 import com.boldblot.backgammonplyground.core.Severity
 import com.boldblot.backgammonplyground.core.XgRules
@@ -281,7 +283,12 @@ fun CandidateList(
     val best = analysis.bestEquity
     Column(Modifier.fillMaxWidth()) {
         val rows = analysis.candidates.withIndex().filter { (i, _) -> i < maxRows || i == highlightIndex || i == checkIndex || i in triedIndices || i == finalIndex }
+        var prevDepth: Depth? = null
         for ((i, c) in rows) {
+            // Deeper plays come first; a line marks where the shallower ones start, as their values are on another scale.
+            val depth = Depth.of(c.plies).copy(incomplete = false)
+            if (prevDepth != null && depth != prevDepth) ShallowerBelow(depth)
+            prevDepth = depth
             val diff = c.equity - best
             val sev = XgRules.severity(-diff * factor)
             val isPlayed = i == highlightIndex
@@ -329,6 +336,19 @@ fun CandidateList(
             Modifier.padding(4.dp), style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/** The line above the first play searched less deeply than the ones before it. */
+@Composable
+private fun ShallowerBelow(depth: Depth) {
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        HorizontalDivider(Modifier.width(12.dp))
+        Text(
+            " Only ${depth.plain.plies}-ply below this line ",
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+        )
+        HorizontalDivider(Modifier.weight(1f))
     }
 }
 

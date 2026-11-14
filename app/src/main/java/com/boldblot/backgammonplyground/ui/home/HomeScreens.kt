@@ -1840,7 +1840,7 @@ fun AboutScreen(
             )
             Text(
                 "• PureTD by Alexander Strehl: its neural networks and move generator, with Bold Blot's own search, " +
-                    "bear-off database, cube handling and match equity table.\n" +
+                    "bear-off database and cube handling, and the Kazaross XG2 match equity table.\n" +
                     "• GNU Backgammon by the GNU Backgammon authors: its neural networks, bear-off database, cubeful " +
                     "evaluation and the Kazaross XG2 match equity table.\n" +
                     "• Open Sage by Mark Higgins: its production networks (stage 11), bear-off database, cubeful " +

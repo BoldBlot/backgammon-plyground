@@ -5,6 +5,7 @@ import com.boldblot.backgammonplyground.core.CubeContext
 import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.GameSearch
 import com.boldblot.backgammonplyground.core.MoveFilter
+import com.boldblot.backgammonplyground.core.MoveNotation
 import com.boldblot.backgammonplyground.core.PositionIds
 import com.boldblot.backgammonplyground.core.SearchMonitor
 import org.junit.Assert.assertEquals
@@ -89,6 +90,23 @@ class GameSearchTest {
         // Searched plays first: the games, then the 3-ply stage, then the rest at 1-ply.
         assertEquals(r.candidates.map { it.plies }.sortedDescending(), r.candidates.map { it.plies })
         assertTrue(r.candidates.count { it.plies == GameSearch.G36.code } in 1..GameSearch.G36.plays)
+    }
+
+    @Test
+    fun `a take with a free redouble is not a pass in the games`() {
+        val e = TestEngine.engine
+        assumeTrue(e != null)
+        e!!
+        // 6-away against 2-away (7 points). After the leader's double any loss costs us the match, so we redouble
+        // at once; the 1-ply cube formula once valued the take as if we sat on the 2-cube, called the double a pass
+        // after every play, and every play the games valued was -1.000. XG and the deeper cube searches take after
+        // the 23/20 plays (the leader's double/take about 0.76-0.84).
+        val p = Pos("--BBBCBA-A---------c--hBd-:0:0:1:63:1:5:0:7:10")
+        val r = e.rankMoves(p.board, p.ctx, p.d1, p.d2, GameSearch.G36.code, null)
+        val top = r.candidates[0]
+        assertEquals(GameSearch.G36.code, top.plies)
+        assertTrue(MoveNotation.format(p.board, p.ctx.onRoll, top.move) in setOf("23/20 7/1", "23/20 9/3"))
+        assertEquals(-0.79f, top.equity, 0.06f)
     }
 
     @Test

@@ -4,9 +4,8 @@ import kotlin.math.max
 import kotlin.math.min
 
 /*
- * Cube arithmetic for the PureTD engine: our own match equity table (computed from a model, not
- * copied), match play Janowski in match-winning-chance (MWC) space, and money Janowski. Ported
- * from engine/sage/boldblot/{met_model,match_cube,cube_search}.py, where they are tested.
+ * Cube arithmetic for the PureTD engine: the match equity table (Kazaross XG2, [KazarossMet]),
+ * match play Janowski in match-winning-chance (MWC) space, and money Janowski.
  */
 
 /** Cube owner as seen by the player on roll. */
@@ -23,11 +22,12 @@ fun cubeLife(board: Board): Double {
 fun invertProbs(p: List<Float>): List<Float> = listOf(1 - p[0], p[3], p[4], p[1], p[2])
 
 /**
- * Our match equity table. Within a game the winning chance moves continuously, so a player doubles
- * exactly at the opponent's take point; MWC is linear in the winning chance between those points,
- * blended with the dead cube by the cube life [x]. Wins are gammons with share [g] and backgammons
- * with share [bg] (PureTD's estimate at the starting position). Crawford game: no cube.
- * Post-Crawford: the trailer doubles at once and the leader takes or drops (free drop).
+ * The match equity table: Kazaross XG2 ([KazarossMet]) for scores up to 25 away. Past that the table
+ * is carried on by a model, built on the Kazaross entries: within a game the winning chance moves
+ * continuously, so a player doubles exactly at the opponent's take point; MWC is linear in the winning
+ * chance between those points, blended with the dead cube by the cube life [x]. Wins are gammons with
+ * share [g] and backgammons with share [bg] (PureTD's estimate at the starting position). Crawford
+ * game: no cube. Post-Crawford: the trailer doubles at once and the leader takes or drops (free drop).
  */
 class MatchEquityTable(private val g: Double = 0.270, private val bg: Double = 0.0132, private val x: Double = 0.68) {
     private val single = 1 - g - bg
@@ -38,6 +38,7 @@ class MatchEquityTable(private val g: Double = 0.270, private val bg: Double = 0
     fun met(a: Int, b: Int, post: Boolean): Double {
         if (a <= 0) return 1.0
         if (b <= 0) return 0.0
+        if (a <= KazarossMet.LENGTH && b <= KazarossMet.LENGTH) return KazarossMet.mwc(a, b, post && min(a, b) == 1)
         val key = (a.toLong() shl 32) or (b.toLong() shl 1) or (if (post) 1L else 0L)
         memo[key]?.let { return it }
         val v = compute(a, b, post)
@@ -122,7 +123,7 @@ class MatchEquityTable(private val g: Double = 0.270, private val bg: Double = 0
     }
 
     companion object {
-        /** The game slot's table. Not thread-safe (its caches): an engine on another thread gets its own. */
+        /** The game slot's table. Not thread-safe (its caches past 25 away): an engine on another thread gets its own. */
         val DEFAULT by lazy { MatchEquityTable() }
     }
 }
@@ -157,6 +158,17 @@ class MatchCube(
             (1 - w - pr[3]) * after(0, v) + (pr[3] - pr[4]) * after(0, 2 * v) + pr[4] * after(0, 3 * v)
 
     private fun canDouble(isP: Boolean, v: Int) = !crawfordGame && v < (if (isP) a else b)
+
+    /**
+     * The dead cube at [v], but for O's free double: when P is within [v] of the match, O loses nothing
+     * more by doubling, so an O that may double does at its turn, and the cube is dead only then, at twice
+     * [v] (or P passes). Without this a take at, say, 2-away is valued as if the taker sat on the cube,
+     * far too low. P's own free double is left to [decision]: P, on roll, makes it there.
+     */
+    private fun deadCube(owner: CubeView, v: Int): Double {
+        val d = dead(v)
+        return if (owner != CubeView.MINE && a <= v && canDouble(false, v)) min(d, max(dead(2 * v), after(0, v))) else d
+    }
 
     private fun cashValue(isP: Boolean, v: Int) = if (isP) after(v, 0) else 1 - after(0, v)
     private fun winValueOf(isP: Boolean, v: Int) = if (isP) winValue(v) else 1 - lossValue(v)
@@ -219,14 +231,14 @@ class MatchCube(
         }
     }
 
-    fun cubeful(owner: CubeView, v: Int): Double = if (crawfordGame) dead(v) else x * live(owner, v) + (1 - x) * dead(v)
+    fun cubeful(owner: CubeView, v: Int): Double = if (crawfordGame) dead(v) else x * live(owner, v) + (1 - x) * deadCube(owner, v)
 
     /** (ND, DT, DP) in MWC for P; DT = ND when P cannot double. */
     fun decision(owner: CubeView, v: Int): Triple<Double, Double, Double> {
         val nd = cubeful(owner, v)
         val dp = after(v, 0)
         if (owner == CubeView.THEIRS || !canDouble(true, v)) return Triple(nd, nd, dp)
-        val dt = x * (1 - ownedLive(false, 2 * v, 1 - w)) + (1 - x) * dead(2 * v)
+        val dt = x * (1 - ownedLive(false, 2 * v, 1 - w)) + (1 - x) * deadCube(CubeView.THEIRS, 2 * v)
         return Triple(nd, dt, dp)
     }
 

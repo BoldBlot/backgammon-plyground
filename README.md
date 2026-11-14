@@ -149,8 +149,8 @@ has `LOAD` alignment `0x4000`.
 (float32) precision: `prob5_wide.ptw` (cubeless win / gammon / backgammon chances) and
 `cubeful_wide.ptw` (cubeful equity, used at the leaves of the cube search). They are exported
 from PureTD's checkpoints with `engine/tools/export_puretd.py`. The bear-off database is built
-on the phone at first start and cached; the match equity table is computed by the app
-(`core/CubeMath.kt`). `assets/gnubg` holds GNU Backgammon's networks (`gnubg.wd`), one-sided
+on the phone at first start and cached; PureTD's match play uses the Kazaross XG2 match equity
+table (`core/KazarossMet.kt`). `assets/gnubg` holds GNU Backgammon's networks (`gnubg.wd`), one-sided
 bear-off database and the Kazaross XG2 match equity table; the two-sided bear-off database is
 left out to keep the app small. `assets/sage` holds Open Sage's production model (stage 11: 21
 network files, some shared between game plans) and its one-sided bear-off database, unchanged

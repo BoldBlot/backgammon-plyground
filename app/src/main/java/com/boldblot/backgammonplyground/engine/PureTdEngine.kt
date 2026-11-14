@@ -18,7 +18,7 @@ import com.boldblot.backgammonplyground.core.moneyJanowski
  * 1-4 and, for checker play, the root filter (moves within a 1-ply equity window of the best go to
  * the full depth). Money cube decisions come from the cube-aware search with PureTD's cubeful
  * network; match cube decisions from the cube-aware match search ([MatchCubeSearch]: our match
- * Janowski and our own match equity table at its leaves), or that Janowski alone at 1-ply. The checker search, levels and luck are [SearchEngine]'s.
+ * Janowski and the Kazaross XG2 match equity table at its leaves), or that Janowski alone at 1-ply. The checker search, levels and luck are [SearchEngine]'s.
  */
 class PureTdEngine(
     private val handle: Long,
