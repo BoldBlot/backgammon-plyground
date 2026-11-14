@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.16 — 2026-11-14 (build 79, internal test)
+## 0.8.16 — 2026-11-14 (build 79)
 
 - Match play with PureTD: a take that leaves the taker a redouble at no risk was valued far too low.
   At 6-away against 2-away, for example, once the cube is on 2 any loss costs the trailer the match,
