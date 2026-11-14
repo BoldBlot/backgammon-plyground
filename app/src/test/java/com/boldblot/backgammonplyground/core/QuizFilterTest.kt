@@ -29,6 +29,17 @@ class QuizFilterTest {
     }
 
     @Test
+    fun neutralAnswers() {
+        // A position answered only neutrally has been tried, is neither right nor missed, and keeps a balance of 0.
+        assertFalse(QuizFilter.matches(0, 0, keys(QuizFilter.NOT_TRIED), neutral = 1))
+        assertTrue(QuizFilter.matches(0, 0, keys(QuizFilter.SOME_NEUTRAL), neutral = 1))
+        assertFalse(QuizFilter.matches(2, 1, keys(QuizFilter.SOME_NEUTRAL)))
+        assertFalse(QuizFilter.matches(0, 0, keys(QuizFilter.SOME_WRONG), neutral = 1))
+        assertTrue(QuizFilter.matches(0, 0, keys(QuizFilter.BALANCE_ZERO), neutral = 3))
+        assertEquals(QuizFilter.SOME_NEUTRAL, QuizFilter.of("quiz:SOME_NEUTRAL"))
+    }
+
+    @Test
     fun balanceThresholds() {
         // Feedback 2026-11-02 #28: below −3 … above +3 next to below 0 / 0 / above 0.
         // Feedback 2026-11-02 list 4 #1: the bounds are inclusive (≤ / ≥).

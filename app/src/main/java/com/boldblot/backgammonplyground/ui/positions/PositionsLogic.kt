@@ -31,13 +31,14 @@ import com.boldblot.backgammonplyground.data.ErrorUnit
 fun passesFilter(p: SavedPosition, filter: Set<String>, s: Settings): Boolean {
     val labels = s.visible(filter)
     return (labels.isEmpty() || Labels.matches(s.visible(p.labels), labels)) &&
-        QuizFilter.matches(p.entity.quizRight, p.entity.quizWrong, filter)
+        QuizFilter.matches(p.entity.quizRight, p.entity.quizWrong, filter, p.entity.quizNeutral)
 }
 
 /** "3 right, 1 missed · balance +2". */
 fun quizCountText(p: SavedPosition): String {
     val b = p.quizBalance
-    return "${p.entity.quizRight} right, ${p.entity.quizWrong} missed · balance ${if (b > 0) "+$b" else "$b"}"
+    val neutral = if (p.entity.quizNeutral > 0) ", ${p.entity.quizNeutral} neutral" else ""
+    return "${p.entity.quizRight} right, ${p.entity.quizWrong} missed$neutral · balance ${if (b > 0) "+$b" else "$b"}"
 }
 
 /** Analyzes [p] at the analysis depths in Settings, with the analysis engine. */

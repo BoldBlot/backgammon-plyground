@@ -43,7 +43,12 @@ fun looksLikeMatch(text: String): Boolean =
  * whether the opponent's mistakes go on the list too.
  */
 @Composable
-fun MatchImportDialog(match: MatImport.ParsedMatch, defaultYou: Int = 1, onDismiss: () -> Unit, onImport: (you: Int, both: Boolean) -> Unit) {
+fun MatchImportDialog(
+    match: MatImport.ParsedMatch, defaultYou: Int = 1,
+    /** From an .xg file: the match comes with eXtreme Gammon's analysis. */
+    analyzed: Boolean = false,
+    onDismiss: () -> Unit, onImport: (you: Int, both: Boolean) -> Unit,
+) {
     var you by remember { mutableIntStateOf(defaultYou) }
     var both by remember { mutableStateOf(false) }
     val r = match.rules
@@ -70,8 +75,10 @@ fun MatchImportDialog(match: MatImport.ParsedMatch, defaultYou: Int = 1, onDismi
                     FilterChip(selected = both, onClick = { both = true }, label = { Text("Both players' mistakes") })
                 }
                 Text(
-                    "The match is analyzed in the background, at the depths in Settings → Analysis; its PR and mistakes " +
-                        "fill in as it goes. It is left out of your statistics and rating (its menu can count it). " +
+                    (if (analyzed) "The match comes with the analysis in the .xg file (eXtreme Gammon); decisions the file has none for " +
+                        "are analyzed in the background. Analyze again replaces it, and the file's analysis can be restored. "
+                    else "The match is analyzed in the background, at the depths in Settings → Analysis; its PR and mistakes fill in as it goes. ") +
+                        "It is left out of your statistics and rating (its menu can count it). " +
                         "The opponent's mistakes are shown from their side and labelled Opponent's.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 12.dp),

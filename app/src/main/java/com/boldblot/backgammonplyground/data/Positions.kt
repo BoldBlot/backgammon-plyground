@@ -80,7 +80,8 @@ class PositionsRepository(db: AppDatabase) {
         SavedPosition(
             e, p, a, e.myAnswer?.let { AppJson.decodeFromString<MyAnswer>(it) },
             (storedLabels(e.labels)?.let { Labels.withDmp(it, p.setup.matchLength, p.setup.score, p.setup.crawford) } ?: autoLabels(p, a)) +
-                Labels.idKey(com.boldblot.backgammonplyground.core.PositionTags.of(e.id)),
+                Labels.idKey(com.boldblot.backgammonplyground.core.PositionTags.of(e.id)) +
+                listOfNotNull(e.lastTrend?.takeIf { Labels.isTrend(it) }),
             played = e.played?.let { AppJson.decodeFromString<MyAnswer>(it) } ?: playedFromAnalysis(a),
             lastAnswer = e.lastAnswer?.let { runCatching { AppJson.decodeFromString<MyAnswer>(it) }.getOrNull() },
         )
@@ -335,28 +336,31 @@ class PositionsRepository(db: AppDatabase) {
         dao.update(e.copy(note = note.trim()))
     }
 
-    /** The quiz answer [answer] to position [id], [right] or not, counted; the position as it is now. */
-    suspend fun setResult(id: Long, right: Boolean, answer: MyAnswer? = null): PositionEntity? {
+    /**
+     * The quiz answer [answer] to position [id] with its [verdict], counted (a neutral one moves neither the right
+     * nor the missed count); [trend] is how it compares with the answer before. The position as it is now.
+     */
+    suspend fun setResult(id: Long, verdict: QuizVerdict, answer: MyAnswer? = null, trend: AutoLabel? = null): PositionEntity? {
         val e = dao.position(id) ?: return null
-        val updated = e.copy(
-            lastRight = right, lastAnswer = answer?.let { AppJson.encodeToString(it) } ?: e.lastAnswer,
-            quizRight = e.quizRight + if (right) 1 else 0, quizWrong = e.quizWrong + if (right) 0 else 1,
+        val updated = counted(e, verdict, 1).copy(
+            lastRight = verdict == QuizVerdict.RIGHT, lastNeutral = verdict == QuizVerdict.NEUTRAL,
+            lastAnswer = answer?.let { AppJson.encodeToString(it) } ?: e.lastAnswer, lastTrend = trend?.name,
         )
         dao.update(updated)
         return updated
     }
 
-    /** The last quiz answer to position [id] turned out [right] after all (analyzed again): one count moves over. */
-    suspend fun fixResult(id: Long, right: Boolean): PositionEntity? {
+    /** The last quiz answer to position [id] turned out [to] instead of [from] (analyzed again): one count moves over. */
+    suspend fun fixResult(id: Long, from: QuizVerdict, to: QuizVerdict): PositionEntity? {
         val e = dao.position(id) ?: return null
-        val updated = e.copy(
-            lastRight = right,
-            quizRight = (e.quizRight + if (right) 1 else -1).coerceAtLeast(0),
-            quizWrong = (e.quizWrong + if (right) -1 else 1).coerceAtLeast(0),
+        val updated = counted(counted(e, from, -1), to, 1).copy(
+            lastRight = to == QuizVerdict.RIGHT, lastNeutral = to == QuizVerdict.NEUTRAL,
         )
         dao.update(updated)
         return updated
     }
+
+    private fun counted(e: PositionEntity, verdict: QuizVerdict, by: Int): PositionEntity = e.withQuizCount(verdict, by)
 
     suspend fun setCategories(id: Long, categoryIds: Collection<Long>) {
         dao.unlinkPosition(id)
@@ -399,7 +403,7 @@ class PositionsRepository(db: AppDatabase) {
     /** Puts Learned positions [ids] back in My positions, in the folders they were in. */
     suspend fun unlearn(ids: Collection<Long>, resetCounters: Boolean = false) = ids.forEach { id ->
         dao.setLearned(id, null)
-        if (resetCounters) dao.position(id)?.let { dao.update(it.copy(quizRight = 0, quizWrong = 0)) }
+        if (resetCounters) dao.position(id)?.let { dao.update(it.copy(quizRight = 0, quizWrong = 0, quizNeutral = 0)) }
     }
 
     /** Trims Learned to its newest [keep] (after the setting changes); returns how many were deleted. */
@@ -521,7 +525,7 @@ class PositionsRepository(db: AppDatabase) {
         private const val NO_LABELS = "-"
 
         fun encodeLabels(labels: Set<String>): String =
-            labels.filterNot { Labels.isId(it) }.toSet().let { if (it.isEmpty()) NO_LABELS else Labels.encode(it) }
+            labels.filterNot { Labels.isId(it) || Labels.isTrend(it) }.toSet().let { if (it.isEmpty()) NO_LABELS else Labels.encode(it) }
 
         /** The stored labels, or null if they were never set. */
         fun storedLabels(text: String): Set<String>? = when (text) {
@@ -536,4 +540,11 @@ class PositionsRepository(db: AppDatabase) {
             ignoreUnknownKeys = true
         }
     }
+}
+
+/** [this] with [by] more (or fewer) quiz answers of [verdict]: a neutral one moves neither the right nor the missed count. */
+internal fun PositionEntity.withQuizCount(verdict: QuizVerdict, by: Int): PositionEntity = when (verdict) {
+    QuizVerdict.RIGHT -> copy(quizRight = (quizRight + by).coerceAtLeast(0))
+    QuizVerdict.NEUTRAL -> copy(quizNeutral = (quizNeutral + by).coerceAtLeast(0))
+    QuizVerdict.WRONG -> copy(quizWrong = (quizWrong + by).coerceAtLeast(0))
 }

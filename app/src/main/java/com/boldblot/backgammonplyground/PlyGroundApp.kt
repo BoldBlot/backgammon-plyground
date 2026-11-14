@@ -30,6 +30,8 @@ class PlyGroundApp : Application() {
     val pendingImport = MutableStateFlow<String?>(null)
     /** A .mat match file opened with PlyGround, waiting for the Match Library's import dialog. */
     val pendingMatch = MutableStateFlow<String?>(null)
+    /** An eXtreme Gammon .xg file opened with PlyGround from another app, waiting for the Match Library to import it. */
+    val pendingMatchFile = MutableStateFlow<ByteArray?>(null)
 
     override fun onCreate() {
         super.onCreate()

@@ -70,6 +70,12 @@ Compose UI (ui/*)  ──>  GameViewModel  ──>  MatchController (core, pure 
   column when it starts past the 20th character) and replays them through `GameState`,
   matching each written move to a legal move by the position it leads to. Every
   decision is marked `pending` for the background analysis.
+- `XgImport.kt`: reads eXtreme Gammon `.xg` files by the format XG publishes
+  (extremegammon.com/xgformat.aspx): the zlib archive, then `temp.xg` as 2560-byte records.
+  The moves become a `MatImport.ParsedMatch` and are replayed the same way; `withAnalysis`
+  then puts XG's candidates and cube values on each decision (`engine` = "eXtreme Gammon",
+  `level` = XG's name for the level), matched turn by turn and by the positions the plays
+  lead to. Decisions XG did not analyze stay `pending`.
 - `Labels.kt`: the automatic labels of a decision or saved position (`AutoLabel`,
   stored by name), the player's own labels (`my:` keys) and label filters (any within
   a group, all across groups).
@@ -90,6 +96,10 @@ that their player is at the bottom), `positions.labels` (label keys; empty = wor
 from the position) and `categories.filter` / `autoAdd` (My positions folders linked to a
 blunder list filter: autofilters when `autoAdd`; the Checker and Cube folders that new
 errors are sorted into are made when first needed).
+Schema 8 adds `positions.quizNeutral` / `lastNeutral` (neutral quiz answers: counted, but
+outside the balance), `positions.lastTrend` (the quiz trend label, added to the position's
+labels when read, never stored with them) and `games.originalRecord` / `originalSummary`
+(a game from an .xg file as it came, so that its analysis can be restored).
 Settings live in DataStore.
 
 ## UI

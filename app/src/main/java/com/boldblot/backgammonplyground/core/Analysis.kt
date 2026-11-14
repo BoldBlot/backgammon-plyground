@@ -122,9 +122,14 @@ data class CheckerAnalysis(
     val plies: Int,
     /** The engine that analyzed it ("PureTD"); null in analyses saved before 0.7.11. */
     val engine: String? = null,
+    /** An analysis read from another program's file ([XgImport]): its level as that program names it ("3-ply", "XG Roller++"). */
+    val level: String? = null,
 ) {
-    /** "PureTD 3-ply, pruned"; "Engine unknown, 3-ply, pruned" when the engine was not recorded. */
-    val label: String get() = if (engine != null) "$engine ${plyLabel(plies)}" else "$UNKNOWN_ENGINE, ${plyLabel(plies)}"
+    /** "PureTD 3-ply, pruned"; "Engine unknown, 3-ply, pruned" when the engine was not recorded; "eXtreme Gammon XG Roller++". */
+    val label: String get() = if (level != null) "${engine ?: UNKNOWN_ENGINE} $level" else if (engine != null) "$engine ${plyLabel(plies)}" else "$UNKNOWN_ENGINE, ${plyLabel(plies)}"
+
+    /** Read from a file of another program, not worked out by one of PlyGround's engines. */
+    val imported: Boolean get() = level != null
 
     val error: Float get() = (bestEquity - playedEquity).coerceAtLeast(0f)
 

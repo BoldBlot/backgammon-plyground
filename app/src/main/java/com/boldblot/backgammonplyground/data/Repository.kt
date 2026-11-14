@@ -408,8 +408,12 @@ class Repository(private val db: AppDatabase) {
      * Stores a match read from a .mat file ([MatImport]) as a finished match, left out of the
      * statistics, with all its decisions waiting for the background analysis. [blundersBoth]:
      * the opponent's mistakes go on the blunder list too. Returns the games to analyze.
+     *
+     * [withAnalysis]: the match came from an .xg file with its own analysis ([com.boldblot.backgammonplyground.core.XgImport]).
+     * Each game is kept a second time as it came, so that the file's analysis can be restored after the game
+     * is analyzed again, and the mistakes it shows of at least [minError] go on the blunder list now.
      */
-    suspend fun importMatch(im: MatImport.ImportedMatch, blundersBoth: Boolean): List<GameKey> {
+    suspend fun importMatch(im: MatImport.ImportedMatch, blundersBoth: Boolean, withAnalysis: Boolean = false, minError: Float = 0f): List<GameKey> {
         // Listed by when it joined the library (the Match Library is newest first).
         val started = System.currentTimeMillis()
         val id = dao.insertMatch(
@@ -421,19 +425,61 @@ class Repository(private val db: AppDatabase) {
                 games = im.games.size, inStats = false, imported = true, blundersBoth = blundersBoth,
             ),
         )
+        val opponentKey = Opponent.imported(im.names[Player.CPU])
         val keys = im.games.map { g ->
             val r = requireNotNull(g.state.result)
+            val summary = AppJson.encodeToString(Summaries.of(g.state, im.rules.length))
+            val record = AppJson.encodeToString(g.state)
             dao.insertGame(
                 GameEntity(
                     matchId = id, number = g.number, finishedAt = started, winner = r.winner, winType = r.type.name, points = r.points,
-                    summary = AppJson.encodeToString(Summaries.of(g.state, im.rules.length)), record = AppJson.encodeToString(g.state),
-                    scoreBeforeHuman = g.score[0], scoreBeforeCpu = g.score[1],
+                    summary = summary, record = record, scoreBeforeHuman = g.score[0], scoreBeforeCpu = g.score[1],
+                    originalRecord = record.takeIf { withAnalysis }, originalSummary = summary.takeIf { withAnalysis },
                 ),
             )
+            if (withAnalysis) for ((i, d) in g.state.decisions.withIndex()) {
+                if (d.pending || d.error == null || (d.player != Player.HUMAN && !blundersBoth)) continue
+                saveIfBlunder(d, id, g.number, i, im.rules.length, opponentKey, Severity.ERROR, opponent = d.player != Player.HUMAN, minError = minError)
+            }
             GameKey(id, g.number)
+        }
+        if (withAnalysis) {
+            // The match's totals, which a .mat import only gets as the background analysis goes.
+            val summaries = dao.games(id).map { AppJson.decodeFromString<GameSummary>(it.summary) }
+            dao.match(id)?.let { m ->
+                dao.upsertMatch(
+                    m.copy(
+                        humanPerformance = AppJson.encodeToString(summaries.fold(PerformanceTotals()) { acc, s -> acc + s.performance[0] }),
+                        cpuPerformance = AppJson.encodeToString(summaries.fold(PerformanceTotals()) { acc, s -> acc + s.performance[1] }),
+                    ),
+                )
+            }
         }
         enforceLibraryLimit()
         return keys
+    }
+
+    /** The game as it came from its .xg file; null for a game that came with no analysis of its own. */
+    private fun original(e: GameEntity): GameState? =
+        e.originalRecord?.let { runCatching { AppJson.decodeFromString<GameState>(it) }.getOrNull() }
+
+    /**
+     * Whether game [e] (now [g]) was analyzed again after it came from an .xg file: some decision the file
+     * had analyzed carries another analysis now. Decisions the file left out do not count: PlyGround analyzes those itself.
+     */
+    fun reanalyzedSinceImport(e: GameEntity, g: GameState): Boolean {
+        val o = original(e) ?: return false
+        return com.boldblot.backgammonplyground.core.XgImport.reanalyzed(o, g)
+    }
+
+    /**
+     * Puts back the analysis game [e] (now [g]) came with from its .xg file; decisions the file had not
+     * analyzed keep the analysis they have now. Null when the game has no original.
+     */
+    suspend fun restoreOriginal(e: GameEntity, g: GameState, matchLength: Int): Pair<GameEntity, GameState>? {
+        val o = original(e) ?: return null
+        val restored = com.boldblot.backgammonplyground.core.XgImport.restored(o, g)
+        return saveReanalyzedGame(e, restored, matchLength) to restored
     }
 
     /** The saved blunders that pass [filter] (label keys), in [sort] order (newest first within equal errors). */

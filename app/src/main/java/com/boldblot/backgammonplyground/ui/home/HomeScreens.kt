@@ -128,7 +128,9 @@ import com.boldblot.backgammonplyground.data.MatchStatus
 import com.boldblot.backgammonplyground.data.MeterMode
 import com.boldblot.backgammonplyground.data.ErrorUnit
 import com.boldblot.backgammonplyground.data.QuickCubeCheck
+import com.boldblot.backgammonplyground.core.XgImport
 import com.boldblot.backgammonplyground.data.QuizCorrect
+import com.boldblot.backgammonplyground.data.QuizNeutral
 import com.boldblot.backgammonplyground.data.SavedBlunder
 import com.boldblot.backgammonplyground.data.Settings
 import com.boldblot.backgammonplyground.data.TrainingMode
@@ -470,10 +472,27 @@ fun HistoryScreen(
     // Importing a .mat file: picked here, or opened with PlyGround from another app.
     var importing by remember { mutableStateOf<MatImport.ParsedMatch?>(null) }
     var importError by remember { mutableStateOf<String?>(null) }
+    // An .xg file: its match is imported like a .mat file's, then gets the analysis the file carries.
+    var importingXg by remember { mutableStateOf<XgImport.Parsed?>(null) }
     fun readMatch(text: String) {
+        importingXg = null
         runCatching { MatImport.parse(text) }
             .onSuccess { importing = it }
             .onFailure { importError = it.message ?: "The file could not be read." }
+    }
+    /** A match file's bytes: an eXtreme Gammon .xg file, or the text of a .mat file. */
+    fun readMatchFile(bytes: ByteArray) {
+        if (!XgImport.isXg(bytes)) return readMatch(String(bytes))
+        runCatching { XgImport.parse(bytes) }
+            .onSuccess { importingXg = it; importing = it.match }
+            .onFailure { importError = it.message ?: "The file could not be read." }
+    }
+    val pendingXg by app.pendingMatchFile.collectAsState()
+    LaunchedEffect(pendingXg) {
+        pendingXg?.let { bytes ->
+            app.pendingMatchFile.value = null
+            readMatchFile(bytes)
+        }
     }
     val pendingMatch by app.pendingMatch.collectAsState()
     LaunchedEffect(pendingMatch) {
@@ -484,8 +503,8 @@ fun HistoryScreen(
     }
     val matchPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            val text = runCatching { context.contentResolver.openInputStream(uri)?.bufferedReader()?.readText() }.getOrNull()
-            if (text == null) importError = "The file could not be read." else readMatch(text)
+            val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+            if (bytes == null) importError = "The file could not be read." else readMatchFile(bytes)
         }
     }
     suspend fun reload() {
@@ -542,7 +561,7 @@ fun HistoryScreen(
                 title = { Text("Match Library") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
-                    IconButton(onClick = { matchPicker.launch(arrayOf("*/*")) }) { Icon(Icons.Default.FileOpen, "Import a match (.mat)") }
+                    IconButton(onClick = { matchPicker.launch(arrayOf("*/*")) }) { Icon(Icons.Default.FileOpen, "Import a match (.mat or .xg)") }
                     if (!matches.isNullOrEmpty()) {
                         IconButton(onClick = { selecting = true }) { Icon(Icons.Default.Share, "Export matches") }
                     }
@@ -610,15 +629,32 @@ fun HistoryScreen(
         }
     }
     importing?.let { parsed ->
-        MatchImportDialog(parsed, defaultYou = if (settings?.meFirstInFiles == true) 0 else 1, onDismiss = { importing = null }) { you, both ->
+        MatchImportDialog(
+            parsed, defaultYou = if (settings?.meFirstInFiles == true) 0 else 1, analyzed = importingXg?.match === parsed,
+            onDismiss = { importing = null; importingXg = null },
+        ) { you, both ->
             importing = null
+            val xg = importingXg?.takeIf { it.match === parsed }
+            importingXg = null
             scope.launch {
-                runCatching { MatImport.replay(parsed, you) }
+                runCatching {
+                    withContext(Dispatchers.Default) { MatImport.replay(parsed, you).let { im -> if (xg != null) XgImport.withAnalysis(im, xg, you) else im } }
+                }
                     .onSuccess { im ->
-                        val keys = app.repository.importMatch(im, both)
+                        val keys = app.repository.importMatch(im, both, withAnalysis = xg != null, minError = settings?.newErrorsMin ?: 0f)
                         onImported(keys)
                         reload()
-                        Toast.makeText(context, "Imported ${im.games.size} game${if (im.games.size == 1) "" else "s"}; analyzing in the background.", Toast.LENGTH_LONG).show()
+                        val games = "${im.games.size} game${if (im.games.size == 1) "" else "s"}"
+                        val waiting = im.games.sumOf { g -> g.state.decisions.count { it.pending } }
+                        Toast.makeText(
+                            context,
+                            when {
+                                xg == null -> "Imported $games; analyzing in the background."
+                                waiting == 0 -> "Imported $games with eXtreme Gammon's analysis."
+                                else -> "Imported $games with eXtreme Gammon's analysis; $waiting decision${if (waiting == 1) "" else "s"} without one ${if (waiting == 1) "is" else "are"} analyzed in the background."
+                            },
+                            Toast.LENGTH_LONG,
+                        ).show()
                     }
                     .onFailure { importError = it.message ?: "The match could not be read." }
             }
@@ -725,7 +761,7 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
                             onClick = { scope.launch { app.settings.update { s -> s.copy(blunderSort = o) } } },
                         )
                     }
-                    LabelFilterButton(settings?.labelKeys.orEmpty().filterNot { Labels.isMine(it) }, filter, { f ->
+                    LabelFilterButton(settings?.labelKeys.orEmpty().filterNot { Labels.isMine(it) || Labels.isTrend(it) }, filter, { f ->
                         scope.launch { app.settings.update { s -> s.copy(blunderFilter = f) } }
                     }, count = { f -> errors.orEmpty().count { Labels.matches(it.labels, f) } }, total = errors.orEmpty().size)
                 }
@@ -998,6 +1034,34 @@ private fun TrainingSettings(s: Settings, update: (f: (Settings) -> Settings) ->
     Note("PR, rating, luck and errors for both players. The end of a match always shows it, and the game's ⋮ menu has the last game's summary.")
 }
 
+/** The slider of a fixed quiz level (right or neutral answers). */
+@Composable
+private fun QuizFixedLevel(value: Float, note: String, unit: com.boldblot.backgammonplyground.data.ErrorUnit, onChange: (Float) -> Unit) {
+    Text("Fixed level: ${errWithUnit(value.toDouble(), unit)}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
+    Slider(
+        value = value, valueRange = NewErrors.MIN_ERROR..NewErrors.MAX_ERROR, steps = 95,
+        onValueChange = { v -> onChange((Math.round(v * 200) / 200f).coerceIn(NewErrors.MIN_ERROR, NewErrors.MAX_ERROR)) },
+    )
+    Note(note)
+}
+
+/** The slider of an adaptive quiz level: a share of the library's average error; an answer up to it is [what] ("right", "neutral"). */
+@Composable
+private fun QuizAdaptiveLevel(app: PlyGroundApp, ratio: Float, what: String, unit: com.boldblot.backgammonplyground.data.ErrorUnit, onChange: (Float) -> Unit) {
+    val average by produceState<Float?>(null) { value = libraryAverageError(app) }
+    Text("Share of the library's average: ${Math.round(ratio * 100)}%", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
+    Slider(
+        value = ratio, valueRange = 0.1f..1.5f, steps = 27,
+        onValueChange = { v -> onChange((Math.round(v * 20) / 20f).coerceIn(0.1f, 1.5f)) },
+    )
+    val now = NewErrors.adaptiveThreshold(NewErrors.MIN_ERROR, ratio, average)
+    Note(
+        "An answer is $what when it costs up to this share of the average error in My positions, and never less than " +
+            "${errWithUnit(NewErrors.MIN_ERROR.toDouble(), unit)}. Library average now: " +
+            (average?.let { errWithUnit(it.toDouble(), unit) } ?: "no errors yet") + " · level now: ${errWithUnit(now.toDouble(), unit)}.",
+    )
+}
+
 /** Settings → Quiz: what counts as a right answer, the cube questions, repeating missed positions, Learned. */
 @Composable
 private fun QuizSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) -> Settings) -> Unit) {
@@ -1011,36 +1075,22 @@ private fun QuizSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) 
         when (s.quizCorrect) {
             QuizCorrect.NOT_ERROR -> Note("Anything within ${errWithUnit(XgRules.ERROR_THRESHOLD.toDouble(), unit)} of the best play.")
             QuizCorrect.BEST_ONLY -> Note("Only the best play.")
-            QuizCorrect.FIXED -> {
-                Text(
-                    "Fixed level: ${errWithUnit(s.quizFixedError.toDouble(), unit)}",
-                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp),
-                )
-                Slider(
-                    value = s.quizFixedError, valueRange = NewErrors.MIN_ERROR..NewErrors.MAX_ERROR, steps = 95,
-                    onValueChange = { v -> update { it.copy(quizFixedError = (Math.round(v * 200) / 200f).coerceIn(NewErrors.MIN_ERROR, NewErrors.MAX_ERROR)) } },
-                )
-                Note("An answer costing up to this much is right.")
-            }
-            QuizCorrect.ADAPTIVE -> {
-                val average by produceState<Float?>(null, s.quizCorrect) { value = libraryAverageError(app) }
-                Text(
-                    "Share of the library's average: ${Math.round(s.quizAdaptiveRatio * 100)}%",
-                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp),
-                )
-                Slider(
-                    value = s.quizAdaptiveRatio, valueRange = 0.5f..1.5f, steps = 19,
-                    onValueChange = { v -> update { it.copy(quizAdaptiveRatio = Math.round(v * 20) / 20f) } },
-                )
-                val now = NewErrors.adaptiveThreshold(NewErrors.MIN_ERROR, s.quizAdaptiveRatio, average)
-                Note(
-                    "An answer is right when it costs up to this share of the average error in My positions, and never less than " +
-                        "${errWithUnit(NewErrors.MIN_ERROR.toDouble(), unit)}. Library average now: " +
-                        (average?.let { errWithUnit(it.toDouble(), unit) } ?: "no errors yet") + " · level now: ${errWithUnit(now.toDouble(), unit)}.",
-                )
-            }
+            QuizCorrect.FIXED -> QuizFixedLevel(s.quizFixedError, "An answer costing up to this much is right.", unit) { v -> update { it.copy(quizFixedError = v) } }
+            QuizCorrect.ADAPTIVE -> QuizAdaptiveLevel(app, s.quizAdaptiveRatio, "right", unit) { v -> update { it.copy(quizAdaptiveRatio = v) } }
         }
     }
+    // The neutral level stays free under a training plan: the plan sets the right level only.
+    Chips("A neutral answer is", QuizNeutral.entries, s.quizNeutral, { it.label }) { v -> update { it.copy(quizNeutral = v) } }
+    when (s.quizNeutral) {
+        QuizNeutral.NOT_ERROR -> Note("Not right, but within ${errWithUnit(XgRules.ERROR_THRESHOLD.toDouble(), unit)} of the best play.")
+        QuizNeutral.NOT_BLUNDER -> Note("Not right, but within ${errWithUnit(XgRules.BLUNDER_THRESHOLD.toDouble(), unit)} of the best play: only a blunder is missed.")
+        QuizNeutral.FIXED -> QuizFixedLevel(s.quizNeutralFixedError, "An answer that is not right and costs up to this much is neutral.", unit) { v -> update { it.copy(quizNeutralFixedError = v) } }
+        QuizNeutral.ADAPTIVE -> QuizAdaptiveLevel(app, s.quizNeutralAdaptiveRatio, "neutral", unit) { v -> update { it.copy(quizNeutralAdaptiveRatio = v) } }
+    }
+    Note(
+        "A neutral answer counts neither as right nor as missed, so the position's balance stays as it is. " +
+            "With the neutral level at or below the level for a right answer, no answer is neutral.",
+    )
     Note("Your own saved answer, when you set one, decides instead.")
     Chips("My cube decisions", com.boldblot.backgammonplyground.data.QuizMyCube.entries, s.quizMyCube, { it.label }) { v -> update { it.copy(quizMyCube = v) } }
     Note("Full decision: no double, too good, double/take or double/pass. With fewer answers the opponent's answer to the double isn't asked.")
@@ -1054,7 +1104,7 @@ private fun QuizSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) 
     )
     Toggle("Show the position's labels after answering", s.quizLabels) { v -> update { it.copy(quizLabels = v) } }
     Toggle("Repeat missed positions until all are right", s.quizRepeat) { v -> update { it.copy(quizRepeat = v) } }
-    Note("Each position counts its right and missed answers; their balance is right minus missed. The Filter menus can pick positions by them.")
+    Note("Each position counts its right, neutral and missed answers; its balance is right minus missed. The Filter menus can pick positions by them, and by the trend of the last answer against the one before (Improved, Same, Worse).")
     Toggle("Move to Learned", s.quizAutoDelete) { v -> update { it.copy(quizAutoDelete = v) } }
     // A lower threshold: offer to go through the positions now (otherwise each is checked at its next answer).
     var lowerTo by remember { mutableStateOf<Int?>(null) }
@@ -1363,7 +1413,7 @@ private fun NewAutofilterDialog(s: Settings, onDismiss: () -> Unit, onAdd: (name
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     AutofilterLevel.entries.forEach { l -> FilterChip(selected = level == l, onClick = { level = l }, label = { Text(l.label) }) }
                 }
-                s.labelKeys.filter { Labels.group(it) != LabelGroup.SIZE }.groupBy { Labels.group(it) }.forEach { (g, keys) ->
+                s.labelKeys.filter { Labels.group(it) != LabelGroup.SIZE && !Labels.isTrend(it) }.groupBy { Labels.group(it) }.forEach { (g, keys) ->
                     Text(g.title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         keys.forEach { k ->

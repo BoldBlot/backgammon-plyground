@@ -22,7 +22,9 @@ import com.boldblot.backgammonplyground.core.Severity
 import com.boldblot.backgammonplyground.core.Step
 import com.boldblot.backgammonplyground.core.XgRules
 import com.boldblot.backgammonplyground.data.DeletedPosition
-import com.boldblot.backgammonplyground.data.QuizCorrect
+import com.boldblot.backgammonplyground.core.AutoLabel
+import com.boldblot.backgammonplyground.core.Labels
+import com.boldblot.backgammonplyground.data.QuizVerdict
 import com.boldblot.backgammonplyground.ui.review.ReviewView
 import com.boldblot.backgammonplyground.ui.review.ReanalyzeRequest
 import com.boldblot.backgammonplyground.core.Depth
@@ -39,6 +41,10 @@ import kotlinx.coroutines.launch
 /** The answer to one quiz position. */
 data class QuizResult(
     val right: Boolean,
+    /** Not right, but within the neutral level (Settings → Quiz): it counts neither as right nor as missed. */
+    val neutral: Boolean = false,
+    /** How the answer compares with the last one to the same position; null = the first answer. */
+    val trend: AutoLabel? = null,
     /** The engine's verdict on the answer: its cost after the 1-point factor, and its severity. */
     val error: Float,
     val severity: Severity,
@@ -76,7 +82,9 @@ data class QuizResult(
     /** Doubled with the follow-up question: the player's "the double was right", and the engine's. */
     val doubleClaim: Boolean? = null,
     val doubleRight: Boolean? = null,
-)
+) {
+    val verdict: QuizVerdict get() = if (right) QuizVerdict.RIGHT else if (neutral) QuizVerdict.NEUTRAL else QuizVerdict.WRONG
+}
 
 /** A card answered this round, for the arrows back through the quiz and the list at its end. */
 data class QuizCard(val position: SavedPosition, val result: QuizResult)
@@ -106,6 +114,7 @@ data class QuizState(
     /** Answers given, right ones, and their total error (plain equity, without the 1-point factor). */
     val answered: Int = 0,
     val right: Int = 0,
+    val neutral: Int = 0,
     val totalError: Float = 0f,
     /** Positions deleted during this round: with Delete or as learned ([learned] of them). */
     val deleted: Int = 0,
@@ -331,11 +340,18 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
                 val factor = factorOf(p)
                 val asked = cubeAnswer?.let { if (partial) withBestResponse(p, a, it.double) else it }
                 val judged = judge(sp, a, move, cube, asked, s, null)
-                val result = judged.withAsked(p, a, s, cubeAnswer.takeIf { partial }, claim)
-                val counted = app.positions.setResult(sp.id, result.right, MyAnswer(move = move, cube = cube))
-                    ?.let { sp.copy(entity = it) }
+                val given = MyAnswer(move = move, cube = cube)
+                // The trend: this answer's cost against the last answer's, both by the analysis the position has now.
+                val trend = Labels.trend(
+                    sp.lastAnswer?.let { answerError(p, a, it) },
+                    if (move != null) judged.error else answerError(p, a, given),
+                )
+                val result = judged.withAsked(p, a, s, cubeAnswer.takeIf { partial }, claim).copy(trend = trend)
+                val counted = app.positions.setResult(sp.id, result.verdict, given, trend)
+                    ?.let { sp.copy(entity = it, labels = sp.labels.filterNotTo(HashSet()) { k -> Labels.isTrend(k) } + listOfNotNull(trend?.name)) }
                 val favourite = app.positions.isFavourite(sp.id)
-                val deleted = counted != null && s.quizAutoDelete && counted.quizBalance >= s.quizDeleteAt && !favourite
+                // A neutral answer leaves the balance alone, so it never moves a position to Learned.
+                val deleted = counted != null && !result.neutral && s.quizAutoDelete && counted.quizBalance >= s.quizDeleteAt && !favourite
                 if (deleted) {
                     if (s.quizLearned) app.positions.learn(sp.id, s.learnedKeep) else app.positions.remove(sp.id)
                     gone += sp.id
@@ -343,7 +359,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
                 val played = sp.played?.let { answerWithError(p, a, it, s.errorUnit) }
                 _state.update {
                     it.copy(
-                        busy = false, result = result.copy(played = played, counts = counted?.let(::quizCountText), deleted = deleted, favourite = favourite), answered = it.answered + 1, right = it.right + if (result.right) 1 else 0,
+                        busy = false, result = result.copy(played = played, counts = counted?.let(::quizCountText), deleted = deleted, favourite = favourite), answered = it.answered + 1, right = it.right + if (result.right) 1 else 0, neutral = it.neutral + if (result.neutral) 1 else 0,
                         totalError = it.totalError + result.error / factor,
                         deleted = it.deleted + if (deleted) 1 else 0, learned = it.learned + if (deleted) 1 else 0,
                         board = p.board,
@@ -366,7 +382,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
     ): QuizResult {
         val p = sp.position
         val factor = factorOf(p)
-        val average = if (s.quizCorrect == QuizCorrect.ADAPTIVE) libraryAverageError(app) else null
+        val average = if (s.quizNeedsAverage) libraryAverageError(app) else null
         return if (move != null) {
             val c = a.checker!!
             val best = c.candidates.firstOrNull()
@@ -376,25 +392,25 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
             }
             val err = if (eq == null) 0f else ((c.bestEquity - eq) * factor).coerceAtLeast(0f)
             val mine = sp.answer?.move
-            val right = when {
-                mine != null -> p.board.applyMove(Player.HUMAN, mine) == p.board.applyMove(Player.HUMAN, move)
-                else -> s.quizRight(err, average)
+            val verdict = when {
+                mine != null -> if (p.board.applyMove(Player.HUMAN, mine) == p.board.applyMove(Player.HUMAN, move)) QuizVerdict.RIGHT else QuizVerdict.WRONG
+                else -> s.quizVerdict(err, average)
             }
             QuizResult(
-                right, err, XgRules.severity(err), move = move, bestMove = best?.move,
+                verdict == QuizVerdict.RIGHT, verdict == QuizVerdict.NEUTRAL, error = err, severity = XgRules.severity(err), move = move, bestMove = best?.move,
                 mine = sp.answer?.let { answerText(p, it) }, equity = eq, bestEquity = best?.equity, analysis = a, factor = factor,
             )
         } else {
             val raw = if (cubeAnswer != null) cubeAnswerError(p, a, cubeAnswer) else cubeError(p, a, cube!!)
             val err = (raw ?: 0f) * factor
             val mine = sp.answer?.cube
-            val right = when {
-                mine != null -> mine == cube
-                else -> s.quizRight(err, average)
+            val verdict = when {
+                mine != null -> if (mine == cube) QuizVerdict.RIGHT else QuizVerdict.WRONG
+                else -> s.quizVerdict(err, average)
             }
             val bestAnswer = if (cubeAnswer != null) bestCubeAnswer(p, a) else null
             QuizResult(
-                right, err, XgRules.severity(err), cube = cube, cubeAnswer = cubeAnswer,
+                verdict == QuizVerdict.RIGHT, verdict == QuizVerdict.NEUTRAL, error = err, severity = XgRules.severity(err), cube = cube, cubeAnswer = cubeAnswer,
                 bestCube = bestAnswer?.kind ?: bestCube(p, a), bestCubeAnswer = bestAnswer,
                 mine = sp.answer?.let { answerText(p, it) }, analysis = a, factor = factor,
             )
@@ -417,7 +433,8 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
         }
         if (claim != null) {
             val engine = doubleWasRight(p, a)
-            r = r.copy(doubleClaim = claim, doubleRight = engine, right = r.right && (engine == null || engine == claim))
+            val claimRight = engine == null || engine == claim
+            r = r.copy(doubleClaim = claim, doubleRight = engine, right = r.right && claimRight, neutral = r.neutral && claimRight)
         }
         return r
     }
@@ -444,9 +461,10 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
                 val partialOf = old.cubeAnswer.takeIf { old.youText != null }
                 val asked = partialOf?.let { withBestResponse(p, a, it.double) } ?: old.cubeAnswer
                 val fresh = judge(sp.copy(analysis = a), a, old.move, old.cube, asked, s, r.engine).withAsked(p, a, s, partialOf, old.doubleClaim)
-                val flipped = fresh.right != old.right
-                val counted = if (kept && flipped) app.positions.fixResult(sp.id, fresh.right)?.let { sp.copy(entity = it) } else null
+                val flipped = fresh.verdict != old.verdict
+                val counted = if (kept && flipped) app.positions.fixResult(sp.id, old.verdict, fresh.verdict)?.let { sp.copy(entity = it) } else null
                 val result = fresh.copy(
+                    trend = old.trend,
                     played = sp.played?.let { answerWithError(p, a, it, s.errorUnit) },
                     counts = counted?.let(::quizCountText) ?: old.counts, deleted = old.deleted, removed = old.removed,
                 )
@@ -454,7 +472,8 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
                     it.copy(
                         reanalyzing = false, result = result, candidate = null,
                         queue = it.queue.mapIndexed { i, q -> if (i == 0) q.copy(analysis = a, entity = counted?.entity ?: q.entity) else q },
-                        right = it.right + if (!flipped) 0 else if (fresh.right) 1 else -1,
+                        right = it.right + (if (fresh.right) 1 else 0) - (if (old.right) 1 else 0),
+                        neutral = it.neutral + (if (fresh.neutral) 1 else 0) - (if (old.neutral) 1 else 0),
                         totalError = it.totalError - old.error / old.factor + fresh.error / fresh.factor,
                         message = "Analyzed again: ${a.label}." + if (flipped) " The verdict changed." else "",
                     )
@@ -472,7 +491,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
         val st = _state.value
         val r = st.result ?: return
         val cur = st.current ?: return
-        val again = !r.right && st.settings.quizRepeat && !r.deleted && r.removed == null
+        val again = r.verdict == QuizVerdict.WRONG && st.settings.quizRepeat && !r.deleted && r.removed == null
         val rest = st.queue.drop(1) + if (again) listOf(cur) else emptyList()
         _state.update { it.copy(queue = rest, result = null, finished = rest.isEmpty(), history = it.history + QuizCard(cur, r), viewing = null) }
         if (rest.isNotEmpty()) show()

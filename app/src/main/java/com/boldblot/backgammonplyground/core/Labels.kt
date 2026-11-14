@@ -9,6 +9,8 @@ enum class LabelGroup(val title: String, val allOf: Boolean = false) {
     MISSED("Missed", true),
     STAGE("Stage", true), STAKES("Stakes", true), WHOSE("Whose"), MARKED("Marked"),
     THEMES("Themes (rule of thumb)", true),
+    /** How the last quiz answer compares with the one before; worked out at each answer, never stored as a label. */
+    TREND("Quiz trend"),
     /** The player's own labels. */
     MINE("My labels", true),
 }
@@ -45,6 +47,9 @@ enum class AutoLabel(val title: String, val group: LabelGroup, val description: 
     PRIME_VS_PRIME("Prime vs prime", LabelGroup.THEMES, "Both sides have a prime of four points or more."),
     HOLDING("Holding game", LabelGroup.THEMES, "A side behind in the race holds one anchor high in the opponent's board."),
     BACKGAME("Backgame", LabelGroup.THEMES, "A side far behind in the race holds two or more points in the opponent's board."),
+    IMPROVED("Improved", LabelGroup.TREND, "The last quiz answer was better than the one before."),
+    SAME("Same", LabelGroup.TREND, "The last quiz answer was as good as the one before."),
+    WORSE("Worse", LabelGroup.TREND, "The last quiz answer was worse than the one before."),
 }
 
 /**
@@ -61,6 +66,20 @@ object Labels {
 
     fun myKey(name: String) = MY + name.trim()
     fun isMine(key: String) = key.startsWith(MY)
+    /** A quiz trend label ([LabelGroup.TREND]): it comes from the quiz, so it is neither ticked by hand nor stored with the others. */
+    fun isTrend(key: String) = auto(key)?.group == LabelGroup.TREND
+
+    /**
+     * The trend of a quiz answer costing [error] after one costing [before] (both after the 1-point factor):
+     * null without an earlier answer.
+     */
+    fun trend(before: Float?, error: Float?): AutoLabel? = when {
+        before == null || error == null -> null
+        error < before - 0.0005f -> AutoLabel.IMPROVED
+        error > before + 0.0005f -> AutoLabel.WORSE
+        else -> AutoLabel.SAME
+    }
+
     fun auto(key: String): AutoLabel? = AutoLabel.entries.firstOrNull { it.name == key }
 
     fun title(key: String): String = if (isId(key)) "#" + key.removePrefix(ID) else auto(key)?.title ?: key.removePrefix(MY)

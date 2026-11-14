@@ -36,6 +36,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
+import com.boldblot.backgammonplyground.core.AutoLabel
 import com.boldblot.backgammonplyground.core.Labels
 import com.boldblot.backgammonplyground.core.QuizFilter
 
@@ -173,14 +175,24 @@ fun LabelTags(labels: Collection<String>, modifier: Modifier = Modifier, onClick
         horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Labels.sorted(labels).forEach { k ->
-            Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+            val trend = trendStyle(k)
+            Surface(shape = RoundedCornerShape(6.dp), color = trend?.second ?: MaterialTheme.colorScheme.secondaryContainer) {
                 Text(
-                    Labels.title(k), style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    (trend?.first ?: "") + Labels.title(k), style = MaterialTheme.typography.labelSmall,
+                    color = if (trend != null) Color.Black else MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
         }
     }
+}
+
+/** The quiz trend labels have an arrow and a colour of their own: green up, grey level, red down. */
+private fun trendStyle(key: String): Pair<String, Color>? = when (Labels.auto(key)) {
+    AutoLabel.IMPROVED -> "↑ " to Color(0xFF2ECC71)
+    AutoLabel.SAME -> "→ " to Color(0xFFB8BCC2)
+    AutoLabel.WORSE -> "↓ " to Color(0xFFFF6B6B)
+    else -> null
 }
 
 /** Ticks a position's labels: [keys] are the labels in use, [initial] the position's. */
@@ -193,7 +205,8 @@ fun LabelsDialog(keys: List<String>, initial: Set<String>, onDismiss: () -> Unit
         text = {
             val scroll = rememberScrollState()
             Column(Modifier.heightIn(max = 460.dp).scrollbar(scroll).verticalScroll(scroll).padding(end = 8.dp)) {
-                keys.groupBy { Labels.group(it) }.forEach { (group, inGroup) ->
+                // The quiz sets the trend labels: they are not ticked by hand.
+                keys.filterNot { Labels.isTrend(it) }.groupBy { Labels.group(it) }.forEach { (group, inGroup) ->
                     Text(
                         group.title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(top = 8.dp),

@@ -325,7 +325,7 @@ fun CandidateList(
             }
         }
         Text(
-            "${analysis.legalMoves} legal move${if (analysis.legalMoves == 1) "" else "s"} · ${analysis.label} · cubeful equity (EMG)",
+            "${analysis.legalMoves} legal move${if (analysis.legalMoves == 1) "" else "s"} · ${analysis.label}${if (analysis.imported) " (from the .xg file)" else ""} · cubeful equity (EMG)",
             Modifier.padding(4.dp), style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -499,7 +499,7 @@ fun CubeTable(
         val spreadShown = androidx.compose.runtime.remember(eval) { androidx.compose.runtime.mutableStateOf(false) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "${eval.label} · cubeless chances",
+                "${eval.label}${if (eval.imported) " (from the .xg file)" else ""} · cubeless chances",
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             // Played-out games: a small ± that opens their standard error (a setting, off by default).

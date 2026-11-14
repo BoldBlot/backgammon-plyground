@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.8.11 — 2026-11-14 (build 74, internal test)
+
+- Quiz: a neutral answer. An answer that is not right but stays within the neutral level counts
+  neither as right nor as missed, so the position's balance stays as it is; it never moves a
+  position to Learned and does not come back with "Repeat until all are right". By default an
+  error is neutral and only a blunder is missed. Settings → Quiz, "A neutral answer is": Not an
+  error, Not a blunder, Fixed level or Adaptive, also under a training plan. With the neutral level
+  at or below the level for a right answer, no answer is neutral. Positions count their neutral
+  answers, and the Filter menus have "Neutral".
+- Settings → Quiz, "A right answer is": the choices now run from the strictest to the most lax
+  (Best play only, Not an error, Fixed level, Adaptive). Adaptive starts at 20% of the library's
+  average error for a right answer and 50% for a neutral one (a share you had already set stays),
+  and the sliders go down to 10%.
+- Quiz: each answer is compared with your last answer to the same position. The position gets the
+  label Improved, Same or Worse (group "Quiz trend", in green, grey and red), shown beside the
+  verdict and with the position's labels; the Filter menus can pick positions by it.
+- Match Library: eXtreme Gammon's .xg files can be imported directly, from the import button or by
+  opening the file with PlyGround. The match comes with the analysis in the file, named in the
+  analysis ("eXtreme Gammon 3-ply", "eXtreme Gammon XG Roller++", "from the .xg file"); decisions
+  the file has no analysis for are analyzed in the background. After Analyze again, "Restore
+  original" in the review puts the file's analysis back.
+
 ## 0.8.10 — 2026-11-12 (build 73, internal test)
 
 - Matches with PureTD: new, experimental analysis depths that end in short played-out games, named

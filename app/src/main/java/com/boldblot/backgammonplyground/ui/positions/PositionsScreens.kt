@@ -1,5 +1,8 @@
 package com.boldblot.backgammonplyground.ui.positions
 
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.ui.graphics.Color
+import com.boldblot.backgammonplyground.data.QuizVerdict
 import com.boldblot.backgammonplyground.engine.Waiting
 import androidx.compose.material.icons.filled.Refresh
 import com.boldblot.backgammonplyground.ui.review.ReanalyzeDialog
@@ -629,8 +632,8 @@ internal fun PositionRow(
     /** Selecting: whether this position is selected (null = not selecting). */
     selection: Boolean? = null,
     onLongClick: (() -> Unit)? = null,
-    /** In a quiz's results: whether the last answer to it was right (a green check or a red X on the right). */
-    quizAnswer: Boolean? = null,
+    /** In a quiz's results: the verdict on the last answer to it (a green check, a grey dash or a red X on the right). */
+    quizAnswer: QuizVerdict? = null,
     onClick: () -> Unit,
 ) {
     val sp = p.position
@@ -652,18 +655,19 @@ internal fun PositionRow(
                 LabelTags(settings.visible(p.labels), Modifier.padding(top = 2.dp))
                 p.entity.lastRight?.let {
                     Text(
-                        "Last quiz: " + (p.lastAnswer?.let { a -> "${answerText(sp, a)} · " } ?: "") + if (it) "right" else "missed",
-                        style = MaterialTheme.typography.labelSmall, color = if (it) ArrowColors.best else MaterialTheme.colorScheme.error,
+                        "Last quiz: " + (p.lastAnswer?.let { a -> "${answerText(sp, a)} · " } ?: "") + lastQuizText(p),
+                        style = MaterialTheme.typography.labelSmall, color = verdictColor(lastVerdict(p)),
                     )
                 }
-                if (p.entity.quizRight + p.entity.quizWrong > 0) {
+                if (p.entity.quizRight + p.entity.quizWrong + p.entity.quizNeutral > 0) {
                     Text("Quiz: ${quizCountText(p)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            quizAnswer?.let { right ->
+            quizAnswer?.let { v ->
                 Icon(
-                    if (right) Icons.Default.Check else Icons.Default.Close, if (right) "Right" else "Missed",
-                    Modifier.padding(start = 6.dp).size(28.dp), tint = if (right) ArrowColors.best else MaterialTheme.colorScheme.error,
+                    when (v) { QuizVerdict.RIGHT -> Icons.Default.Check; QuizVerdict.NEUTRAL -> Icons.Default.Remove; QuizVerdict.WRONG -> Icons.Default.Close },
+                    when (v) { QuizVerdict.RIGHT -> "Right"; QuizVerdict.NEUTRAL -> "Neutral"; QuizVerdict.WRONG -> "Missed" },
+                    Modifier.padding(start = 6.dp).size(28.dp), tint = verdictColor(v),
                 )
             }
         }
@@ -787,14 +791,14 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit, onSett
                     TextButton(onClick = { settingPlayed = true }) { Text(if (cur.played == null) "Set" else "Change") }
                 }
                 cur.answer?.let { Text("★ My answer: ${answerText(sp, it)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp)) }
-                cur.entity.lastRight?.let { right ->
+                cur.entity.lastRight?.let {
                     Text(
-                        "Last quiz answer: " + (cur.lastAnswer?.let { answerWithError(sp, a, it, LocalErrorUnit.current) + " · " } ?: "") + if (right) "right" else "missed",
-                        style = MaterialTheme.typography.bodyMedium, color = if (right) ArrowColors.best else MaterialTheme.colorScheme.error,
+                        "Last quiz answer: " + (cur.lastAnswer?.let { answerWithError(sp, a, it, LocalErrorUnit.current) + " · " } ?: "") + lastQuizText(cur),
+                        style = MaterialTheme.typography.bodyMedium, color = verdictColor(lastVerdict(cur)),
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
-                if (cur.entity.quizRight + cur.entity.quizWrong > 0) {
+                if (cur.entity.quizRight + cur.entity.quizWrong + cur.entity.quizNeutral > 0) {
                     Text("Quiz answers: ${quizCountText(cur)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 // Chips on one line (they wrap to a second row only with a very large font).
@@ -1165,7 +1169,7 @@ private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit, on
             "${st.total} position${if (st.total == 1) "" else "s"}, ${st.answered} answer${if (st.answered == 1) "" else "s"}" +
                 if (st.stoppedEarly) " (finished early)." else ".",
         )
-        Text("Right: ${st.right} of ${st.answered}")
+        Text("Right: ${st.right} of ${st.answered}" + if (st.neutral > 0) " · neutral: ${st.neutral} · missed: ${st.answered - st.right - st.neutral}" else "")
         if (st.answered > 0) Text("Average error: ${errWithUnit(st.totalError.toDouble() / st.answered, LocalErrorUnit.current)}")
         val manual = st.deleted - st.learned
         // The Learned chip always moves a position to Learned; the balance threshold may delete it instead (Settings).
@@ -1185,7 +1189,7 @@ private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit, on
         val cards = st.history.reversed().distinctBy { it.position.id }.reversed().filter { !it.result.deleted && it.result.removed == null }
         if (cards.isNotEmpty()) {
             Text("Positions in this quiz", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
-            cards.forEach { c -> PositionRow(c.position, st.settings, quizAnswer = c.result.right) { onOpen(c.position.id) } }
+            cards.forEach { c -> PositionRow(c.position, st.settings, quizAnswer = c.result.verdict) { onOpen(c.position.id) } }
         }
         // The positions that went to Learned in this quiz: tap one to put it back in My positions.
         val learned = st.history.reversed().distinctBy { it.position.id }.reversed()
@@ -1193,7 +1197,7 @@ private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit, on
         if (learned.isNotEmpty()) {
             Text("Learned", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             Text("Tap one to put it back in My positions.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            learned.forEach { c -> PositionRow(c.position, st.settings, quizAnswer = c.result.right) { puttingBack = c.position.id } }
+            learned.forEach { c -> PositionRow(c.position, st.settings, quizAnswer = c.result.verdict) { puttingBack = c.position.id } }
         }
     }
 }
@@ -1314,7 +1318,7 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
             )
         }
         Text(
-            "${st.queue.size - if (r != null) 1 else 0} left · right ${st.right} of ${st.answered}",
+            "${st.queue.size - if (r != null) 1 else 0} left · right ${st.right} of ${st.answered}" + if (st.neutral > 0) " · neutral ${st.neutral}" else "",
             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp),
         )
     }
@@ -1357,9 +1361,11 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    if (r.right) "Right" else "Not this time", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
-                    color = if (r.right) ArrowColors.best else MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f),
+                    when (r.verdict) { QuizVerdict.RIGHT -> "Right"; QuizVerdict.NEUTRAL -> "Neutral"; QuizVerdict.WRONG -> "Not this time" },
+                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = verdictColor(r.verdict),
                 )
+                // The trend against the last answer to this position, as its label.
+                Box(Modifier.weight(1f).padding(start = 10.dp)) { r.trend?.let { LabelTags(listOf(it.name)) } }
                 var sharing by remember { mutableStateOf(false) }
                 Box {
                     IconButton(onClick = { sharing = true }) { Icon(Icons.Default.Share, "Share") }
@@ -1470,4 +1476,22 @@ private fun ContextText(
 ) {
     val (before, score, after) = contextParts(p)
     com.boldblot.backgammonplyground.ui.components.ScoreText(before, score, after, colors, style = style, maxLines = maxLines, matchLength = p.setup.matchLength)
+}
+
+/** The verdict on the last quiz answer to [p] (answered at least once). */
+internal fun lastVerdict(p: SavedPosition): QuizVerdict =
+    if (p.entity.lastRight == true) QuizVerdict.RIGHT else if (p.entity.lastNeutral) QuizVerdict.NEUTRAL else QuizVerdict.WRONG
+
+internal fun lastQuizText(p: SavedPosition): String = when (lastVerdict(p)) {
+    QuizVerdict.RIGHT -> "right"
+    QuizVerdict.NEUTRAL -> "neutral"
+    QuizVerdict.WRONG -> "missed"
+}
+
+/** Green for a right answer, grey for a neutral one, red for a missed one. */
+@Composable
+internal fun verdictColor(v: QuizVerdict): Color = when (v) {
+    QuizVerdict.RIGHT -> ArrowColors.best
+    QuizVerdict.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
+    QuizVerdict.WRONG -> MaterialTheme.colorScheme.error
 }

@@ -62,9 +62,15 @@ data class CubeEval(
     val plies: Int? = null,
     /** Standard error of No double minus Double/take, when the decision came from played-out games ([GameSearch]). */
     val spread: Float? = null,
+    /** An analysis read from another program's file ([XgImport]): its level as that program names it ("3-ply", "XG Roller++"). */
+    val level: String? = null,
 ) {
+    /** Read from a file of another program, not worked out by one of PlyGround's engines. */
+    val imported: Boolean get() = level != null
+
     /** "PureTD 4-ply"; "Engine unknown, 4-ply" or "Engine unknown" for what older analyses recorded. */
     val label: String get() {
+        if (level != null) return "${engine ?: UNKNOWN_ENGINE} $level"
         val depth = plies?.let { Depth.of(it).label(cube = true) }
         return if (engine != null) listOfNotNull(engine, depth).joinToString(" ") else listOfNotNull(UNKNOWN_ENGINE, depth).joinToString(", ")
     }

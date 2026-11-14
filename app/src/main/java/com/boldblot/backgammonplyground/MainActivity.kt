@@ -85,7 +85,13 @@ class MainActivity : ComponentActivity() {
             Intent.ACTION_SEND -> @Suppress("DEPRECATION") (intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
             else -> null
         }
-        val text = uri?.let { runCatching { contentResolver.openInputStream(it)?.bufferedReader()?.readText() }.getOrNull() }
+        val bytes = uri?.let { runCatching { contentResolver.openInputStream(it)?.use { s -> s.readBytes() } }.getOrNull() }
+        // An eXtreme Gammon match file goes to the Match Library as it is.
+        if (bytes != null && com.boldblot.backgammonplyground.core.XgImport.isXg(bytes)) {
+            app.pendingMatchFile.value = bytes
+            return
+        }
+        val text = bytes?.let { String(it) }
             ?: intent?.takeIf { it.action == Intent.ACTION_SEND }?.getStringExtra(Intent.EXTRA_TEXT)
         if (text != null) {
             if (com.boldblot.backgammonplyground.ui.home.looksLikeMatch(text)) app.pendingMatch.value = text else app.pendingImport.value = text
@@ -137,8 +143,9 @@ class MainActivity : ComponentActivity() {
         }
         // A match file opens the Match Library, which shows the import dialog.
         val pendingMatch by app.pendingMatch.collectAsState()
-        LaunchedEffect(pendingMatch != null) {
-            if (pendingMatch != null && nav.currentDestination?.route != "history") nav.navigate("history")
+        val pendingMatchFile by app.pendingMatchFile.collectAsState()
+        LaunchedEffect(pendingMatch != null, pendingMatchFile != null) {
+            if ((pendingMatch != null || pendingMatchFile != null) && nav.currentDestination?.route != "history") nav.navigate("history")
         }
 
         // The welcome screen: only when it has never been shown (a new install, or the app's data

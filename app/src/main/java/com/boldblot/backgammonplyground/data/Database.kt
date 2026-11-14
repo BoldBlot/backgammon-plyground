@@ -78,6 +78,13 @@ data class GameEntity(
     /** Score before this game and match length, for display. */
     val scoreBeforeHuman: Int,
     val scoreBeforeCpu: Int,
+    /**
+     * The game as it came from an .xg file, with the file's own analysis (schema 8): JSON of the GameState, kept
+     * from the first time the game is analyzed again so that the original can be restored; null = nothing to restore.
+     */
+    val originalRecord: String? = null,
+    /** JSON of the GameSummary that went with [originalRecord]. */
+    val originalSummary: String? = null,
 )
 
 /**
@@ -110,6 +117,12 @@ data class PositionEntity(
     /** Quiz answers so far, right and missed (schema 5); their balance is right minus missed. */
     @ColumnInfo(defaultValue = "0") val quizRight: Int = 0,
     @ColumnInfo(defaultValue = "0") val quizWrong: Int = 0,
+    /** Neutral quiz answers so far (schema 8): they leave the balance alone. */
+    @ColumnInfo(defaultValue = "0") val quizNeutral: Int = 0,
+    /** The last quiz answer was neutral (schema 8); [lastRight] is then false. */
+    @ColumnInfo(defaultValue = "0") val lastNeutral: Boolean = false,
+    /** How the last quiz answer compares with the one before (schema 8): an [com.boldblot.backgammonplyground.core.AutoLabel] of the trend group; null = no earlier answer. */
+    val lastTrend: String? = null,
     /** When it went into Learned (schema 6); null = in My positions. Learned ones keep their folders but stay out of lists and counts. */
     val learnedAt: Long? = null,
 )
@@ -398,11 +411,11 @@ interface PositionDao {
         MatchEntity::class, GameEntity::class, CurrentMatchEntity::class, BlunderEntity::class,
         PositionEntity::class, CategoryEntity::class, PositionCategoryEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
-        AutoMigration(from = 4, to = 5, spec = QuizCountsMigration::class), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7),
+        AutoMigration(from = 4, to = 5, spec = QuizCountsMigration::class), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -420,6 +420,19 @@ class ReviewViewModel(
 
     fun stopReanalysis() { reanalysis?.cancel() }
 
+    /** Puts back the analysis the match came with from its .xg file, in every game analyzed again since. */
+    fun restoreOriginal() {
+        val s = _state.value
+        val match = s.match ?: return
+        if (reanalysis?.isActive == true) return
+        viewModelScope.launch {
+            val games = s.games.map { (e, g) ->
+                if (app.repository.reanalyzedSinceImport(e, g)) app.repository.restoreOriginal(e, g, match.length) ?: (e to g) else e to g
+            }
+            _state.update { it.copy(games = games, candidate = null, message = "Restored the analysis from the .xg file (${com.boldblot.backgammonplyground.core.XgImport.ENGINE}).") }
+        }
+    }
+
     fun dismissMessage() = _state.update { it.copy(message = null) }
 
     /** Next decision of the human with an error or blunder, in a later game of the match after this game's last. */
@@ -516,6 +529,21 @@ private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, cap
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(msg, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
             TextButton(onClick = vm::dismissMessage) { Text("OK") }
+        }
+    }
+    // A match from an .xg file, analyzed again: the file's own analysis is kept and can be put back.
+    val restorable by androidx.compose.runtime.produceState(false, st.games) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            st.games.any { (e, g) -> e.originalRecord != null && vm.app.repository.reanalyzedSinceImport(e, g) }
+        }
+    }
+    if (restorable && st.progress == null) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Analyzed again. The .xg file's own analysis (${com.boldblot.backgammonplyground.core.XgImport.ENGINE}) is kept.",
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = vm::restoreOriginal) { Text("Restore original") }
         }
     }
     if (ask) {

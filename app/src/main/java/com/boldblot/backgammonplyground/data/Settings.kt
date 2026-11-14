@@ -78,7 +78,14 @@ enum class QuickCubeCheck(val label: String, val plies: Int) { OFF("Off", 0), ON
 /** How errors (equity lost) are shown everywhere: equity (-0.026) or thousandths of it (-26.0 mEq). */
 enum class ErrorUnit(val label: String) { EQ("Eq (0.026)"), MEQ("mEq (26.0)") }
 
-enum class QuizCorrect(val label: String) { NOT_ERROR("Not an error"), BEST_ONLY("Best play only"), FIXED("Fixed level"), ADAPTIVE("Adaptive") }
+/** What the quiz takes as a right answer, the strictest first (stored by name). */
+enum class QuizCorrect(val label: String) { BEST_ONLY("Best play only"), NOT_ERROR("Not an error"), FIXED("Fixed level"), ADAPTIVE("Adaptive") }
+
+/** Up to where an answer that is not right is neutral (it counts neither as right nor as missed), the strictest first. */
+enum class QuizNeutral(val label: String) { NOT_ERROR("Not an error"), NOT_BLUNDER("Not a blunder"), FIXED("Fixed level"), ADAPTIVE("Adaptive") }
+
+/** The quiz's verdict on an answer: [NEUTRAL] leaves the position's counts and balance alone. */
+enum class QuizVerdict { RIGHT, NEUTRAL, WRONG }
 
 /**
  * Sets the level of errors kept for My positions and the level the quiz accepts, both to [level].
@@ -272,7 +279,13 @@ data class Settings(
     /** [QuizCorrect.FIXED]: an answer costing up to this is right. */
     val quizFixedError: Float = 0.04f,
     /** [QuizCorrect.ADAPTIVE]: an answer costing up to this share of My positions' average error is right (never below the error threshold). */
-    val quizAdaptiveRatio: Float = 0.9f,
+    val quizAdaptiveRatio: Float = 0.2f,
+    /** Answers that are not right but cost no more than this level are neutral; at or below the right level nothing is. */
+    val quizNeutral: QuizNeutral = QuizNeutral.NOT_BLUNDER,
+    /** [QuizNeutral.FIXED]: an answer costing up to this is neutral. */
+    val quizNeutralFixedError: Float = 0.08f,
+    /** [QuizNeutral.ADAPTIVE]: an answer costing up to this share of My positions' average error is neutral (never below the error threshold). */
+    val quizNeutralAdaptiveRatio: Float = 0.5f,
     val trainingPlan: TrainingPlan = TrainingPlan.CUSTOM,
     /** The quiz brings missed positions back until each has been answered right. */
     val quizRepeat: Boolean = false,
@@ -372,6 +385,26 @@ data class Settings(
             com.boldblot.backgammonplyground.core.NewErrors.MIN_ERROR, quizAdaptiveRatio, average,
         )
     }
+
+    /** Up to what cost (after the 1-point factor) an answer that is not right is neutral. */
+    fun quizNeutralLevel(average: Float?): Float = when (quizNeutral) {
+        QuizNeutral.NOT_ERROR -> com.boldblot.backgammonplyground.core.XgRules.ERROR_THRESHOLD
+        QuizNeutral.NOT_BLUNDER -> com.boldblot.backgammonplyground.core.XgRules.BLUNDER_THRESHOLD
+        QuizNeutral.FIXED -> quizNeutralFixedError
+        QuizNeutral.ADAPTIVE -> com.boldblot.backgammonplyground.core.NewErrors.adaptiveThreshold(
+            com.boldblot.backgammonplyground.core.NewErrors.MIN_ERROR, quizNeutralAdaptiveRatio, average,
+        )
+    }
+
+    /** The verdict on an answer costing [error] (after the 1-point factor): right, neutral (up to the neutral level) or wrong. */
+    fun quizVerdict(error: Float, average: Float?): QuizVerdict = when {
+        quizRight(error, average) -> QuizVerdict.RIGHT
+        error <= quizNeutralLevel(average) -> QuizVerdict.NEUTRAL
+        else -> QuizVerdict.WRONG
+    }
+
+    /** Whether the quiz needs My positions' average error to judge an answer. */
+    val quizNeedsAverage: Boolean get() = quizCorrect == QuizCorrect.ADAPTIVE || quizNeutral == QuizNeutral.ADAPTIVE
 
     /** What a new error must cost to enter New errors: the minimum with Manual; any error with the automatic methods (kept on a rolling list). */
     val newErrorsMin: Float get() = if (errorsMode == ErrorsMode.MANUAL) errorMin else XgRulesDefaults.ERROR
@@ -491,6 +524,9 @@ class SettingsStore(private val context: Context) {
         val quizCorrect = stringPreferencesKey("quiz_correct")
         val quizFixedError = floatPreferencesKey("quiz_fixed_error")
         val quizAdaptiveRatio = floatPreferencesKey("quiz_adaptive_ratio")
+        val quizNeutral = stringPreferencesKey("quiz_neutral")
+        val quizNeutralFixedError = floatPreferencesKey("quiz_neutral_fixed_error")
+        val quizNeutralAdaptiveRatio = floatPreferencesKey("quiz_neutral_adaptive_ratio")
         val trainingPlan = stringPreferencesKey("training_plan")
         val quizRepeat = booleanPreferencesKey("quiz_repeat")
         val quizMyCube = stringPreferencesKey("quiz_my_cube")
@@ -605,6 +641,9 @@ class SettingsStore(private val context: Context) {
             quizCorrect = p.enum(Keys.quizCorrect, d.quizCorrect),
             quizFixedError = p[Keys.quizFixedError] ?: d.quizFixedError,
             quizAdaptiveRatio = p[Keys.quizAdaptiveRatio] ?: d.quizAdaptiveRatio,
+            quizNeutral = p.enum(Keys.quizNeutral, d.quizNeutral),
+            quizNeutralFixedError = p[Keys.quizNeutralFixedError] ?: d.quizNeutralFixedError,
+            quizNeutralAdaptiveRatio = p[Keys.quizNeutralAdaptiveRatio] ?: d.quizNeutralAdaptiveRatio,
             trainingPlan = p.enum(Keys.trainingPlan, d.trainingPlan),
             quizRepeat = p[Keys.quizRepeat] ?: d.quizRepeat,
             quizMyCube = p.enum(Keys.quizMyCube, d.quizMyCube),
@@ -718,6 +757,9 @@ class SettingsStore(private val context: Context) {
             p[Keys.quizCorrect] = s.quizCorrect.name
             p[Keys.quizFixedError] = s.quizFixedError
             p[Keys.quizAdaptiveRatio] = s.quizAdaptiveRatio
+            p[Keys.quizNeutral] = s.quizNeutral.name
+            p[Keys.quizNeutralFixedError] = s.quizNeutralFixedError
+            p[Keys.quizNeutralAdaptiveRatio] = s.quizNeutralAdaptiveRatio
             p[Keys.trainingPlan] = s.trainingPlan.name
             p[Keys.quizRepeat] = s.quizRepeat
             p[Keys.quizMyCube] = s.quizMyCube.name

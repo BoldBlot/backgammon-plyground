@@ -124,4 +124,22 @@ class LabelsTest {
         val r = Labels.of(checkerRec(backBoard, stay, run to 0.20f, stay to 0.00f, error = 0.20f), 0, opponent = false)
         assertTrue(AutoLabel.MISSED_RUNNING in r)
     }
+
+    @Test
+    fun quizTrend() {
+        // The last quiz answer against the one before: a lower cost is an improvement.
+        assertEquals(null, Labels.trend(null, 0.05f))
+        assertEquals(null, Labels.trend(0.05f, null))
+        assertEquals(AutoLabel.IMPROVED, Labels.trend(0.08f, 0.02f))
+        assertEquals(AutoLabel.WORSE, Labels.trend(0f, 0.03f))
+        assertEquals(AutoLabel.SAME, Labels.trend(0.05f, 0.05f))
+        assertEquals(AutoLabel.SAME, Labels.trend(0f, 0.0004f))
+        // The trend labels come from the quiz: they are a group of their own and are never stored with the others.
+        assertTrue(listOf(AutoLabel.IMPROVED, AutoLabel.SAME, AutoLabel.WORSE).all { Labels.isTrend(it.name) && it.group == LabelGroup.TREND })
+        assertFalse(Labels.isTrend(AutoLabel.BLUNDER.name))
+        assertFalse(Labels.isTrend(Labels.myKey("Improved")))
+        assertEquals(setOf(AutoLabel.RACE.name), com.boldblot.backgammonplyground.data.PositionsRepository.storedLabels(
+            com.boldblot.backgammonplyground.data.PositionsRepository.encodeLabels(setOf(AutoLabel.RACE.name, AutoLabel.IMPROVED.name)),
+        ))
+    }
 }
