@@ -345,10 +345,10 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
                 val judged = judge(sp, a, move, cube, asked, s, null)
                 val given = MyAnswer(move = move, cube = cube)
                 val asJudged = judged.withAsked(p, a, s, cubeAnswer.takeIf { partial }, claim)
-                // The trend: this answer's cost against the last answer's, both by the analysis the position has now
-                // (a last play outside the candidates is valued by the engine, as a new one is).
+                // The trend: this answer's cost against the last answer's (the first time, the original play's), both by
+                // the analysis the position has now (a play outside the candidates is valued by the engine, as a new one is).
                 val trend = Labels.trend(
-                    sp.lastAnswer?.let { answerCost(p, a, it, s) },
+                    (sp.lastAnswer ?: sp.played)?.let { answerCost(p, a, it, s) },
                     if (move != null) judged.error else answerError(p, a, given),
                     right = asJudged.right,
                 )

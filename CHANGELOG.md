@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.13 — 2026-11-14 (build 76, internal test)
+
+- Quiz result: the verdict chip (Right, Neutral, Wrong) is back in the top row, beside Share, Folder,
+  Delete and Next; the buttons sit a little closer so it fits in landscape too. The trend chip
+  stays in the row with Learned and Favourite.
+- Quiz trend: the first quiz answer to a position is compared with the play made in the match or
+  game, so it gets Improved, Same, Worse or Well done too. Positions set up by hand still get a
+  trend from their second answer.
+
 ## 0.8.12 — 2026-11-14 (build 75, internal test)
 
 - Quiz result: the verdict is now a coloured chip, Right (green), Neutral (yellow) or Wrong (red;

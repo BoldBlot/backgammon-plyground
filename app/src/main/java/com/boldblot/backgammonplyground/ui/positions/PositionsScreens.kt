@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -1360,25 +1361,28 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
     val answerIndex = r.move?.let { m -> r.analysis.checker?.candidates?.indexOfFirst { p.board.applyMove(Player.HUMAN, it.move) == p.board.applyMove(Player.HUMAN, m) }?.takeIf { it >= 0 } }
     Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            // The actions and Next, right-aligned: the chips below wrap on their own, so they never squeeze Next.
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            // The verdict, then the actions and Next. The verdict takes what is left after them, so it never squeezes Next.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) {
+                    QuizChip(
+                        when (r.verdict) { QuizVerdict.RIGHT -> "Right"; QuizVerdict.NEUTRAL -> "Neutral"; QuizVerdict.WRONG -> "Wrong" },
+                        verdictChipColor(r.verdict), bold = true,
+                    )
+                }
+                val icon = Modifier.size(40.dp)
                 var sharing by remember { mutableStateOf(false) }
                 Box {
-                    IconButton(onClick = { sharing = true }) { Icon(Icons.Default.Share, "Share") }
+                    IconButton(onClick = { sharing = true }, icon) { Icon(Icons.Default.Share, "Share") }
                     DropdownMenu(expanded = sharing, onDismissRequest = { sharing = false }) {
                         SharePositionItems(p, r.analysis, answerIndex, r.cube, capture) { sharing = false }
                     }
                 }
-                if (!r.deleted && r.removed == null) IconButton(onClick = { filing = true }) { Icon(Icons.Default.Folder, "Move to folder") }
-                if (!readOnly && !r.deleted && r.removed == null) IconButton(onClick = vm::deleteCurrent) { Icon(Icons.Default.Delete, "Delete from My positions") }
-                if (!readOnly) Button(onClick = vm::next) { Text("Next") }
+                if (!r.deleted && r.removed == null) IconButton(onClick = { filing = true }, icon) { Icon(Icons.Default.Folder, "Move to folder") }
+                if (!readOnly && !r.deleted && r.removed == null) IconButton(onClick = vm::deleteCurrent, icon) { Icon(Icons.Default.Delete, "Delete from My positions") }
+                if (!readOnly) Button(onClick = vm::next, Modifier.padding(start = 4.dp), contentPadding = PaddingValues(horizontal = 18.dp)) { Text("Next", maxLines = 1, softWrap = false) }
             }
-            // The verdict, the trend against the last answer to this position, then Learned and Favourite.
+            // The trend against the last answer to this position (or the original play), then Learned and Favourite.
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
-                QuizChip(
-                    when (r.verdict) { QuizVerdict.RIGHT -> "Right"; QuizVerdict.NEUTRAL -> "Neutral"; QuizVerdict.WRONG -> "Wrong" },
-                    verdictChipColor(r.verdict), bold = true,
-                )
                 r.trend?.let { t -> trendStyle(t.name)?.let { (sign, colour) -> QuizChip(sign + t.title, colour) } }
                 if (!readOnly && r.removed == null && (!r.deleted || r.learnedByHand)) {
                     FilterChip(
@@ -1514,7 +1518,7 @@ private fun QuizChip(text: String, colour: Color, bold: Boolean = false) {
         Box(Modifier.heightIn(min = 32.dp).padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
             Text(
                 text, style = MaterialTheme.typography.labelLarge, fontWeight = if (bold) FontWeight.Bold else null,
-                color = Color.Black, maxLines = 1, softWrap = false,
+                color = Color.Black, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             )
         }
     }
