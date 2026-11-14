@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.14 — 2026-11-14 (build 77, internal test)
+
+- Match Library: an .xg file with a checker borne off by a larger die than it needed (a 6 from the
+  5-point) failed to import with "a roll of … without a move". Such plays are now read correctly.
+
 ## 0.8.13 — 2026-11-14 (build 76, internal test)
 
 - Quiz result: the verdict chip (Right, Neutral, Wrong) is back in the top row, beside Share, Folder,

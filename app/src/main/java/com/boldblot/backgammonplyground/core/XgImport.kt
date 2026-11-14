@@ -230,14 +230,23 @@ object XgImport {
         )
     }
 
-    private fun moveRecord(data: ByteArray, b: ByteBuffer, at: Int): MoveRec {
+    /**
+     * The play made, from XG's eight numbers (from, to pairs; points 0..23 in the mover's frame, the bar 24, -1 after
+     * the last step). A checker borne off lands "below" point 0 by what is left of the die (-1 to -6): all of it is off (-1).
+     */
+    internal fun playedSteps(raw: IntArray): List<Pair<Int, Int>> {
         val played = mutableListOf<Pair<Int, Int>>()
         for (i in 0 until 4) {
-            val from = b.getInt(at + 68 + 8 * i)
-            val to = b.getInt(at + 72 + 8 * i)
-            if (from !in 0..24 || to !in -1..23) break
-            played += from to to
+            val from = raw[2 * i]
+            val to = raw[2 * i + 1]
+            if (from !in 0..24 || to !in -6..23) break
+            played += from to to.coerceAtLeast(-1)
         }
+        return played
+    }
+
+    private fun moveRecord(data: ByteArray, b: ByteBuffer, at: Int): MoveRec {
+        val played = playedSteps(IntArray(8) { b.getInt(at + 68 + 4 * it) })
         val moves = at + 124
         val n = b.getInt(moves + 64).coerceIn(0, MAX_CANDIDATES)
         val plays = (0 until n).map { i ->

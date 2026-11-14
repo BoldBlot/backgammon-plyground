@@ -124,6 +124,18 @@ class XgImportTest {
     }
 
     @Test
+    fun bearingOffWithALargerDie() {
+        // XG stores a checker borne off as its point less the die: 6 from the 5-point is -2, not -1. Such a play
+        // was read as no play at all ("a roll of 63 without a move").
+        assertEquals(listOf(4 to -1, 2 to -1), XgImport.playedSteps(intArrayOf(4, -2, 2, -1, -1, -1, -1, -1)))
+        assertEquals(listOf(3 to -1, 3 to 2), XgImport.playedSteps(intArrayOf(3, -2, 3, 2, -1, -1, -1, -1)))
+        assertEquals(listOf(4 to 2, 0 to -1), XgImport.playedSteps(intArrayOf(4, 2, 0, -1, -1, -1, -1, -1)))
+        assertEquals(listOf(24 to 18, 2 to 0), XgImport.playedSteps(intArrayOf(24, 18, 2, 0, -1, -1, -1, -1)))
+        assertEquals(listOf(5 to -1, 5 to -1, 5 to -1, 4 to -1), XgImport.playedSteps(intArrayOf(5, -1, 5, -1, 5, -1, 4, -6)))
+        assertEquals(emptyList<Pair<Int, Int>>(), XgImport.playedSteps(IntArray(8) { -1 }))
+    }
+
+    @Test
     fun refusesOtherFiles() {
         assertThrows(MatImport.FormatException::class.java) { XgImport.parse(bytes("match-11pt.mat")) }
         val cut = bytes("match-11pt.xg").copyOf(20000)
