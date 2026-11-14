@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.15 — 2026-11-14 (build 78, internal test)
+## 0.8.15 — 2026-11-14 (build 78)
 
 - Match Library: .xg files with a roll the player resigned after (no play made) failed to import
   with "the move …: 1/1 1/1 1/1 1/1 is not legal". Such rolls are now read as resigned.
