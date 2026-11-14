@@ -50,6 +50,7 @@ enum class AutoLabel(val title: String, val group: LabelGroup, val description: 
     IMPROVED("Improved", LabelGroup.TREND, "The last quiz answer was better than the one before."),
     SAME("Same", LabelGroup.TREND, "The last quiz answer was as good as the one before."),
     WORSE("Worse", LabelGroup.TREND, "The last quiz answer was worse than the one before."),
+    WELL_DONE("Well done", LabelGroup.TREND, "The last quiz answer was right, and as good as the one before."),
 }
 
 /**
@@ -71,12 +72,13 @@ object Labels {
 
     /**
      * The trend of a quiz answer costing [error] after one costing [before] (both after the 1-point factor):
-     * null without an earlier answer.
+     * null without an earlier answer. An answer as good as the last one is "Well done" when it is [right], else "Same".
      */
-    fun trend(before: Float?, error: Float?): AutoLabel? = when {
+    fun trend(before: Float?, error: Float?, right: Boolean = false): AutoLabel? = when {
         before == null || error == null -> null
         error < before - 0.0005f -> AutoLabel.IMPROVED
         error > before + 0.0005f -> AutoLabel.WORSE
+        right -> AutoLabel.WELL_DONE
         else -> AutoLabel.SAME
     }
 

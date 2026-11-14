@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.12 — 2026-11-14 (build 75, internal test)
+
+- Quiz result: the verdict is now a coloured chip, Right (green), Neutral (yellow) or Wrong (red;
+  was "Not this time"), followed by the quiz trend chip, Learned and Favourite. The chips wrap onto
+  a new line when space is short, so the trend shows in landscape too and never pushes the Next
+  button aside. Neutral answers are marked in yellow in the lists too.
+- Quiz trend: a new label, Well done, for an answer that is right and as good as the last one;
+  Same is now for an equal answer that is neutral or wrong.
+- Quiz trend: a position asked again in the same session (Repeat until all are right, Repeat,
+  Another) is compared with the answer just given, not with the one from before the quiz, so a
+  worse second try now says Worse.
+- Quiz trend: when the last answer was a play outside the analysis's candidates, the engine now
+  values it, so the trend is no longer left out.
+- The lists after the quiz (Positions in this quiz, Learned) show each position's trend label.
+
 ## 0.8.11 — 2026-11-14 (build 74, internal test)
 
 - Quiz: a neutral answer. An answer that is not right but stays within the neutral level counts

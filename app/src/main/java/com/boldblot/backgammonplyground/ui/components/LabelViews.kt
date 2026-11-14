@@ -187,11 +187,12 @@ fun LabelTags(labels: Collection<String>, modifier: Modifier = Modifier, onClick
     }
 }
 
-/** The quiz trend labels have an arrow and a colour of their own: green up, grey level, red down. */
-private fun trendStyle(key: String): Pair<String, Color>? = when (Labels.auto(key)) {
+/** The quiz trend labels have an arrow and a colour of their own: green up (and a tick for "Well done"), grey level, red down. */
+internal fun trendStyle(key: String): Pair<String, Color>? = when (Labels.auto(key)) {
     AutoLabel.IMPROVED -> "↑ " to Color(0xFF2ECC71)
     AutoLabel.SAME -> "→ " to Color(0xFFB8BCC2)
     AutoLabel.WORSE -> "↓ " to Color(0xFFFF6B6B)
+    AutoLabel.WELL_DONE -> "✓ " to Color(0xFF2ECC71)
     else -> null
 }
 

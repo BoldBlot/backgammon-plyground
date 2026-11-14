@@ -159,6 +159,8 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
     /** The cards of the round asked last ([repeat] asks them again), and every card asked since the quiz opened ([another] leaves them out). */
     private var round: List<SavedPosition> = emptyList()
     private val seen = mutableSetOf<Long>()
+    /** Cards answered since the quiz opened, as they are now: asked again, they compare with the latest answer. */
+    private val latest = mutableMapOf<Long, SavedPosition>()
 
     /** A new round: the positions in [QuizSpec.order], at most [QuizSpec.limit] of them, none asked before when [fresh]. */
     fun start() = begin(fresh = false)
@@ -183,7 +185,8 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
         seen += picked.map { it.id }
         // Turned over, a double becomes the doubler's full decision (the player's own answer is about the take).
         val turn = _state.value.settings.quizTheirCube == QuizTheirCube.FLIP
-        val list = picked.map { sp ->
+        val list = picked.map { old ->
+            val sp = latest[old.id]?.let { l -> old.copy(entity = l.entity, lastAnswer = l.lastAnswer, labels = l.labels) } ?: old
             if (turn && sp.position.doubled) sp.copy(position = turnedToDoubler(sp.position), answer = null, played = null) else sp
         }
         _state.update { QuizState(loading = false, settings = it.settings, queue = list, total = list.size, finished = list.isEmpty()) }
@@ -341,14 +344,22 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
                 val asked = cubeAnswer?.let { if (partial) withBestResponse(p, a, it.double) else it }
                 val judged = judge(sp, a, move, cube, asked, s, null)
                 val given = MyAnswer(move = move, cube = cube)
-                // The trend: this answer's cost against the last answer's, both by the analysis the position has now.
+                val asJudged = judged.withAsked(p, a, s, cubeAnswer.takeIf { partial }, claim)
+                // The trend: this answer's cost against the last answer's, both by the analysis the position has now
+                // (a last play outside the candidates is valued by the engine, as a new one is).
                 val trend = Labels.trend(
-                    sp.lastAnswer?.let { answerError(p, a, it) },
+                    sp.lastAnswer?.let { answerCost(p, a, it, s) },
                     if (move != null) judged.error else answerError(p, a, given),
+                    right = asJudged.right,
                 )
-                val result = judged.withAsked(p, a, s, cubeAnswer.takeIf { partial }, claim).copy(trend = trend)
-                val counted = app.positions.setResult(sp.id, result.verdict, given, trend)
-                    ?.let { sp.copy(entity = it, labels = sp.labels.filterNotTo(HashSet()) { k -> Labels.isTrend(k) } + listOfNotNull(trend?.name)) }
+                val result = asJudged.copy(trend = trend)
+                val counted = app.positions.setResult(sp.id, result.verdict, given, trend)?.let {
+                    sp.copy(
+                        entity = it, analysis = a, lastAnswer = given,
+                        labels = sp.labels.filterNotTo(HashSet()) { k -> Labels.isTrend(k) } + listOfNotNull(trend?.name),
+                    )
+                }
+                counted?.let { latest[sp.id] = it }
                 val favourite = app.positions.isFavourite(sp.id)
                 // A neutral answer leaves the balance alone, so it never moves a position to Learned.
                 val deleted = counted != null && !result.neutral && s.quizAutoDelete && counted.quizBalance >= s.quizDeleteAt && !favourite
@@ -363,6 +374,8 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
                         totalError = it.totalError + result.error / factor,
                         deleted = it.deleted + if (deleted) 1 else 0, learned = it.learned + if (deleted) 1 else 0,
                         board = p.board,
+                        // The card as it is now: a repeat compares with this answer, and the list after the quiz shows its trend.
+                        queue = if (counted != null && it.queue.firstOrNull()?.id == sp.id) listOf(counted) + it.queue.drop(1) else it.queue,
                     )
                 }
             } catch (e: Exception) {
@@ -386,10 +399,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
         return if (move != null) {
             val c = a.checker!!
             val best = c.candidates.firstOrNull()
-            val eq = equityOf(p, c, move) ?: if (c.candidates.isEmpty()) null else app.engine.run(engine) {
-                MatchController(this, DiceSource.secure(), AnalysisSettings(plies = c.plies, cubePlies = s.cubeDepth.code))
-                    .analyzeChecker(p.board, p.ctx(), p.dice!!, move, c.plies).playedEquity
-            }
+            val eq = playedEquity(p, c, move, s, engine)
             val err = if (eq == null) 0f else ((c.bestEquity - eq) * factor).coerceAtLeast(0f)
             val mine = sp.answer?.move
             val verdict = when {
@@ -415,6 +425,25 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
                 mine = sp.answer?.let { answerText(p, it) }, analysis = a, factor = factor,
             )
         }
+    }
+
+    /** [move]'s equity by [c]: from its candidates, else analyzed now with [engine] at [c]'s depth (null without candidates). */
+    private suspend fun playedEquity(p: StudyPosition, c: com.boldblot.backgammonplyground.core.CheckerAnalysis, move: Move, s: Settings, engine: EngineKind?): Float? =
+        equityOf(p, c, move) ?: if (c.candidates.isEmpty()) null else app.engine.run(engine) {
+            MatchController(this, DiceSource.secure(), AnalysisSettings(plies = c.plies, cubePlies = s.cubeDepth.code))
+                .analyzeChecker(p.board, p.ctx(), p.dice!!, move, c.plies).playedEquity
+        }
+
+    /** What [ans] costs by [a] after the 1-point factor, like [answerError], but a play outside the candidates is analyzed now. */
+    private suspend fun answerCost(p: StudyPosition, a: PositionAnalysis, ans: MyAnswer, s: Settings): Float? {
+        answerError(p, a, ans)?.let { return it }
+        val move = ans.move ?: return null
+        val c = a.checker ?: return null
+        if (p.dice == null) return null
+        val eq = runCatching { playedEquity(p, c, move, s, null) }
+            .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; AppLog.error("Quiz: the last answer could not be analyzed", it) }
+            .getOrNull() ?: return null
+        return ((c.bestEquity - eq) * factorOf(p)).coerceAtLeast(0f)
     }
 
     /**

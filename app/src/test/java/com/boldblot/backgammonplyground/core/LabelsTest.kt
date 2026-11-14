@@ -134,8 +134,14 @@ class LabelsTest {
         assertEquals(AutoLabel.WORSE, Labels.trend(0f, 0.03f))
         assertEquals(AutoLabel.SAME, Labels.trend(0.05f, 0.05f))
         assertEquals(AutoLabel.SAME, Labels.trend(0f, 0.0004f))
+        // As good as the last answer and right this time: "Well done"; a better answer stays "Improved", a worse one "Worse".
+        assertEquals(AutoLabel.WELL_DONE, Labels.trend(0f, 0f, right = true))
+        assertEquals(AutoLabel.WELL_DONE, Labels.trend(0.01f, 0.01f, right = true))
+        assertEquals(AutoLabel.IMPROVED, Labels.trend(0.08f, 0f, right = true))
+        assertEquals(AutoLabel.WORSE, Labels.trend(0f, 0.01f, right = true))
+        assertEquals(AutoLabel.SAME, Labels.trend(0.05f, 0.05f, right = false))
         // The trend labels come from the quiz: they are a group of their own and are never stored with the others.
-        assertTrue(listOf(AutoLabel.IMPROVED, AutoLabel.SAME, AutoLabel.WORSE).all { Labels.isTrend(it.name) && it.group == LabelGroup.TREND })
+        assertTrue(listOf(AutoLabel.IMPROVED, AutoLabel.SAME, AutoLabel.WORSE, AutoLabel.WELL_DONE).all { Labels.isTrend(it.name) && it.group == LabelGroup.TREND })
         assertFalse(Labels.isTrend(AutoLabel.BLUNDER.name))
         assertFalse(Labels.isTrend(Labels.myKey("Improved")))
         assertEquals(setOf(AutoLabel.RACE.name), com.boldblot.backgammonplyground.data.PositionsRepository.storedLabels(

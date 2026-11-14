@@ -71,6 +71,7 @@ import com.boldblot.backgammonplyground.core.Labels
 import com.boldblot.backgammonplyground.core.Move
 import com.boldblot.backgammonplyground.ui.components.LabelFilterButton
 import com.boldblot.backgammonplyground.ui.components.LabelTags
+import com.boldblot.backgammonplyground.ui.components.trendStyle
 import com.boldblot.backgammonplyground.ui.components.scrollbar
 import com.boldblot.backgammonplyground.ui.components.LabelsDialog
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -1359,13 +1360,8 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
     val answerIndex = r.move?.let { m -> r.analysis.checker?.candidates?.indexOfFirst { p.board.applyMove(Player.HUMAN, it.move) == p.board.applyMove(Player.HUMAN, m) }?.takeIf { it >= 0 } }
     Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    when (r.verdict) { QuizVerdict.RIGHT -> "Right"; QuizVerdict.NEUTRAL -> "Neutral"; QuizVerdict.WRONG -> "Not this time" },
-                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = verdictColor(r.verdict),
-                )
-                // The trend against the last answer to this position, as its label.
-                Box(Modifier.weight(1f).padding(start = 10.dp)) { r.trend?.let { LabelTags(listOf(it.name)) } }
+            // The actions and Next, right-aligned: the chips below wrap on their own, so they never squeeze Next.
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 var sharing by remember { mutableStateOf(false) }
                 Box {
                     IconButton(onClick = { sharing = true }) { Icon(Icons.Default.Share, "Share") }
@@ -1377,8 +1373,14 @@ private fun QuizResultCard(st: QuizState, sp: SavedPosition, r: QuizResult, vm: 
                 if (!readOnly && !r.deleted && r.removed == null) IconButton(onClick = vm::deleteCurrent) { Icon(Icons.Default.Delete, "Delete from My positions") }
                 if (!readOnly) Button(onClick = vm::next) { Text("Next") }
             }
-            if (!readOnly && r.removed == null && (!r.deleted || r.learnedByHand)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            // The verdict, the trend against the last answer to this position, then Learned and Favourite.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+                QuizChip(
+                    when (r.verdict) { QuizVerdict.RIGHT -> "Right"; QuizVerdict.NEUTRAL -> "Neutral"; QuizVerdict.WRONG -> "Wrong" },
+                    verdictChipColor(r.verdict), bold = true,
+                )
+                r.trend?.let { t -> trendStyle(t.name)?.let { (sign, colour) -> QuizChip(sign + t.title, colour) } }
+                if (!readOnly && r.removed == null && (!r.deleted || r.learnedByHand)) {
                     FilterChip(
                         selected = r.learnedByHand, onClick = { if (r.learnedByHand) puttingBack = true else vm.toggleLearned() }, enabled = !r.favourite,
                         leadingIcon = { Icon(Icons.Default.TaskAlt, null, Modifier.size(18.dp)) },
@@ -1488,10 +1490,32 @@ internal fun lastQuizText(p: SavedPosition): String = when (lastVerdict(p)) {
     QuizVerdict.WRONG -> "missed"
 }
 
-/** Green for a right answer, grey for a neutral one, red for a missed one. */
+/** Green for a right answer, yellow for a neutral one, red for a missed one. */
 @Composable
 internal fun verdictColor(v: QuizVerdict): Color = when (v) {
     QuizVerdict.RIGHT -> ArrowColors.best
-    QuizVerdict.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
+    QuizVerdict.NEUTRAL -> NEUTRAL_YELLOW
     QuizVerdict.WRONG -> MaterialTheme.colorScheme.error
+}
+
+private val NEUTRAL_YELLOW = Color(0xFFE6B800)
+
+/** The verdict chip's colour: as the trend chips, green, yellow or red. */
+private fun verdictChipColor(v: QuizVerdict): Color = when (v) {
+    QuizVerdict.RIGHT -> Color(0xFF2ECC71)
+    QuizVerdict.NEUTRAL -> Color(0xFFF1C40F)
+    QuizVerdict.WRONG -> Color(0xFFFF6B6B)
+}
+
+/** A coloured chip on the quiz result, as tall as the Learned and Favourite chips. */
+@Composable
+private fun QuizChip(text: String, colour: Color, bold: Boolean = false) {
+    Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp), color = colour) {
+        Box(Modifier.heightIn(min = 32.dp).padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+            Text(
+                text, style = MaterialTheme.typography.labelLarge, fontWeight = if (bold) FontWeight.Bold else null,
+                color = Color.Black, maxLines = 1, softWrap = false,
+            )
+        }
+    }
 }
