@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.0 — 2026-11-15 (build 81, internal test)
+
+- Licence: Backgammon PlyGround is now free software under the GNU Affero General Public License, version 3 or
+  later (releases up to 0.8.17 were under the GNU General Public License, version 3 or later). The GNU Backgammon
+  code it includes stays under the GNU GPL.
+- My positions: the play set as "Played in the game" or as "My answer" is searched as deeply as the best plays,
+  as in Analyze Position. Setting a play the analysis had not searched that deeply analyzes the position again,
+  and Analyze again keeps both plays. The play is selected, with its arrows in its error level's colour.
+- My positions: the cube answer of the player on roll is the whole decision, No double, Double/take or
+  Double/pass, as in Analyze Position and the quiz; its error adds the error of the answer expected. Answers set
+  before as "Double" are kept.
+- My positions: a shared picture with the analysis marks what was played in the game ("played") and my answer
+  ("my answer"), each tinted and tagged with its error level.
+
 ## 0.8.17 — 2026-11-15 (build 80, internal test)
 
 - Analyze Position: "Your decision" beside "Set up". With dice, play the roll on the board as in a game (taps and

@@ -110,6 +110,8 @@ data class MyAnswer(
     val move: Move? = null,
     /** DOUBLE or NO_DOUBLE (the player is on roll), TAKE, PASS or BEAVER (the player was doubled). */
     val cube: DecisionKind? = null,
+    /** With [cube] DOUBLE: the answer expected, TAKE or PASS ("Double, take"); null for the double alone (older answers, games). */
+    val expect: DecisionKind? = null,
 ) {
     companion object {
         /**

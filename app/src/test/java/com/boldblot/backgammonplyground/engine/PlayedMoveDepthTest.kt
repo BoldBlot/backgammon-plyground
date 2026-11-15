@@ -41,4 +41,25 @@ class PlayedMoveDepthTest {
             assertEquals("searched as deeply as the best at $depth", a.candidates[0].plies, played.plies)
         }
     }
+
+    @Test
+    fun `a second play searched apart joins at the best's depth`() {
+        val e = TestEngine.engine
+        assumeTrue(e != null)
+        e!!
+        val dice = s.dice!!
+        val ranked = e.rankMoves(s.board, ctx, dice.d1, dice.d2, Depth(1).code, null).candidates
+        val (first, second) = ranked.last().move to ranked[ranked.size - 2].move
+        val depth = Depth(3, com.boldblot.backgammonplyground.core.MoveFilter.NARROW).code
+        val c = MatchController(e, DiceSource.secure(), AnalysisSettings(plies = depth, cubePlies = depth))
+        var a = c.analyzeChecker(s.board, ctx, Dice(dice.d1, dice.d2), first, depth)
+        val other = c.analyzeChecker(s.board, ctx, Dice(dice.d1, dice.d2), second, depth)
+        a = a.withCandidate(s.board, s.onRoll, other.candidates[other.playedIndex])
+        for (m in listOf(first, second)) {
+            val target = s.board.applyMove(s.onRoll, m)
+            val cand = a.candidates.first { s.board.applyMove(s.onRoll, it.move) == target }
+            assertEquals(a.candidates[0].plies, cand.plies)
+        }
+        assertEquals(s.board.applyMove(s.onRoll, first), s.board.applyMove(s.onRoll, a.candidates[a.playedIndex].move))
+    }
 }

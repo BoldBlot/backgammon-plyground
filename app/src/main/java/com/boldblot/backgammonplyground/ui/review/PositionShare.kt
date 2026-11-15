@@ -218,7 +218,7 @@ object PositionShare {
     data class ScoreCheckers(val human: Int, val humanRim: Int, val cpu: Int, val cpuRim: Int)
 
     /** One row of the analysis under a shared board: a play or cube action, its equity and its error. */
-    data class Line(val text: String, val equity: Float, val diff: Float, val severity: Severity, val played: Boolean)
+    data class Line(val text: String, val equity: Float, val diff: Float, val severity: Severity, val played: Boolean, val tag: String? = null)
 
     fun text(context: Context, text: String) {
         val send = Intent(Intent.ACTION_SEND).apply {
@@ -268,12 +268,14 @@ object PositionShare {
     fun analysisLines(
         board: Board, player: Int, checker: CheckerAnalysis?, cube: CubeEval?, response: Boolean, beavers: Boolean,
         playedIndex: Int?, playedKind: DecisionKind?, factor: Float, playedAnswer: DecisionKind? = null,
+        /** Another play to list even past the top five (it is marked in a second set of lines, see [marked]). */
+        alsoIndex: Int? = null,
     ): List<Line> {
         fun line(text: String, equity: Float, best: Float, played: Boolean) =
             Line(text, equity, equity - best, XgRules.severity((best - equity) * factor), played)
         val a = checker
         if (a != null && a.candidates.isNotEmpty()) {
-            val shown = (a.candidates.indices.take(5) + listOfNotNull(playedIndex).filter { it >= 5 && it < a.candidates.size }).distinct()
+            val shown = (a.candidates.indices.take(5) + listOfNotNull(playedIndex, alsoIndex).filter { it >= 5 && it < a.candidates.size }).distinct().sorted()
             return shown.map { i ->
                 val c = a.candidates[i]
                 line("${i + 1}. ${MoveNotation.format(board, player, c.move)}", c.equity, a.bestEquity, i == playedIndex)
@@ -300,6 +302,36 @@ object PositionShare {
         if (!doubled || playedAnswer == null) return lines
         val whole = (DecisionMath.doubleError(e, doubled = true, beavers = beavers) + DecisionMath.takeError(e, playedAnswer, beavers)) * factor
         return lines.map { if (it.played) it.copy(severity = XgRules.severity(whole)) else it }
+    }
+
+    /**
+     * The analysis lines of saved position [p] with two decisions marked, each with its own tag: what was played in
+     * the game ([played], "played") and my answer ([mine], "my answer"); a row that is both carries both tags.
+     */
+    fun marked(
+        p: com.boldblot.backgammonplyground.core.StudyPosition, a: com.boldblot.backgammonplyground.core.PositionAnalysis,
+        played: com.boldblot.backgammonplyground.core.MyAnswer?, mine: com.boldblot.backgammonplyground.core.MyAnswer?,
+    ): List<Line> {
+        fun index(ans: com.boldblot.backgammonplyground.core.MyAnswer?): Int? {
+            val m = ans?.move ?: return null
+            val target = p.board.applyMove(Player.HUMAN, m)
+            return a.checker?.candidates?.indexOfFirst { p.board.applyMove(Player.HUMAN, it.move) == target }?.takeIf { it >= 0 }
+        }
+        val factor = XgRules.errorFactor(p.setup.matchLength)
+        fun lines(ans: com.boldblot.backgammonplyground.core.MyAnswer?, also: Int?) = analysisLines(
+            p.board, Player.HUMAN, a.checker, a.cube, response = p.doubled, beavers = p.beavers,
+            playedIndex = index(ans), playedKind = ans?.cube, factor = factor, playedAnswer = ans?.expect, alsoIndex = also,
+        )
+        val first = lines(played, index(mine))
+        val second = lines(mine, index(played))
+        return first.zip(second) { x, y ->
+            when {
+                x.played && y.played -> x.copy(tag = "played, my answer")
+                x.played -> x.copy(tag = "played")
+                y.played -> y.copy(tag = "my answer")
+                else -> x
+            }
+        }
     }
 
     /** [board] under [title], with the analysis [lines] and the [xgid] below it (if any), on a white card. */
@@ -335,7 +367,7 @@ object PositionShare {
                 // The decision made: a tint of its error level's colour, and the level in its tag.
                 c.drawRect(pad / 2, y - text * 1.05f, w - pad / 2, y + text * 0.4f, Paint().apply { color = tint(Quality.color(l.severity, false).toArgb()) })
             }
-            c.drawText(l.text + if (l.played) "   ($playedTag · ${l.severity.label})" else "", pad, y, if (l.played) bold else sans)
+            c.drawText(l.text + if (l.played) "   (${l.tag ?: playedTag} · ${l.severity.label})" else "", pad, y, if (l.played) bold else sans)
             c.drawText(eq(l.equity), w - pad - text * 5.5f, y, mono)
             if (l.diff < -0.0005f) {
                 c.drawText(err(l.diff, unit), w - pad, y, Paint(mono).apply { color = Quality.color(l.severity, false).toArgb() })

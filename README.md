@@ -176,8 +176,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details and
 
 ## Licence
 
-Backgammon PlyGround is free software under the GNU General Public License v3 or later (see
-[LICENSE](LICENSE)). It includes:
+Backgammon PlyGround is free software under the GNU Affero General Public License v3 or later
+(see [LICENSE](LICENSE)); releases up to 0.8.17 were published under the GNU General Public License
+v3 or later. The GNU Backgammon code it includes stays under the GNU GPL v3 or later and is combined
+with the rest as section 13 of both licences allows. It includes:
 
 - the PureTD engine by Alexander Strehl (MIT licence, `engine/puretd/LICENSE-PureTD`);
 - GNU Backgammon's evaluation code, networks, bear-off database and match equity table, by

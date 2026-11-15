@@ -41,26 +41,64 @@ fun quizCountText(p: SavedPosition): String {
     return "${p.entity.quizRight} right, ${p.entity.quizWrong} missed$neutral · balance ${if (b > 0) "+$b" else "$b"}"
 }
 
-/** Analyzes [p] at the analysis depths in Settings, with the analysis engine. */
-suspend fun analyzePosition(app: PlyGroundApp, p: StudyPosition, s: Settings, waiting: Waiting? = null): PositionAnalysis {
+/** Analyzes [p] at the analysis depths in Settings, with the analysis engine; [keep]: see the other [analyzePosition]. */
+suspend fun analyzePosition(app: PlyGroundApp, p: StudyPosition, s: Settings, waiting: Waiting? = null, keep: List<Move> = emptyList()): PositionAnalysis {
     val match = p.ctx().matchLength > 0
-    return analyzePosition(app, p, s.analysisEngine, s.checkerDepth(match), s.cubeDepth(match), waiting)
+    return analyzePosition(app, p, s.analysisEngine, s.checkerDepth(match), s.cubeDepth(match), waiting, keep)
 }
 
-/** Analyzes [p] with [engine]: a checker play at [checker], a cube decision at [cube]. */
-suspend fun analyzePosition(app: PlyGroundApp, p: StudyPosition, engine: EngineKind, checker: Depth, cube: Depth, waiting: Waiting? = null): PositionAnalysis =
+/**
+ * Analyzes [p] with [engine]: a checker play at [checker], a cube decision at [cube]. The plays in [keep] (what was
+ * played in the game, my answer) are searched as deeply as the best, as a game's analysis does with the play made:
+ * the first as the search's played play, any other in a search of its own at the same depth, added to the list.
+ */
+suspend fun analyzePosition(
+    app: PlyGroundApp, p: StudyPosition, engine: EngineKind, checker: Depth, cube: Depth, waiting: Waiting? = null,
+    keep: List<Move> = emptyList(),
+): PositionAnalysis =
     app.engine.run(engine, waiting) {
         val dice = p.dice
         if (dice != null) {
             val c = MatchController(this, DiceSource.secure(), AnalysisSettings(plies = checker.code, cubePlies = cube.code))
+            val moves = keep.filter { !it.isEmpty }.distinctBy { p.board.applyMove(Player.HUMAN, it) }
             // The label says what was searched: without the games where they cannot be played, or stopped early.
-            val a = c.analyzeChecker(p.board, p.ctx(), dice, null, checker.code)
+            var a = c.analyzeChecker(p.board, p.ctx(), dice, moves.firstOrNull(), checker.code)
+            for (m in moves.drop(1)) {
+                if (searchedDeeply(p, a, m)) continue
+                val other = c.analyzeChecker(p.board, p.ctx(), dice, m, checker.code)
+                other.candidates.getOrNull(other.playedIndex)?.let { a = a.withCandidate(p.board, Player.HUMAN, it) }
+            }
             PositionAnalysis(checker = a, label = "${engine.label} ${Depth.of(a.plies).label()}")
         } else {
             val e = cubeDecision(p.board, p.ctx(), cube.code)
             PositionAnalysis(cube = e, label = "${engine.label} ${Depth.of(e.plies ?: cube.code).label(cube = true)}")
         }
     }
+
+/** Whether analysis [a] has [move] searched as deeply as its best play. */
+fun searchedDeeply(p: StudyPosition, a: CheckerAnalysis, move: Move): Boolean {
+    val target = p.board.applyMove(Player.HUMAN, move)
+    val c = a.candidates.firstOrNull { p.board.applyMove(Player.HUMAN, it.move) == target } ?: return false
+    return c.plies == a.candidates[0].plies
+}
+
+/** The plays of [sp] its analysis must search deeply: what was played in the game and my answer. */
+fun keepMoves(sp: com.boldblot.backgammonplyground.data.SavedPosition): List<Move> = listOfNotNull(sp.played?.move, sp.answer?.move)
+
+/** [ans] as a whole cube decision ("Double, take"), when it is one. */
+fun MyAnswer.cubeAnswer(): CubeAnswer? = when {
+    cube == DecisionKind.DOUBLE && expect == DecisionKind.TAKE -> CubeAnswer.DOUBLE_TAKE
+    cube == DecisionKind.DOUBLE && expect == DecisionKind.PASS -> CubeAnswer.DOUBLE_PASS
+    else -> null
+}
+
+/** The cube answers to choose from for [p]: No double, Double/take, Double/pass; or Take / Pass (and Beaver) when doubled. */
+fun cubeAnswerChoices(p: StudyPosition): List<MyAnswer> =
+    if (p.doubled) cubeActions(p).map { MyAnswer(cube = it) }
+    else listOf(
+        MyAnswer(cube = DecisionKind.NO_DOUBLE), MyAnswer(cube = DecisionKind.DOUBLE, expect = DecisionKind.TAKE),
+        MyAnswer(cube = DecisionKind.DOUBLE, expect = DecisionKind.PASS),
+    )
 
 /** [move]'s equity in [a] (null if it is not among the stored candidates). */
 fun equityOf(p: StudyPosition, a: CheckerAnalysis, move: Move): Float? {
@@ -73,7 +111,7 @@ fun answerError(p: StudyPosition, a: PositionAnalysis?, ans: MyAnswer): Float? {
     a ?: return null
     val raw = when {
         ans.move != null -> a.checker?.let { c -> equityOf(p, c, ans.move)?.let { (c.bestEquity - it).coerceAtLeast(0f) } }
-        ans.cube != null -> cubeError(p, a, ans.cube)
+        ans.cube != null -> ans.cubeAnswer()?.let { cubeAnswerError(p, a, it) } ?: cubeError(p, a, ans.cube)
         else -> null
     } ?: return null
     return raw * factorOf(p)
@@ -156,7 +194,7 @@ fun bestCube(p: StudyPosition, a: PositionAnalysis): DecisionKind? =
 /** The player's own answer as text ("13/7 8/7", "Double", "Take"). */
 fun answerText(p: StudyPosition, a: MyAnswer): String = when {
     a.move != null -> MoveNotation.format(p.board, Player.HUMAN, a.move)
-    a.cube != null -> cubeLabel(a.cube)
+    a.cube != null -> a.cubeAnswer()?.label ?: cubeLabel(a.cube)
     else -> ""
 }
 
@@ -233,7 +271,7 @@ object FolderAnalysis {
                 _progress.value = Progress(folder, 0, list.size)
                 for (p in list) {
                     try {
-                        app.positions.setAnalysis(p.id, analyzePosition(app, p.position, engine, checker, cube))
+                        app.positions.setAnalysis(p.id, analyzePosition(app, p.position, engine, checker, cube, keep = keepMoves(p)))
                     } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         failed++

@@ -1951,7 +1951,7 @@ fun AboutScreen(
             Spacer(Modifier.height(16.dp))
             Text(
                 "Backgammon PlyGround is made by Bold Blot (boldblot.com, support@boldblot.com), free software under " +
-                    "the GNU General Public License, version 3 or later; source code at " +
+                    "the GNU Affero General Public License, version 3 or later; source code at " +
                     "github.com/BoldBlot/backgammon-plyground. Titles use the Archivo " +
                     "typeface, copyright The Archivo Project Authors, under the SIL Open Font License 1.1 (included " +
                     "in the app as licenses/archivo-OFL.txt).",

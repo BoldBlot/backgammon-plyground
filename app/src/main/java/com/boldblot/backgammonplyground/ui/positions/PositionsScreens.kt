@@ -128,6 +128,7 @@ import com.boldblot.backgammonplyground.core.DecisionKind
 import com.boldblot.backgammonplyground.core.MoveGenerator
 import com.boldblot.backgammonplyground.core.MoveNotation
 import com.boldblot.backgammonplyground.core.MyAnswer
+import com.boldblot.backgammonplyground.core.PositionIds
 import com.boldblot.backgammonplyground.core.Player
 import com.boldblot.backgammonplyground.core.Severity
 import com.boldblot.backgammonplyground.core.StudyPosition
@@ -707,13 +708,29 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit, onSett
         scope.launch {
             val s = app.settings.settings.first()
             runCatching {
-                if (r == null) analyzePosition(app, cur.position, s, Waiting.ANALYSIS)
-                else analyzePosition(app, cur.position, r.engine, r.checker, r.cube, Waiting.ANALYSIS)
+                if (r == null) analyzePosition(app, cur.position, s, Waiting.ANALYSIS, keep = keepMoves(cur))
+                else analyzePosition(app, cur.position, r.engine, r.checker, r.cube, Waiting.ANALYSIS, keep = keepMoves(cur))
             }
                 .onSuccess { app.positions.setAnalysis(cur.id, it); refresh++ }
                 .onFailure { Toast.makeText(context, "Analysis failed: ${it.message}", Toast.LENGTH_LONG).show() }
             analyzing = false
         }
+    }
+    // The play marked (played in the game, else my answer) is the one selected, its arrows on the board.
+    LaunchedEffect(p?.analysis, p?.played, p?.answer) {
+        val cur = p ?: return@LaunchedEffect
+        val ch = cur.analysis?.checker ?: return@LaunchedEffect
+        val m = cur.played?.move ?: cur.answer?.move ?: return@LaunchedEffect
+        val target = cur.position.board.applyMove(Player.HUMAN, m)
+        ch.candidates.indexOfFirst { cur.position.board.applyMove(Player.HUMAN, it.move) == target }.takeIf { it >= 0 }?.let { selected = it }
+    }
+    /** A play just set (played or my answer) that the analysis has not searched as deeply as the best: analyze again with it. */
+    fun deepen(ans: MyAnswer?) {
+        val cur = p ?: return
+        val m = ans?.move ?: return
+        val ch = cur.analysis?.checker ?: return
+        // [p] holds the answer just saved, so the new analysis keeps both plays.
+        if (ch.candidates.isNotEmpty() && !searchedDeeply(cur.position, ch, m) && !analyzing) analyze()
     }
     // A position saved without analysis (an import) is analyzed when opened.
     LaunchedEffect(p?.id, p?.analysis == null) { if (p != null && p?.analysis == null && !analyzing) analyze() }
@@ -728,8 +745,13 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit, onSett
                         IconButton(onClick = { sharing = true }, enabled = p != null) { Icon(Icons.Default.Share, "Share") }
                         DropdownMenu(expanded = sharing, onDismissRequest = { sharing = false }) {
                             p?.let { cur ->
+                                // What was played in the game and my answer, each marked at its error level.
                                 SharePositionItems(
-                                    cur.position, cur.analysis, answerIndex = null, answerCube = null, capture = capture,
+                                    PositionIds.toXgid(cur.position.setup.copy(doubled = cur.position.doubled)),
+                                    com.boldblot.backgammonplyground.ui.review.PositionShare.title(cur.position, com.boldblot.backgammonplyground.ui.components.LocalScoreAway.current),
+                                    cur.analysis?.let { com.boldblot.backgammonplyground.ui.review.PositionShare.marked(cur.position, it, cur.played, cur.answer) }.orEmpty(),
+                                    capture,
+                                    analysisLabel = cur.analysis?.let { a -> a.label.ifBlank { a.checker?.label ?: a.cube?.label ?: "" } }?.ifBlank { null },
                                     noAnalysis = {
                                         Toast.makeText(context, "Analyzing the position; share again when it is done.", Toast.LENGTH_SHORT).show()
                                         if (!analyzing) analyze()
@@ -866,7 +888,7 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit, onSett
                             checkIndex = mine?.takeIf { it >= 0 }, playedLabel = "played",
                         )
                     }
-                    a?.cube != null -> CubeTable(a.cube, if (sp.doubled) DecisionKind.TAKE else null, factorOf(sp), sp.beavers, mine = cur.answer?.cube, played = cur.played?.cube, colors = colors, rollerHuman = !sp.doubled)
+                    a?.cube != null -> CubeTable(a.cube, if (sp.doubled) DecisionKind.TAKE else null, factorOf(sp), sp.beavers, mine = cur.answer?.cube, played = cur.played?.cube, colors = colors, rollerHuman = !sp.doubled, mineAnswer = cur.answer?.expect, playedAnswer = cur.played?.expect)
                 }
             }
             if (maxWidth > maxHeight) {
@@ -891,7 +913,7 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit, onSett
         if (answering && a != null) {
             AnswerDialog(sp, a.checker, cur.answer, onDismiss = { answering = false }) { ans ->
                 answering = false
-                scope.launch { app.positions.setAnswer(cur.id, ans); refresh++ }
+                scope.launch { app.positions.setAnswer(cur.id, ans); p = app.positions.position(cur.id); refresh++; deepen(ans) }
             }
         }
         if (settingPlayed) {
@@ -901,7 +923,7 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit, onSett
                 clearLabel = "Not known",
             ) { ans ->
                 settingPlayed = false
-                scope.launch { app.positions.setPlayed(cur.id, ans); refresh++ }
+                scope.launch { app.positions.setPlayed(cur.id, ans); p = app.positions.position(cur.id); refresh++; deepen(ans) }
             }
         }
         if (puttingBack) {
@@ -978,7 +1000,7 @@ private fun AnswerDialog(
         listed + MoveGenerator.legalMoves(p.board, Player.HUMAN, dice.d1, dice.d2).filter { seen.add(p.board.applyMove(Player.HUMAN, it)) }
     }
     var pickedMove by remember { mutableStateOf(current?.move) }
-    var pickedCube by remember { mutableStateOf(current?.cube) }
+    var pickedCube by remember { mutableStateOf(current?.takeIf { it.cube != null }) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -999,10 +1021,11 @@ private fun AnswerDialog(
                         }
                     }
                 } else {
-                    cubeActions(p).forEach { k ->
+                    // The whole decision when on roll (No double, Double/take, Double/pass), as in Analyze Position.
+                    cubeAnswerChoices(p).forEach { k ->
                         Row(Modifier.fillMaxWidth().clickable { pickedCube = k }, verticalAlignment = Alignment.CenterVertically) {
                             RadioButton(selected = pickedCube == k, onClick = { pickedCube = k })
-                            Text(cubeLabel(k))
+                            Text(answerText(p, k))
                         }
                     }
                 }
@@ -1010,7 +1033,7 @@ private fun AnswerDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSet(if (p.dice != null) pickedMove?.let { MyAnswer(move = it) } else pickedCube?.let { MyAnswer(cube = it) }) },
+                onClick = { onSet(if (p.dice != null) pickedMove?.let { MyAnswer(move = it) } else pickedCube) },
                 enabled = pickedMove != null || pickedCube != null,
             ) { Text("Set") }
         },

@@ -473,6 +473,8 @@ fun CubeTable(
     mineAnswer: DecisionKind? = null,
     /** The tag of [mine]'s row. */
     mineLabel: String = "my answer",
+    /** With [played] = DOUBLE: the answer expected, whose row is marked (a whole cube decision set by hand). */
+    playedAnswer: DecisionKind? = null,
 ) {
     Column(Modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         if (kind?.isRaccoonDecision == true) {
@@ -499,10 +501,15 @@ fun CubeTable(
                 else -> 2
             }
             val playedDouble = played == DecisionKind.DOUBLE
+            val playedRow = when {
+                playedAnswer == DecisionKind.TAKE -> 1
+                playedAnswer == DecisionKind.PASS -> 2
+                else -> answerRow
+            }
             CubeRow("No double", eval.noDouble, eval.noDouble - optimal, factor, mine == DecisionKind.NO_DOUBLE, played == DecisionKind.NO_DOUBLE, mineLabel)
-            CubeRow("Double, take", eval.doubleTake, eval.doubleTake - optimal, factor, doubled && answerRow == 1, playedDouble && answerRow == 1, mineLabel)
-            CubeRow("Double, pass", eval.doublePass, eval.doublePass - optimal, factor, doubled && answerRow == 2, playedDouble && answerRow == 2, mineLabel)
-            if (beaver) CubeRow("Double, beaver", 2 * eval.doubleTake, 2 * eval.doubleTake - optimal, factor, doubled && answerRow == 3, playedDouble && answerRow == 3, mineLabel)
+            CubeRow("Double, take", eval.doubleTake, eval.doubleTake - optimal, factor, doubled && answerRow == 1, playedDouble && playedRow == 1, mineLabel)
+            CubeRow("Double, pass", eval.doublePass, eval.doublePass - optimal, factor, doubled && answerRow == 2, playedDouble && playedRow == 2, mineLabel)
+            if (beaver) CubeRow("Double, beaver", 2 * eval.doubleTake, 2 * eval.doubleTake - optimal, factor, doubled && answerRow == 3, playedDouble && playedRow == 3, mineLabel)
             Text("Best: $best", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
         } else {
             val (take, pass, beaver) = DecisionMath.responseEquities(eval, beavers || kind == DecisionKind.BEAVER)

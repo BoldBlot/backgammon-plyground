@@ -133,6 +133,27 @@ data class CheckerAnalysis(
 
     val error: Float get() = (bestEquity - playedEquity).coerceAtLeast(0f)
 
+    /**
+     * This analysis with [c] (a play of [player] on [board], searched apart, e.g. as the played play of another
+     * search at the same depth) among the candidates: in place of the same play, or inserted by equity among the
+     * plays searched as deeply. [playedIndex] follows its play.
+     */
+    fun withCandidate(board: Board, player: Int, c: Candidate): CheckerAnalysis {
+        fun pos(m: Move) = board.applyMove(player, m)
+        val target = pos(c.move)
+        val played = candidates.getOrNull(playedIndex)?.let { pos(it.move) }
+        val rest = candidates.filter { pos(it.move) != target }
+        val sameDepth = rest.indexOfFirst { it.plies != c.plies }.let { if (it < 0) rest.size else it }
+        val at = rest.take(sameDepth).indexOfFirst { it.equity < c.equity }.let { if (it < 0) sameDepth else it }
+        val list = rest.take(at) + c + rest.drop(at)
+        return copy(
+            candidates = list,
+            playedIndex = played?.let { p -> list.indexOfFirst { pos(it.move) == p } } ?: playedIndex,
+            bestEquity = list[0].equity,
+            worstEquity = minOf(worstEquity, c.equity),
+        )
+    }
+
     /** XG: forced moves and plays with a best/worst spread under 0.001 are obvious. */
     val isDecision: Boolean get() = legalMoves > 1 && bestEquity - worstEquity >= XgRules.OBVIOUS_CHECKER_SPREAD
 }

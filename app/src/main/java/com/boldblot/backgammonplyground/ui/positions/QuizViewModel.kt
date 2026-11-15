@@ -339,7 +339,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
         viewModelScope.launch {
             try {
                 // A position saved without analysis (or imported) is analyzed now, and keeps it.
-                val a = sp.analysis ?: analyzePosition(app, p, s).also { app.positions.setAnalysis(sp.id, it) }
+                val a = sp.analysis ?: analyzePosition(app, p, s, keep = keepMoves(sp)).also { app.positions.setAnalysis(sp.id, it) }
                 val factor = factorOf(p)
                 val asked = cubeAnswer?.let { if (partial) withBestResponse(p, a, it.double) else it }
                 val judged = judge(sp, a, move, cube, asked, s, null)
@@ -414,7 +414,10 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
             val raw = if (cubeAnswer != null) cubeAnswerError(p, a, cubeAnswer) else cubeError(p, a, cube!!)
             val err = (raw ?: 0f) * factor
             val mine = sp.answer?.cube
+            // My answer as a whole decision ("Double, take") is matched whole when the quiz asked for one.
+            val mineWhole = sp.answer?.cubeAnswer()
             val verdict = when {
+                mine != null && mineWhole != null && cubeAnswer != null -> if (mineWhole == cubeAnswer) QuizVerdict.RIGHT else QuizVerdict.WRONG
                 mine != null -> if (mine == cube) QuizVerdict.RIGHT else QuizVerdict.WRONG
                 else -> s.quizVerdict(err, average)
             }
@@ -483,7 +486,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
         viewModelScope.launch {
             try {
                 val p = sp.position
-                val a = analyzePosition(app, p, r.engine, r.checker, r.cube, Waiting.ANALYSIS)
+                val a = analyzePosition(app, p, r.engine, r.checker, r.cube, Waiting.ANALYSIS, keep = keepMoves(sp))
                 val kept = !old.deleted && old.removed == null
                 if (kept) app.positions.setAnalysis(sp.id, a)
                 // An answer of the cube action alone is judged again with the opponent's best answer by the new analysis.
