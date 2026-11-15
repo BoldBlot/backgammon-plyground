@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.0 — 2026-11-15 (build 81, internal test)
+## 0.9.0 — 2026-11-15 (build 81)
 
 - Licence: Backgammon PlyGround is now free software under the GNU Affero General Public License, version 3 or
   later (releases up to 0.8.17 were under the GNU General Public License, version 3 or later). The GNU Backgammon
