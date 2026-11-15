@@ -110,6 +110,22 @@ class GameSearchTest {
     }
 
     @Test
+    fun `a free double is never behind no double`() {
+        val e = TestEngine.engine
+        assumeTrue(e != null)
+        e!!
+        // 9-away against 1-away after the Crawford game: a loss costs the trailer the match at any cube, so the
+        // double is free (XG's rollout: no double 0.306, double/take 0.333). The games value waiting as doubling a
+        // turn later, level with doubling, and once put it ahead by their noise (0.348 against 0.345).
+        val p = Pos("-B-ABbC-B---aD---caeba---A:0:0:1:00:2:10:0:11:10")
+        for (code in listOf(GameSearch.C44.code, Depth(3).code, Depth(1).code)) {
+            e.cubeDecision(cube.board, cube.ctx, 0) // evicts the one-decision cache
+            val r = e.cubeDecision(p.board, p.ctx, code)
+            assertTrue("depth $code: ${r.noDouble} against ${r.doubleTake}", r.shouldDouble && r.noDouble < r.doubleTake)
+        }
+    }
+
+    @Test
     fun `money games and clear decisions get the plies alone`() {
         val e = TestEngine.engine
         assumeTrue(e != null)

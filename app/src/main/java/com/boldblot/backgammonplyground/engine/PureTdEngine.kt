@@ -57,6 +57,15 @@ class PureTdEngine(
         return r.first.map { it.toFloat() } to r.second
     }
 
+    /**
+     * No double ([nd]) when the double is free: with the opponent within the cube of the match a loss costs
+     * [ctx].onRoll the match at this cube already, so doubling is never worse than waiting, and a little better
+     * (the game may end, or the market go, before the next turn). A search values waiting as doubling a turn
+     * later, level with Double/take ([dt]), and its noise can put it above; this keeps it [FREE_DOUBLE_EDGE] below.
+     */
+    private fun freeDoubleCap(ctx: CubeContext, nd: Double, dt: Double): Double =
+        if (ctx.matchLength > 0 && !ctx.crawford && away(ctx, Player.other(ctx.onRoll)) <= ctx.cube.value) minOf(nd, dt - FREE_DOUBLE_EDGE) else nd
+
     override fun gamesCube(board: Board, ctx: CubeContext, search: GameSearch, base: CubeEval): Pair<CubeEval, Boolean>? {
         if (!base.cubeAvailable) return null
         val margin = minOf(kotlin.math.abs(base.afterDouble - base.noDouble), kotlin.math.abs(base.doubleTake - base.doublePass))
@@ -66,7 +75,7 @@ class PureTdEngine(
             state(board, me, 0), away(ctx, me), away(ctx, Player.other(me)), ctx.crawford, cubeOwner(ctx, me), ctx.cube.value,
             search.games, search.turns, gameThreads, monitor, workerInit,
         ) ?: return null
-        return evalOf(r.nd, r.dt, base.doublePass.toDouble(), true, base.probs).copy(spread = r.spread.toFloat()) to (r.played == r.games)
+        return evalOf(freeDoubleCap(ctx, r.nd, r.dt), r.dt, base.doublePass.toDouble(), true, base.probs).copy(spread = r.spread.toFloat()) to (r.played == r.games)
     }
 
 
@@ -214,8 +223,9 @@ class PureTdEngine(
             probs = search?.probs() ?: preProbs(board, me, depth, matchWeights(ctx, me))
             val mc = MatchCube(met, probs, away(ctx, me), away(ctx, Player.other(me)), ctx.crawford, cubeLife(board))
             val (a, b, c) = search?.root(owner, v) ?: mc.decision(owner, v)
-            nd = mc.toEmg(a, v); dt = mc.toEmg(b, v); dp = mc.toEmg(c, v)
+            dt = mc.toEmg(b, v); dp = mc.toEmg(c, v)
             available = mc.canDoubleNow(owner, v)
+            nd = mc.toEmg(a, v).let { if (available) freeDoubleCap(ctx, it, dt) else it }
         }
         return evalOf(nd, dt, dp, available, probs)
     }
@@ -242,5 +252,10 @@ class PureTdEngine(
             me[24] = r[o + 24]; them[24] = r[o + 25]
             if (player == Player.HUMAN) Board.fromSides(me, them) else Board.fromSides(them, me)
         }.toSet()
+    }
+
+    companion object {
+        /** How far (normalized equity) No double is kept below Double/take when the double is free. */
+        const val FREE_DOUBLE_EDGE = 0.001
     }
 }
