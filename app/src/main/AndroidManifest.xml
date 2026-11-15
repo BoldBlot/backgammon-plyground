@@ -19,6 +19,11 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Analyze Position: another app sends a position (an XGID in EXTRA_TEXT) to be set up there. -->
+            <intent-filter>
+                <action android:name="com.boldblot.backgammonplyground.action.ANALYZE_POSITION" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
             <!-- My positions: a positions file (or XGIDs as text) opened or shared with PlyGround is imported. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

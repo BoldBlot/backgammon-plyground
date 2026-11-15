@@ -2,6 +2,8 @@ package com.boldblot.backgammonplyground.ui.home
 
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,16 +49,19 @@ fun MatchImportDialog(
     match: MatImport.ParsedMatch, defaultYou: Int = 1,
     /** From an .xg file: the match comes with eXtreme Gammon's analysis. */
     analyzed: Boolean = false,
+    /** Of several files picked whose players differ: the file's name, shown in the dialog (one dialog per file). */
+    fileName: String? = null,
     onDismiss: () -> Unit, onImport: (you: Int, both: Boolean) -> Unit,
 ) {
-    var you by remember { mutableIntStateOf(defaultYou) }
-    var both by remember { mutableStateOf(false) }
+    var you by remember(match) { mutableIntStateOf(defaultYou) }
+    var both by remember(match) { mutableStateOf(false) }
     val r = match.rules
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Import match") },
         text = {
             Column {
+                fileName?.let { Text(it, style = MaterialTheme.typography.titleSmall) }
                 Text(
                     (if (r.isMoney) "Money session" else "${r.length}-point match") +
                         " · ${match.games.size} game${if (match.games.size == 1) "" else "s"}",
@@ -82,6 +87,57 @@ fun MatchImportDialog(
                         "The opponent's mistakes are shown from their side and labelled Opponent's.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 12.dp),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onImport(you, both) }) { Text("Import") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * Importing several match files at once whose players have [names] in common: which of them is "you" (in
+ * every file), and whose mistakes go to New errors. [onImport] gets the name chosen.
+ */
+@Composable
+fun MatchesImportDialog(
+    files: List<com.boldblot.backgammonplyground.core.MatchFileRead>, names: List<String>, defaultYou: String,
+    onDismiss: () -> Unit, onImport: (you: String, both: Boolean) -> Unit,
+) {
+    var you by remember { mutableStateOf(defaultYou) }
+    var both by remember { mutableStateOf(false) }
+    val games = files.sumOf { it.match.games.size }
+    val xg = files.count { it.xg != null }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Import ${files.size} matches") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text("${files.size} matches · $games games", style = MaterialTheme.typography.bodyMedium)
+                Text("Which player are you?", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+                names.forEach { name ->
+                    Row(Modifier.fillMaxWidth().clickable { you = name }, verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = you == name, onClick = { you = name })
+                        Text(name)
+                    }
+                }
+                Text("Add to New errors", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = !both, onClick = { both = false }, label = { Text("My mistakes") })
+                    FilterChip(selected = both, onClick = { both = true }, label = { Text("Both players' mistakes") })
+                }
+                Text(
+                    (if (xg > 0) "Matches from .xg files come with the analysis in the file (eXtreme Gammon); " +
+                        "the rest, and decisions without one, are analyzed in the background. "
+                    else "The matches are analyzed in the background, at the depths in Settings → Analysis. ") +
+                        "They are left out of your statistics and rating (each match's menu can count it).",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+                Text(
+                    files.joinToString("\n") { it.name },
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
                 )
             }
         },

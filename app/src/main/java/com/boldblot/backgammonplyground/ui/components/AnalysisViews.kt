@@ -469,6 +469,10 @@ fun CubeTable(
     /** Checker colours for the chances; [rollerHuman]: the player on roll (the doubler, whose view [eval] is) is the human. */
     colors: com.boldblot.backgammonplyground.ui.board.BoardColors? = null,
     rollerHuman: Boolean = true,
+    /** With [mine] = DOUBLE: the answer the doubler expected (Analyze Position's whole decision), whose row is marked. */
+    mineAnswer: DecisionKind? = null,
+    /** The tag of [mine]'s row. */
+    mineLabel: String = "my answer",
 ) {
     Column(Modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         if (kind?.isRaccoonDecision == true) {
@@ -488,22 +492,24 @@ fun CubeTable(
             // My answer "Double" goes on the row of the opponent's best answer to it.
             val doubled = mine == DecisionKind.DOUBLE
             val answerRow = when {
+                doubled && mineAnswer == DecisionKind.TAKE -> 1
+                doubled && mineAnswer == DecisionKind.PASS -> 2
                 beaver -> 3
                 eval.doubleTake <= eval.doublePass -> 1
                 else -> 2
             }
             val playedDouble = played == DecisionKind.DOUBLE
-            CubeRow("No double", eval.noDouble, eval.noDouble - optimal, factor, mine == DecisionKind.NO_DOUBLE, played == DecisionKind.NO_DOUBLE)
-            CubeRow("Double, take", eval.doubleTake, eval.doubleTake - optimal, factor, doubled && answerRow == 1, playedDouble && answerRow == 1)
-            CubeRow("Double, pass", eval.doublePass, eval.doublePass - optimal, factor, doubled && answerRow == 2, playedDouble && answerRow == 2)
-            if (beaver) CubeRow("Double, beaver", 2 * eval.doubleTake, 2 * eval.doubleTake - optimal, factor, doubled && answerRow == 3, playedDouble && answerRow == 3)
+            CubeRow("No double", eval.noDouble, eval.noDouble - optimal, factor, mine == DecisionKind.NO_DOUBLE, played == DecisionKind.NO_DOUBLE, mineLabel)
+            CubeRow("Double, take", eval.doubleTake, eval.doubleTake - optimal, factor, doubled && answerRow == 1, playedDouble && answerRow == 1, mineLabel)
+            CubeRow("Double, pass", eval.doublePass, eval.doublePass - optimal, factor, doubled && answerRow == 2, playedDouble && answerRow == 2, mineLabel)
+            if (beaver) CubeRow("Double, beaver", 2 * eval.doubleTake, 2 * eval.doubleTake - optimal, factor, doubled && answerRow == 3, playedDouble && answerRow == 3, mineLabel)
             Text("Best: $best", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
         } else {
             val (take, pass, beaver) = DecisionMath.responseEquities(eval, beavers || kind == DecisionKind.BEAVER)
             val best = maxOf(take, pass, beaver ?: take)
-            CubeRow("Take", take, take - best, factor, mine == DecisionKind.TAKE, played == DecisionKind.TAKE)
-            CubeRow("Pass", pass, pass - best, factor, mine == DecisionKind.PASS, played == DecisionKind.PASS)
-            if (beaver != null) CubeRow("Beaver", beaver, beaver - best, factor, mine == DecisionKind.BEAVER, played == DecisionKind.BEAVER)
+            CubeRow("Take", take, take - best, factor, mine == DecisionKind.TAKE, played == DecisionKind.TAKE, mineLabel)
+            CubeRow("Pass", pass, pass - best, factor, mine == DecisionKind.PASS, played == DecisionKind.PASS, mineLabel)
+            if (beaver != null) CubeRow("Beaver", beaver, beaver - best, factor, mine == DecisionKind.BEAVER, played == DecisionKind.BEAVER, mineLabel)
             val bestName = when {
                 beaver != null && beaver > take && beaver >= pass -> "Beaver"
                 take >= pass -> "Take"
@@ -536,14 +542,14 @@ fun CubeTable(
 }
 
 @Composable
-private fun CubeRow(label: String, equity: Float, diff: Float, factor: Float, mine: Boolean = false, played: Boolean = false) {
+private fun CubeRow(label: String, equity: Float, diff: Float, factor: Float, mine: Boolean = false, played: Boolean = false, mineLabel: String = "my answer") {
     val sev = XgRules.severity(-diff * factor)
     Row(
         Modifier.fillMaxWidth().let { if (mine) it.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f), RoundedCornerShape(6.dp)) else it },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = if (mine) FontWeight.Bold else null)
-        if (mine) Tag("my answer")
+        if (mine) Tag(mineLabel)
         if (played) Tag("played")
         Text(eq(equity), Modifier.width(70.dp), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
         Box(Modifier.width(76.dp), contentAlignment = Alignment.CenterEnd) {

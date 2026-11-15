@@ -17,6 +17,10 @@ import com.boldblot.backgammonplyground.core.DiceSource
 import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.EngineKind
 import com.boldblot.backgammonplyground.core.MatchController
+import com.boldblot.backgammonplyground.core.CubeChoice
+import com.boldblot.backgammonplyground.core.Move
+import com.boldblot.backgammonplyground.core.PlayEntry
+import com.boldblot.backgammonplyground.core.Step
 import com.boldblot.backgammonplyground.core.Player
 import com.boldblot.backgammonplyground.core.PositionIds
 import com.boldblot.backgammonplyground.core.PositionSetup
@@ -55,6 +59,16 @@ data class PositionState(
     /** The engine picked on this screen (null: the analysis engine from Settings). */
     val engineChoice: EngineKind? = null,
     val level: Pair<Depth, Depth>? = null,
+    /** A cube decision with a double on offer: the player on roll has doubled, the other player takes or passes. */
+    val offered: Boolean = false,
+    /** "Your play": the board takes the play of the player on roll instead of edits. */
+    val playMode: Boolean = false,
+    /** Steps of the play being entered (the player on roll's numbering). */
+    val steps: List<Step> = emptyList(),
+    /** The decision entered: a complete play ([Move.NONE] when the roll cannot be played)… */
+    val play: Move? = null,
+    /** …or the cube decision. */
+    val cubeChoice: CubeChoice? = null,
 ) {
     /** Checker depth and cube plies used by the next analysis. */
     val engine: EngineKind get() = engineChoice ?: settings.analysisEngine
@@ -62,11 +76,31 @@ data class PositionState(
     val cubeDepth: Depth get() = level?.second ?: settings.cubeDepth(matchLength > 0)
 
     /** The parts of the position the user edits (what Undo restores). */
-    val edited: Edited get() = Edited(board, onRoll, dice, matchLength, score, crawford, jacoby, cube)
+    val edited: Edited get() = Edited(board, onRoll, dice, matchLength, score, crawford, jacoby, cube, offered)
 
     val hasDice: Boolean get() = dice[0] != null && dice[1] != null
     val crawfordPossible: Boolean get() = matchLength > 0 && score.any { it == matchLength - 1 }
     val isCrawford: Boolean get() = crawfordPossible && crawford
+
+    /** A double on offer: only for a cube decision. */
+    val isOffered: Boolean get() = offered && !hasDice
+
+    /** Whether the player on roll may double: not in the Crawford game, nor with the cube on the other side. */
+    val canDouble: Boolean get() = !isCrawford && (cube.value <= 1 || cube.owner == onRoll || cube.owner == -1)
+
+    /** The play entry for the dice, or null for a cube decision. */
+    val entry: PlayEntry? get() = if (hasDice) PlayEntry(board, onRoll, dice[0]!!, dice[1]!!) else null
+
+    /** The board as shown: during "Your play", with the steps entered so far. */
+    val shownBoard: Board get() = if (playMode && play == null && steps.isNotEmpty()) entry?.boardAfter(steps) ?: board else board
+
+    /** The index of the play entered among the analysis's candidates, or null. */
+    val playIndex: Int? get() {
+        val a = checker ?: return null
+        val p = play ?: return null
+        val after = runCatching { board.applyMove(onRoll, p) }.getOrNull() ?: return null
+        return a.candidates.indexOfFirst { runCatching { board.applyMove(onRoll, it.move) }.getOrNull() == after }.takeIf { it >= 0 }
+    }
 
     /** Why the position cannot be analyzed yet, or null. */
     val problem: String?
@@ -74,6 +108,7 @@ data class PositionState(
             board.onBoard(Player.HUMAN) == 0 -> "Place at least one of your checkers."
             board.onBoard(Player.CPU) == 0 -> "Place at least one of your opponent's checkers."
             (dice[0] == null) != (dice[1] == null) -> "Choose both dice, or none for a cube decision."
+            isOffered && !canDouble -> if (isCrawford) "No doubling in the Crawford game." else "The player on roll can't double: the cube is on the other side."
             matchLength > 0 && score.any { it >= matchLength } -> "Scores must be below the match length."
             else -> null
         }
@@ -93,6 +128,7 @@ data class Edited(
     val crawford: Boolean,
     val jacoby: Boolean,
     val cube: CubeState,
+    val offered: Boolean,
 )
 
 /** Position editor and analysis. */
@@ -117,7 +153,7 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
         val now = System.currentTimeMillis()
         val before = _state.value.edited
         val joins = key != null && key == lastKey && now - lastAt < GESTURE_MILLIS
-        _state.update { f(it.copy(checker = null, cubeEval = null, selected = 0, message = null)) }
+        _state.update { f(it.copy(checker = null, cubeEval = null, selected = 0, message = null, steps = emptyList(), play = null, cubeChoice = null)) }
         lastKey = key
         lastAt = now
         if (!joins && _state.value.edited != before) {
@@ -134,8 +170,9 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
         _state.update {
             it.copy(
                 board = e.board, onRoll = e.onRoll, dice = e.dice, matchLength = e.matchLength,
-                score = e.score, crawford = e.crawford, jacoby = e.jacoby, cube = e.cube,
+                score = e.score, crawford = e.crawford, jacoby = e.jacoby, cube = e.cube, offered = e.offered,
                 checker = null, cubeEval = null, selected = 0, message = null, canUndo = history.isNotEmpty(),
+                steps = emptyList(), play = null, cubeChoice = null,
             )
         }
     }
@@ -229,6 +266,9 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
     fun setCrawford(on: Boolean) = edit { it.copy(crawford = on) }
     fun setJacoby(on: Boolean) = edit { it.copy(jacoby = on) }
 
+    /** A cube decision: the player on roll decides ([on] false), or has doubled and the other player answers. */
+    fun setOffered(on: Boolean) = edit { it.copy(offered = on) }
+
     fun setCube(value: Int, owner: Int) = edit { st ->
         st.copy(cube = if (value <= 1) CubeState() else CubeState(value, if (owner == -1) Player.HUMAN else owner))
     }
@@ -245,13 +285,26 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
             it.copy(
                 board = s.board, onRoll = s.onRoll,
                 dice = listOf(s.dice?.d1, s.dice?.d2), matchLength = s.matchLength, score = s.score,
-                crawford = s.crawford, jacoby = s.jacoby, cube = s.cube,
+                crawford = s.crawford, jacoby = s.jacoby, cube = s.cube, offered = s.doubled && s.dice == null,
             )
         }
         _state.update {
-            it.copy(message = "Imported the ${s.format}." + if (s.doubled) " A double was on offer: this is the cube decision." else "")
+            it.copy(message = "Imported the ${s.format}." + if (s.doubled) " A double is on offer: take or pass." else "")
         }
         return null
+    }
+
+    /**
+     * A position another app sent (an XGID): set up as an import, out of "Your play". One that cannot be read
+     * leaves an empty board and says why.
+     */
+    fun openSent(text: String) {
+        _state.update { it.copy(playMode = false) }
+        val error = if (text.isBlank()) "No position came with the request." else import(text.trim())
+        if (error != null) {
+            clear()
+            _state.update { it.copy(message = "The position sent could not be read: $error") }
+        }
     }
 
     /** The position as an XGID or a GNU ID ("PositionID:MatchID"), for XG or gnubg. */
@@ -260,7 +313,7 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
         val s = PositionSetup(
             board = st.board, onRoll = st.onRoll, dice = if (st.hasDice) Dice(st.dice[0]!!, st.dice[1]!!) else null,
             cube = if (st.isCrawford) CubeState() else st.cube, matchLength = st.matchLength, score = st.score,
-            crawford = st.isCrawford, jacoby = st.jacoby, format = "",
+            crawford = st.isCrawford, jacoby = st.jacoby, format = "", doubled = st.isOffered,
         )
         return if (xgid) PositionIds.toXgid(s) else PositionIds.toGnu(s)
     }
@@ -274,7 +327,85 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
             cube = if (st.isCrawford) CubeState() else st.cube, matchLength = st.matchLength, score = st.score,
             crawford = st.isCrawford, jacoby = st.jacoby, format = "XGID",
         )
-        return StudyPosition(StudyPosition.turned(s, st.onRoll), doubled = false, beavers = false)
+        // With a double on offer the player answering it decides (at the bottom); otherwise the player on roll.
+        return StudyPosition(StudyPosition.turned(s, if (st.isOffered) Player.other(st.onRoll) else st.onRoll), doubled = st.isOffered, beavers = false)
+    }
+
+    /** Switches between setting the position up and entering the decision ("Your play"). */
+    fun setPlayMode(on: Boolean) {
+        _state.update { st ->
+            val e = st.entry
+            // A roll that cannot be played is its own decision.
+            if (on && e != null && !e.options.canMove && st.play == null) st.copy(playMode = true, play = Move.NONE, message = "No legal move with this roll.")
+            else st.copy(playMode = on)
+        }
+    }
+
+    /** "Your play": a tap on [target] (human orientation) moves a checker there, or makes an empty point. */
+    fun tapPlay(target: Int) {
+        val st = _state.value
+        val e = st.entry ?: return
+        if (!st.playMode || st.play != null || st.analyzing) return
+        if (e.isPointTap(st.steps, target)) {
+            val plays = e.pointPlays(st.steps, target)
+            when {
+                plays.isEmpty() -> return
+                plays.size == 1 -> setSteps(plays.single().steps)
+                // Several ways to make the point: the engine's 1-ply best, as in a game.
+                else -> viewModelScope.launch {
+                    val ranked = runCatching {
+                        app.engine.run(st.engine) { rankMoves(st.board, st.ctx(), e.d1, e.d2, Depth(1).code, null).candidates }
+                    }.getOrDefault(emptyList())
+                    val pick = ranked.firstNotNullOfOrNull { c ->
+                        val after = st.board.applyMove(st.onRoll, c.move)
+                        plays.firstOrNull { st.board.applyMove(st.onRoll, it.move) == after }
+                    } ?: plays.first()
+                    if (_state.value.steps == st.steps && _state.value.play == null) setSteps(pick.steps)
+                }
+            }
+            return
+        }
+        e.tap(st.steps, target)?.let(::setSteps)
+    }
+
+    /** "Your play": a checker dragged from [from] to [to] (human orientation). */
+    fun dragPlay(from: Int, to: Int) {
+        val st = _state.value
+        val e = st.entry ?: return
+        if (!st.playMode || st.play != null || st.analyzing) return
+        e.drag(st.steps, from, to)?.let(::setSteps)
+    }
+
+    /** Takes back the last checker moved in the play being entered (or the last of the complete play). */
+    fun undoPlayStep() {
+        val st = _state.value
+        if (st.analyzing || st.steps.isEmpty()) return
+        _state.update { it.copy(steps = it.steps.dropLast(1), play = null, selected = 0) }
+    }
+
+    /** Clears the decision entered. */
+    fun clearDecision() = _state.update { it.copy(steps = emptyList(), play = if (it.entry?.options?.canMove == false) Move.NONE else null, cubeChoice = null, selected = 0) }
+
+    /** The cube decision entered ([c] null clears it). */
+    fun setCubeChoice(c: CubeChoice?) = _state.update { it.copy(cubeChoice = c) }
+
+    private fun setSteps(steps: List<Step>) {
+        val e = _state.value.entry ?: return
+        val play = e.move(steps)
+        _state.update { it.copy(steps = steps, play = play) }
+        if (play != null) afterPlay()
+    }
+
+    /**
+     * A play entered after an analysis: shown when the analysis searched it as deeply as the best play,
+     * otherwise the position is analyzed again with it (as a game's analysis would).
+     */
+    private fun afterPlay() {
+        val st = _state.value
+        val a = st.checker ?: return
+        if (a.candidates.isEmpty()) return
+        val i = st.playIndex
+        if (i != null && a.candidates[i].plies == a.candidates[0].plies) select(i) else analyze()
     }
 
     fun setEngine(e: EngineKind) = _state.update { it.copy(engineChoice = e) }
@@ -287,6 +418,10 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
         val st = _state.value
         if (st.analyzing) return null
         st.problem?.let { msg -> _state.update { it.copy(message = msg) }; return null }
+        if (st.playMode && st.hasDice && st.play == null && st.steps.isNotEmpty()) {
+            _state.update { it.copy(message = "Finish your play first, or clear it.") }
+            return null
+        }
         _state.update { it.copy(analyzing = true, message = null) }
         return viewModelScope.launch {
             val plies = st.checkerDepth.code
@@ -296,15 +431,17 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
             val result = runCatching {
                 app.engine.run(st.engine, Waiting.ANALYSIS) {
                     if (dice != null) MatchController(this, DiceSource.secure(), AnalysisSettings(plies = plies, cubePlies = cubePlies))
-                        .analyzeChecker(st.board, ctx, dice, null, plies) to null
+                        .analyzeChecker(st.board, ctx, dice, st.play?.takeIf { !it.isEmpty }, plies) to null
                     else null to cubeDecision(st.board, ctx, cubePlies)
                 }
             }
             _state.update {
                 result.fold(
                     onSuccess = { (c, e) ->
+                        // The play entered (if any) is the one shown: its arrows and its row.
+                        val withResult = it.copy(checker = c, cubeEval = e)
                         it.copy(
-                            analyzing = false, checker = c, cubeEval = e, selected = 0,
+                            analyzing = false, checker = c, cubeEval = e, selected = withResult.playIndex ?: 0,
                             message = if (c != null && c.candidates.isEmpty()) "No legal move with this roll." else null,
                         )
                     },

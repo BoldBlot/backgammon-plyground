@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.8.17 — 2026-11-15 (build 80, internal test)
+
+- Analyze Position: "Your decision" beside "Set up". With dice, play the roll on the board as in a game (taps and
+  drags), for whichever side is on roll; Undo and Clear are beside the play. Without dice, choose the cube
+  decision. Analyze always includes your play, searched as deeply as the best plays (as the analysis of a game
+  does with the play made), and marks it in the results with its error. A play entered after an analysis is
+  shown at once, or analyzed again if the analysis had not searched it deeply enough.
+- Analyze Position: a cube decision is either "On roll decides" (No double, Double/take or Double/pass: the whole
+  decision, with the error of the answer chosen added to the doubler's) or "Double offered" (the player on roll
+  has doubled; the other player takes or passes). An XGID with a double on offer opens as "Double offered", and
+  Copy XGID keeps the double.
+- Shared pictures with the analysis: the decision made (yours, the game's, or the one entered in Analyze
+  Position) is tinted in its error level's colour and tagged with it ("decision · Blunder"). The footer names
+  PureTD's network (PureTD 5L or PureTD 4L) and boldblot.com.
+- Match Library: several match files (.xg and .mat) can be picked at once. When the matches share a player, one
+  dialog asks which player you are for all of them; otherwise each file has its own. Files that cannot be read
+  are listed, and the rest are imported.
+- An XGID or GNU ID shared to PlyGround as text (selected on a web page, for example, then Share) opens Analyze
+  Position with that position set up. Text with several positions still goes to My positions.
+- Other apps can open Analyze Position with a position (an XGID).
+- Match play cube decisions: after the Crawford game, when doubling costs nothing (any win already gives the
+  opponent the match), the played-out games' noise could list No double ahead of Double/take; it is now always
+  just behind it.
+
 ## 0.8.16 — 2026-11-14 (build 79)
 
 - Match play with PureTD: a take that leaves the taker a redouble at no risk was valued far too low.

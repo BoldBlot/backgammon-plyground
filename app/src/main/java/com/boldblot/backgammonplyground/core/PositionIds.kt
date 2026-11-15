@@ -39,6 +39,20 @@ object PositionIds {
         return parseGnu(pos, match)
     }
 
+    /**
+     * The one position in [text] shared with PlyGround (an XGID anywhere in it, or a GNU ID on its own line), or null
+     * when it holds none, several, or is a positions file: those go to My positions.
+     */
+    fun single(text: String): String? {
+        val t = text.trim()
+        if (t.isEmpty() || t.startsWith("{")) return null
+        val xgids = XGID.findAll(t).map { it.value }.distinct().toList()
+        if (xgids.size == 1) return xgids.single().takeIf { runCatching { parseXgid(XGID.find(it)!!.groupValues[1]) }.isSuccess }
+        if (xgids.isNotEmpty()) return null
+        val lines = t.lines().filter { it.isNotBlank() }
+        return lines.singleOrNull()?.trim()?.takeIf { runCatching { parse(it) }.isSuccess }
+    }
+
     // ---- XGID ----------------------------------------------------------------------------------
 
     private val XGID = Regex("""(?:XGID=)?([-a-pA-P]{26}(?::-?\d+){3}:(?:\d\d|[DBR])(?::\d+){5})""")

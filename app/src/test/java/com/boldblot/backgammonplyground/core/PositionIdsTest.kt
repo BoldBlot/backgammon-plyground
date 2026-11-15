@@ -97,4 +97,16 @@ class PositionIdsTest {
         assertTrue(e?.message ?: "", e is IllegalArgumentException)
         assertTrue(runCatching { PositionIds.parse("hello") }.isFailure)
     }
+
+    @Test
+    fun `one position in shared text opens Analyze Position, several do not`() {
+        val x = "XGID=-b----E-C---eE---c-e----B-:0:0:1:00:0:0:0:0:10"
+        val y = "XGID=-b----E-C---eE---c-e----B-:0:0:1:52:0:0:0:0:10"
+        assertEquals(x, PositionIds.single(x))
+        assertEquals(x, PositionIds.single("Look at this one: $x — what do you play?"))
+        assertEquals("4HPwATDgc/ABMA:cAkAAAAAAAAA", PositionIds.single(" 4HPwATDgc/ABMA:cAkAAAAAAAAA\n"))
+        assertNull(PositionIds.single("$x\n$y"))
+        assertNull(PositionIds.single("""{"format":"x","positions":[{"xgid":"$x"}]}"""))
+        assertNull(PositionIds.single("hello"))
+    }
 }

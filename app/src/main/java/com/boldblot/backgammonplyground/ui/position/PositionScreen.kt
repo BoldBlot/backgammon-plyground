@@ -43,6 +43,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -158,9 +159,11 @@ private fun TopRow(vm: PositionViewModel, st: PositionState, capture: com.boldbl
         val scope = rememberCoroutineScope()
         val away = com.boldblot.backgammonplyground.ui.components.LocalScoreAway.current
         fun shareTitle() = vm.study()?.let { com.boldblot.backgammonplyground.ui.review.PositionShare.title(it, away) } ?: "Analyze Position"
+        // The decision entered is marked in the picture, with its error level.
         fun shareLines(s: PositionState) = com.boldblot.backgammonplyground.ui.review.PositionShare.analysisLines(
-            s.board, s.onRoll, s.checker, s.cubeEval, response = false, beavers = false,
-            playedIndex = null, playedKind = null, factor = XgRules.errorFactor(s.matchLength),
+            s.board, s.onRoll, s.checker, s.cubeEval, response = s.isOffered, beavers = false,
+            playedIndex = s.playIndex, playedKind = s.cubeChoice?.kind, factor = XgRules.errorFactor(s.matchLength),
+            playedAnswer = s.cubeChoice?.answer,
         )
         fun shareLabel(s: PositionState) = (s.checker?.label ?: s.cubeEval?.label)?.ifBlank { null }
         Box {
@@ -168,7 +171,7 @@ private fun TopRow(vm: PositionViewModel, st: PositionState, capture: com.boldbl
             DropdownMenu(sharing, onDismissRequest = { sharing = false }) {
                 com.boldblot.backgammonplyground.ui.review.SharePositionItems(
                     xgid = vm.exportId(xgid = true), title = shareTitle(), lines = shareLines(st), capture = capture,
-                    analysisLabel = shareLabel(st),
+                    analysisLabel = shareLabel(st), playedTag = "decision",
                     noAnalysis = {
                         val job = vm.analyze()
                         if (job != null) scope.launch {
@@ -176,7 +179,7 @@ private fun TopRow(vm: PositionViewModel, st: PositionState, capture: com.boldbl
                             val s = vm.state.value
                             val lines = shareLines(s)
                             if (lines.isNotEmpty()) com.boldblot.backgammonplyground.ui.review.PositionShare.analysisImage(
-                                context, capture, shareTitle(), lines, vm.exportId(xgid = true), unit, analysisLabel = shareLabel(s),
+                                context, capture, shareTitle(), lines, vm.exportId(xgid = true), unit, playedTag = "decision", analysisLabel = shareLabel(s),
                             )
                         }
                     },
@@ -248,25 +251,47 @@ fun PositionIdImportDialog(onDismiss: () -> Unit, read: (String) -> String?) {
 @Composable
 private fun EditorBoard(st: PositionState, vm: PositionViewModel, colors: BoardColors, modifier: Modifier) {
     val a = st.checker
+    val play = st.play?.takeIf { !it.isEmpty }
     val arrows = if (a != null && a.candidates.isNotEmpty()) {
         val i = st.selected.coerceIn(0, a.candidates.lastIndex)
         val c = a.candidates[i]
         val sev = XgRules.severity((a.bestEquity - c.equity) * XgRules.errorFactor(st.matchLength))
         arrowsFor(st.onRoll, c.move, if (i == 0) ArrowColors.best else ArrowColors.forSeverity(sev))
-    } else emptyList()
+    } else if (play != null) arrowsFor(st.onRoll, play, ArrowColors.neutral)
+    else emptyList()
+    // "Your play" while a play is being entered: the board takes moves of the player on roll, not edits.
+    val entering = st.playMode && st.hasDice && st.play == null
+    val board = st.shownBoard
     BoardView(
-        board = st.board, modifier = modifier, colors = colors, mirrored = st.settings.mirrorBoard,
+        board = board, modifier = modifier, colors = colors, mirrored = st.settings.mirrorBoard,
         dice = if (st.hasDice) listOf(DiceView(st.onRoll, listOf(st.dice[0]!!, st.dice[1]!!).sortedDescending())) else emptyList(),
         cube = if (st.isCrawford) com.boldblot.backgammonplyground.core.CubeState() else st.cube,
-        pips = listOf(st.board.pipCount(Player.HUMAN), st.board.pipCount(Player.CPU)),
-        arrows = arrows,
-        onEditTap = { target, slot, barPlayer -> if (target == BAR) vm.tapBar(barPlayer, slot) else vm.tapPoint(target, slot) },
-        onEditSwipe = { target, delta, barPlayer -> if (target == BAR) vm.swipeBar(barPlayer, delta) else vm.swipePoint(target, delta) },
+        cubeOffered = st.isOffered,
+        pips = listOf(board.pipCount(Player.HUMAN), board.pipCount(Player.CPU)),
+        arrows = if (entering) emptyList() else arrows,
+        movable = if (entering) st.entry?.movable(st.steps).orEmpty() else emptySet(),
+        onTap = if (entering) vm::tapPlay else null,
+        onDrag = if (entering) vm::dragPlay else null,
+        dragPlayer = st.onRoll,
+        onEditTap = if (st.playMode) null else { target, slot, barPlayer -> if (target == BAR) vm.tapBar(barPlayer, slot) else vm.tapPoint(target, slot) },
+        onEditSwipe = if (st.playMode) null else { target, delta, barPlayer -> if (target == BAR) vm.swipeBar(barPlayer, delta) else vm.swipePoint(target, delta) },
     )
 }
 
 @Composable
 private fun BrushRow(st: PositionState, vm: PositionViewModel, colors: BoardColors) {
+    // Setting the position up, or entering the decision made in it.
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+        listOf(false to "Set up", true to "Your decision").forEachIndexed { i, (on, label) ->
+            SegmentedButton(selected = st.playMode == on, onClick = { vm.setPlayMode(on) }, shape = SegmentedButtonDefaults.itemShape(i, 2)) {
+                Text(label, maxLines = 1)
+            }
+        }
+    }
+    if (st.playMode) {
+        DecisionRow(st, vm)
+        return
+    }
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("Tap places ", style = MaterialTheme.typography.labelLarge)
         SingleChoiceSegmentedButtonRow(Modifier.weight(1f)) {
@@ -286,6 +311,77 @@ private fun BrushRow(st: PositionState, vm: PositionViewModel, colors: BoardColo
             "(you ${off[0]}, opponent ${off[1]}).",
         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+/** "Your decision": the play being entered (with Undo and Clear), or the cube decision as chips. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DecisionRow(st: PositionState, vm: PositionViewModel) {
+    val decider = if (st.isOffered) Player.other(st.onRoll) else st.onRoll
+    val who = if (decider == Player.HUMAN) "Your" else "Your opponent's"
+    val hint = MaterialTheme.typography.labelSmall
+    val grey = MaterialTheme.colorScheme.onSurfaceVariant
+    val factor = XgRules.errorFactor(st.matchLength)
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        val e = st.entry
+        if (e != null) {
+            val shown = when {
+                st.play?.isEmpty == true -> "no legal move"
+                st.play != null -> com.boldblot.backgammonplyground.core.MoveNotation.format(st.board, st.onRoll, st.play)
+                st.steps.isNotEmpty() -> com.boldblot.backgammonplyground.core.MoveNotation.format(st.board, st.onRoll, com.boldblot.backgammonplyground.core.Move(st.steps)) + " …"
+                else -> "–"
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("$who play: ", style = MaterialTheme.typography.labelLarge)
+                Text(shown, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+                // Its error, once the analysis has it.
+                val a = st.checker
+                val i = st.playIndex
+                if (a != null && i != null) {
+                    val diff = a.candidates[i].equity - a.bestEquity
+                    val sev = XgRules.severity(-diff * factor)
+                    if (diff < -0.0005f) com.boldblot.backgammonplyground.ui.components.ErrorPill(com.boldblot.backgammonplyground.ui.components.errText(diff), sev, style = MaterialTheme.typography.bodySmall, mono = true)
+                    else Text(sev.label, style = MaterialTheme.typography.labelLarge, color = com.boldblot.backgammonplyground.ui.theme.Quality.color(sev, androidx.compose.foundation.isSystemInDarkTheme()))
+                }
+                TextButton(onClick = vm::undoPlayStep, enabled = st.steps.isNotEmpty() && !st.analyzing) { Text("Undo") }
+                TextButton(onClick = vm::clearDecision, enabled = st.steps.isNotEmpty() && !st.analyzing) { Text("Clear") }
+            }
+            Text(
+                if (st.play == null) "Tap a checker of the player on roll to move it (the higher die first), or drag it; tap an empty point to make it. " +
+                    "Analyze then always includes this play, searched as deeply as the best plays."
+                else "Analyze includes this play, searched as deeply as the best plays.",
+                style = hint, color = grey,
+            )
+        } else {
+            val choices = when {
+                st.isOffered -> listOf(com.boldblot.backgammonplyground.core.CubeChoice.TAKE, com.boldblot.backgammonplyground.core.CubeChoice.PASS)
+                st.canDouble -> listOf(
+                    com.boldblot.backgammonplyground.core.CubeChoice.NO_DOUBLE, com.boldblot.backgammonplyground.core.CubeChoice.DOUBLE_TAKE,
+                    com.boldblot.backgammonplyground.core.CubeChoice.DOUBLE_PASS,
+                )
+                else -> emptyList()
+            }
+            Text("$who cube decision", style = MaterialTheme.typography.labelLarge)
+            if (choices.isEmpty()) {
+                Text("The player on roll can't double here.", style = hint, color = grey)
+            } else {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    choices.forEach { c ->
+                        FilterChip(selected = st.cubeChoice == c, onClick = { vm.setCubeChoice(if (st.cubeChoice == c) null else c) }, label = { Text(c.label) })
+                    }
+                }
+                st.cubeEval?.let { ev -> st.cubeChoice?.let { c ->
+                    val err = c.error(ev)
+                    val sev = XgRules.severity(err * factor)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${c.label}: ", style = MaterialTheme.typography.bodyMedium)
+                        if (err > 0.0005f) com.boldblot.backgammonplyground.ui.components.ErrorPill(com.boldblot.backgammonplyground.ui.components.errText(-err), sev, style = MaterialTheme.typography.bodySmall, mono = true)
+                        else Text(sev.label, style = MaterialTheme.typography.labelLarge, color = com.boldblot.backgammonplyground.ui.theme.Quality.color(sev, androidx.compose.foundation.isSystemInDarkTheme()))
+                    }
+                } }
+            }
+        }
+    }
 }
 
 @Composable
@@ -359,6 +455,18 @@ private fun Controls(st: PositionState, vm: PositionViewModel, colors: BoardColo
                     }
                 }
             }
+            // A cube decision: the whole decision of the player on roll, or a double already offered (take or pass).
+            if (!st.hasDice) {
+                Labelled("Cube decision") {
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        listOf(false to "On roll decides", true to "Double offered").forEachIndexed { i, (on, label) ->
+                            SegmentedButton(selected = st.offered == on, onClick = { vm.setOffered(on) }, shape = SegmentedButtonDefaults.itemShape(i, 2)) {
+                                Text(label, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
         }
         Labelled("Analysis") {
             AnalysisLevelPicker(
@@ -390,7 +498,7 @@ private fun Results(st: PositionState, vm: PositionViewModel, colors: BoardColor
         HorizontalDivider()
         Text("$who on roll · ${listOf(st.dice[0]!!, st.dice[1]!!).sortedDescending().joinToString("")}", style = MaterialTheme.typography.titleSmall)
         CandidateList(
-            board = st.board, player = st.onRoll, analysis = a, factor = factor, highlightIndex = null,
+            board = st.board, player = st.onRoll, analysis = a, factor = factor, highlightIndex = st.playIndex, playedLabel = "decision",
             maxRows = 10, selectedIndex = st.selected, detailed = true,
             moverColor = if (st.onRoll == Player.HUMAN) colors.human else colors.cpu,
             opponentColor = if (st.onRoll == Player.HUMAN) colors.cpu else colors.human,
@@ -401,6 +509,15 @@ private fun Results(st: PositionState, vm: PositionViewModel, colors: BoardColor
     }
     st.cubeEval?.let { e ->
         HorizontalDivider()
+        val choice = st.cubeChoice
+        if (st.isOffered) {
+            Text(if (st.onRoll == Player.CPU) "Your opponent doubles: take or pass?" else "You double: does your opponent take or pass?", style = MaterialTheme.typography.titleSmall)
+            CubeTable(
+                e, DecisionKind.TAKE, factor, mine = choice?.takeIf { it.isResponse }?.kind, mineLabel = "decision",
+                colors = boardColorsFor(st.settings), rollerHuman = st.onRoll == Player.HUMAN,
+            )
+            return
+        }
         if (st.onRoll == Player.CPU) {
             Text("If your opponent doubles: take or pass?", style = MaterialTheme.typography.titleSmall)
             CubeTable(e, DecisionKind.TAKE, factor, colors = boardColorsFor(st.settings), rollerHuman = false)
@@ -408,7 +525,10 @@ private fun Results(st: PositionState, vm: PositionViewModel, colors: BoardColor
         } else {
             Text("Your cube decision", style = MaterialTheme.typography.titleSmall)
         }
-        CubeTable(e, null, factor, colors = boardColorsFor(st.settings), rollerHuman = st.onRoll == Player.HUMAN)
+        CubeTable(
+            e, null, factor, mine = choice?.takeIf { !it.isResponse }?.kind, mineAnswer = choice?.answer, mineLabel = "decision",
+            colors = boardColorsFor(st.settings), rollerHuman = st.onRoll == Player.HUMAN,
+        )
     }
 }
 

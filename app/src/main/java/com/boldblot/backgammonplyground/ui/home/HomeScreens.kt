@@ -7,6 +7,7 @@ import androidx.compose.runtime.produceState
 import com.boldblot.backgammonplyground.ui.components.errWithUnit
 import com.boldblot.backgammonplyground.ui.components.LocalErrorUnit
 import com.boldblot.backgammonplyground.core.XgRules
+import com.boldblot.backgammonplyground.core.MatchFileRead
 import com.boldblot.backgammonplyground.ui.positions.libraryAverageError
 import com.boldblot.backgammonplyground.core.NewErrors
 import com.boldblot.backgammonplyground.AppLog
@@ -469,42 +470,56 @@ fun HistoryScreen(
     val context = LocalContext.current
     val settings by app.settings.settings.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
-    // Importing a .mat file: picked here, or opened with PlyGround from another app.
-    var importing by remember { mutableStateOf<MatImport.ParsedMatch?>(null) }
+    // Importing match files (.mat or .xg): picked here (several at once), or opened with PlyGround from another app.
+    // [queue]: files imported one by one, a dialog each; [batch]: several files with a player in common, one dialog.
+    var queue by remember { mutableStateOf<List<MatchFileRead>>(emptyList()) }
+    var batch by remember { mutableStateOf<List<MatchFileRead>?>(null) }
     var importError by remember { mutableStateOf<String?>(null) }
-    // An .xg file: its match is imported like a .mat file's, then gets the analysis the file carries.
-    var importingXg by remember { mutableStateOf<XgImport.Parsed?>(null) }
-    fun readMatch(text: String) {
-        importingXg = null
-        runCatching { MatImport.parse(text) }
-            .onSuccess { importing = it }
-            .onFailure { importError = it.message ?: "The file could not be read." }
+    var importDone by remember { mutableStateOf<String?>(null) }
+    /** Files read for import: one goes to its own dialog, several with a player in common to one dialog. */
+    fun startImport(files: List<MatchFileRead>, failed: List<String>) {
+        if (failed.isNotEmpty()) {
+            importError = if (files.isEmpty() && failed.size == 1) failed.single().substringAfter(": ")
+            else "${failed.size} of ${files.size + failed.size} files could not be read:\n" + failed.joinToString("\n")
+        }
+        when {
+            files.size > 1 && MatchFileRead.commonNames(files).isNotEmpty() -> batch = files
+            else -> queue = files
+        }
     }
-    /** A match file's bytes: an eXtreme Gammon .xg file, or the text of a .mat file. */
-    fun readMatchFile(bytes: ByteArray) {
-        if (!XgImport.isXg(bytes)) return readMatch(String(bytes))
-        runCatching { XgImport.parse(bytes) }
-            .onSuccess { importingXg = it; importing = it.match }
-            .onFailure { importError = it.message ?: "The file could not be read." }
-    }
+    fun readMatchFile(name: String, bytes: ByteArray) = MatchFileRead.read(name, bytes).fold(
+        onSuccess = { startImport(listOf(it), emptyList()) },
+        onFailure = { startImport(emptyList(), listOf("$name: ${it.message ?: "The file could not be read."}")) },
+    )
     val pendingXg by app.pendingMatchFile.collectAsState()
     LaunchedEffect(pendingXg) {
         pendingXg?.let { bytes ->
             app.pendingMatchFile.value = null
-            readMatchFile(bytes)
+            readMatchFile("match", bytes)
         }
     }
     val pendingMatch by app.pendingMatch.collectAsState()
     LaunchedEffect(pendingMatch) {
         pendingMatch?.let { text ->
             app.pendingMatch.value = null
-            readMatch(text)
+            readMatchFile("match", text.toByteArray())
         }
     }
-    val matchPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
-            if (bytes == null) importError = "The file could not be read." else readMatchFile(bytes)
+    val matchPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            val read = withContext(Dispatchers.IO) {
+                uris.map { uri ->
+                    val name = runCatching {
+                        context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                            ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+                    }.getOrNull() ?: uri.lastPathSegment ?: "file"
+                    val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+                    if (bytes == null) Result.failure(IllegalStateException("$name: The file could not be read."))
+                    else MatchFileRead.read(name, bytes).recoverCatching { throw IllegalStateException("$name: ${it.message ?: "The file could not be read."}") }
+                }
+            }
+            startImport(read.mapNotNull { it.getOrNull() }, read.mapNotNull { it.exceptionOrNull()?.message })
         }
     }
     suspend fun reload() {
@@ -561,7 +576,7 @@ fun HistoryScreen(
                 title = { Text("Match Library") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
-                    IconButton(onClick = { matchPicker.launch(arrayOf("*/*")) }) { Icon(Icons.Default.FileOpen, "Import a match (.mat or .xg)") }
+                    IconButton(onClick = { matchPicker.launch(arrayOf("*/*")) }) { Icon(Icons.Default.FileOpen, "Import matches (.mat or .xg)") }
                     if (!matches.isNullOrEmpty()) {
                         IconButton(onClick = { selecting = true }) { Icon(Icons.Default.Share, "Export matches") }
                     }
@@ -628,28 +643,32 @@ fun HistoryScreen(
             }
         }
     }
-    importing?.let { parsed ->
+    /** Replays and stores [f] with [you] as the player; the games' keys go to the background analysis. */
+    suspend fun importFile(f: MatchFileRead, you: Int, both: Boolean): MatImport.ImportedMatch {
+        val im = withContext(Dispatchers.Default) {
+            MatImport.replay(f.match, you, skipBad = f.xg != null).let { im -> if (f.xg != null) XgImport.withAnalysis(im, f.xg, you) else im }
+        }
+        onImported(app.repository.importMatch(im, both, withAnalysis = f.xg != null, minError = settings?.newErrorsMin ?: 0f))
+        return im
+    }
+    if (importError == null) queue.firstOrNull()?.let { f ->
+        val parsed = f.match
         MatchImportDialog(
-            parsed, defaultYou = if (settings?.meFirstInFiles == true) 0 else 1, analyzed = importingXg?.match === parsed,
-            onDismiss = { importing = null; importingXg = null },
+            parsed, defaultYou = if (settings?.meFirstInFiles == true) 0 else 1, analyzed = f.xg != null,
+            fileName = f.name.takeIf { queue.size > 1 },
+            onDismiss = { queue = queue.drop(1) },
         ) { you, both ->
-            importing = null
-            val xg = importingXg?.takeIf { it.match === parsed }
-            importingXg = null
+            queue = queue.drop(1)
             scope.launch {
-                runCatching {
-                    withContext(Dispatchers.Default) { MatImport.replay(parsed, you, skipBad = xg != null).let { im -> if (xg != null) XgImport.withAnalysis(im, xg, you) else im } }
-                }
+                runCatching { importFile(f, you, both) }
                     .onSuccess { im ->
-                        val keys = app.repository.importMatch(im, both, withAnalysis = xg != null, minError = settings?.newErrorsMin ?: 0f)
-                        onImported(keys)
                         reload()
                         val games = "${im.games.size} game${if (im.games.size == 1) "" else "s"}"
                         val waiting = im.games.sumOf { g -> g.state.decisions.count { it.pending } }
                         Toast.makeText(
                             context,
                             when {
-                                xg == null -> "Imported $games; analyzing in the background."
+                                f.xg == null -> "Imported $games; analyzing in the background."
                                 waiting == 0 -> "Imported $games with eXtreme Gammon's analysis."
                                 else -> "Imported $games with eXtreme Gammon's analysis; $waiting decision${if (waiting == 1) "" else "s"} without one ${if (waiting == 1) "is" else "are"} analyzed in the background."
                             } + im.skipped.joinToString("") { (n, why) -> " Game $n was left out: $why" },
@@ -659,6 +678,36 @@ fun HistoryScreen(
                     .onFailure { importError = it.message ?: "The match could not be read." }
             }
         }
+    }
+    if (importError == null) batch?.let { files ->
+        val common = MatchFileRead.commonNames(files)
+        val firstColumn = files.first().match.names.getOrNull(if (settings?.meFirstInFiles == true) 0 else 1)
+        MatchesImportDialog(
+            files, common,
+            defaultYou = settings?.playerName?.takeIf { it in common } ?: firstColumn?.takeIf { it in common } ?: common.first(),
+            onDismiss = { batch = null },
+        ) { name, both ->
+            batch = null
+            scope.launch {
+                val done = mutableListOf<Pair<MatchFileRead, MatImport.ImportedMatch>>()
+                val failed = mutableListOf<String>()
+                for (f in files) {
+                    runCatching { importFile(f, f.match.names.indexOf(name), both) }
+                        .onSuccess { done += f to it }
+                        .onFailure { failed += "${f.name}: ${it.message ?: "The match could not be read."}" }
+                }
+                reload()
+                importDone = MatchFileRead.summary(done, failed)
+            }
+        }
+    }
+    importDone?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { importDone = null },
+            title = { Text("Matches imported") },
+            text = { Text(msg) },
+            confirmButton = { TextButton(onClick = { importDone = null }) { Text("OK") } },
+        )
     }
     importError?.let { msg ->
         AlertDialog(

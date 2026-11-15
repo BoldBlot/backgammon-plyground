@@ -235,6 +235,8 @@ fun BoardView(
     /** Tap on the human's dice. */
     onDiceTap: (() -> Unit)? = null,
     onDrag: ((from: Int, to: Int) -> Unit)? = null,
+    /** Whose checkers [onDrag] moves (Analyze Position enters either side's play); targets stay in human orientation. */
+    dragPlayer: Int = Player.HUMAN,
     /** Points (human orientation) to mark for checking (framed in orange). */
     flagged: Set<Int> = emptySet(),
     /** Home board on the left (Settings → Board); see [BoardGeometry]. */
@@ -348,7 +350,7 @@ fun BoardView(
         drawFlags(g, flagged)
         // The Crawford sign lies under the checkers: a checker on the bar may cover it.
         if ((crawford || dmp) && !cubeOffered && crawfordSign) drawBarSign(g, measurer, if (crawford) "CRAWFORD" else "DMP")
-        drawCheckers(g, colors, board, dragFrom, measurer)
+        drawCheckers(g, colors, board, dragFrom, measurer, dragPlayer)
         if (lastCpuSteps.isNotEmpty()) {
             val cpu = arrowsFor(Player.CPU, com.boldblot.backgammonplyground.core.Move(lastCpuSteps), colors.lastMove)
             drawArrows(g, board, splitAtHits(cpu) { _, p -> p in lastCpuHits }, postMove = true)
@@ -358,7 +360,10 @@ fun BoardView(
         pips?.let { drawPips(g, colors, it, measurer) }
         dice.forEach { drawDice(g, colors, it) }
         drawArrows(g, board, splitAtHits(arrows, hitsOn(board)), postMove = false)
-        dragFrom?.let { checker(dragPos, g.radius * 1.08f, colors.human, colors.humanRim, colors.checkerStyle) }
+        dragFrom?.let {
+            if (dragPlayer == Player.HUMAN) checker(dragPos, g.radius * 1.08f, colors.human, colors.humanRim, colors.checkerStyle)
+            else checker(dragPos, g.radius * 1.08f, colors.cpu, colors.cpuRim, colors.checkerStyle)
+        }
     }
 }
 
@@ -436,13 +441,13 @@ internal fun DrawScope.checker(center: Offset, r: Float, fill: Color, rim: Color
     }
 }
 
-private fun DrawScope.drawCheckers(g: BoardGeometry, c: BoardColors, board: Board, dragFrom: Int?, measurer: TextMeasurer) {
+private fun DrawScope.drawCheckers(g: BoardGeometry, c: BoardColors, board: Board, dragFrom: Int?, measurer: TextMeasurer, dragPlayer: Int = Player.HUMAN) {
     for (player in 0..1) {
         val fill = if (player == Player.HUMAN) c.human else c.cpu
         val rim = if (player == Player.HUMAN) c.humanRim else c.cpuRim
         for (idx in 0 until 24) {
             var n = board.count(player, idx)
-            if (player == Player.HUMAN && dragFrom == idx) n--
+            if (player == dragPlayer && dragFrom == (if (player == Player.HUMAN) idx else 23 - idx)) n--
             if (n <= 0) continue
             val humanIdx = if (player == Player.HUMAN) idx else 23 - idx
             val shown = min(n, 5)
@@ -457,7 +462,7 @@ private fun DrawScope.drawCheckers(g: BoardGeometry, c: BoardColors, board: Boar
             }
         }
         var bar = board.bar(player)
-        if (player == Player.HUMAN && dragFrom == BAR) bar--
+        if (player == dragPlayer && dragFrom == BAR) bar--
         for (k in 0 until min(bar, 4)) checker(g.barCenter(player, k), g.radius, fill, rim, c.checkerStyle, seed = player * 1000 + 500 + k)
         if (bar > 4) {
             val t = measurer.measure(bar.toString(), TextStyle(color = Color.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold))

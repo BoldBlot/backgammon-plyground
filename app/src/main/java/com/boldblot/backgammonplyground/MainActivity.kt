@@ -68,6 +68,11 @@ private const val ALL_POSITIONS = 0L
 
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        /** The action another app sends to open Analyze Position with a position: the XGID in [Intent.EXTRA_TEXT]. */
+        const val ACTION_ANALYZE_POSITION = "com.boldblot.backgammonplyground.action.ANALYZE_POSITION"
+    }
+
     private val app: PlyGroundApp get() = application as PlyGroundApp
 
     private inline fun <reified T : ViewModel> factory(crossinline create: () -> T) = object : ViewModelProvider.Factory {
@@ -80,6 +85,11 @@ class MainActivity : ComponentActivity() {
 
     /** A positions file opened with PlyGround from another app (Files, Bluetooth, email, Quick Share). */
     private fun readImport(intent: Intent?) {
+        // Another app's position for Analyze Position (an XGID as text).
+        if (intent?.action == ACTION_ANALYZE_POSITION) {
+            app.pendingAnalyze.value = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+            return
+        }
         val uri: Uri? = when (intent?.action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND -> @Suppress("DEPRECATION") (intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
@@ -94,7 +104,14 @@ class MainActivity : ComponentActivity() {
         val text = bytes?.let { String(it) }
             ?: intent?.takeIf { it.action == Intent.ACTION_SEND }?.getStringExtra(Intent.EXTRA_TEXT)
         if (text != null) {
-            if (com.boldblot.backgammonplyground.ui.home.looksLikeMatch(text)) app.pendingMatch.value = text else app.pendingImport.value = text
+            val shared = bytes == null
+            when {
+                com.boldblot.backgammonplyground.ui.home.looksLikeMatch(text) -> app.pendingMatch.value = text
+                // Text with one position (an XGID selected on a page and shared) opens Analyze Position; several go to My positions.
+                shared && com.boldblot.backgammonplyground.core.PositionIds.single(text) != null ->
+                    app.pendingAnalyze.value = com.boldblot.backgammonplyground.core.PositionIds.single(text)
+                else -> app.pendingImport.value = text
+            }
         }
     }
 
@@ -146,6 +163,15 @@ class MainActivity : ComponentActivity() {
         val pendingMatchFile by app.pendingMatchFile.collectAsState()
         LaunchedEffect(pendingMatch != null, pendingMatchFile != null) {
             if ((pendingMatch != null || pendingMatchFile != null) && nav.currentDestination?.route != "history") nav.navigate("history")
+        }
+
+        // A position sent by another app opens Analyze Position with it set up.
+        val pendingAnalyze by app.pendingAnalyze.collectAsState()
+        LaunchedEffect(pendingAnalyze) {
+            val text = pendingAnalyze ?: return@LaunchedEffect
+            app.pendingAnalyze.value = null
+            positionVm.openSent(text)
+            if (nav.currentDestination?.route != "position") nav.navigate("position")
         }
 
         // The welcome screen: only when it has never been shown (a new install, or the app's data

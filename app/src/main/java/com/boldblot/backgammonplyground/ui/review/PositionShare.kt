@@ -261,11 +261,13 @@ object PositionShare {
     /**
      * The analysis for a shared picture: the five best plays of [checker] (and the one played, [playedIndex],
      * if it is not among them), or else the cube actions of [cube] ([response]: take / pass, otherwise the
-     * doubler's). [playedKind] marks the cube action taken. Empty without an analysis.
+     * doubler's). [playedKind] marks the cube action taken; with [playedAnswer] (Analyze Position's whole cube
+     * decision, "Double, take") the row of that answer is marked, at the level of the whole decision's error.
+     * Empty without an analysis.
      */
     fun analysisLines(
         board: Board, player: Int, checker: CheckerAnalysis?, cube: CubeEval?, response: Boolean, beavers: Boolean,
-        playedIndex: Int?, playedKind: DecisionKind?, factor: Float,
+        playedIndex: Int?, playedKind: DecisionKind?, factor: Float, playedAnswer: DecisionKind? = null,
     ): List<Line> {
         fun line(text: String, equity: Float, best: Float, played: Boolean) =
             Line(text, equity, equity - best, XgRules.severity((best - equity) * factor), played)
@@ -289,11 +291,15 @@ object PositionShare {
         }
         val best = maxOf(e.noDouble, DecisionMath.afterDouble(e, beavers))
         val doubled = playedKind == DecisionKind.DOUBLE
-        return listOf(
+        val takeRow = if (doubled && playedAnswer != null) playedAnswer == DecisionKind.TAKE else e.doubleTake <= e.doublePass
+        val lines = listOf(
             line("No double", e.noDouble, best, playedKind == DecisionKind.NO_DOUBLE),
-            line("Double, take", e.doubleTake, best, doubled && e.doubleTake <= e.doublePass),
-            line("Double, pass", e.doublePass, best, doubled && e.doubleTake > e.doublePass),
+            line("Double, take", e.doubleTake, best, doubled && takeRow),
+            line("Double, pass", e.doublePass, best, doubled && !takeRow),
         )
+        if (!doubled || playedAnswer == null) return lines
+        val whole = (DecisionMath.doubleError(e, doubled = true, beavers = beavers) + DecisionMath.takeError(e, playedAnswer, beavers)) * factor
+        return lines.map { if (it.played) it.copy(severity = XgRules.severity(whole)) else it }
     }
 
     /** [board] under [title], with the analysis [lines] and the [xgid] below it (if any), on a white card. */
@@ -307,8 +313,10 @@ object PositionShare {
         val small = text * 0.7f
         val row = text * 1.45f
         val top = pad + row
-        val label = analysisLabel?.takeIf { lines.isNotEmpty() }
-        val below = (if (lines.isNotEmpty()) pad + row * lines.size else 0f) + (if (label != null) small * 1.6f else 0f) +
+        val label = analysisLabel?.takeIf { lines.isNotEmpty() }?.let(::netLabel)
+        // The footer: "Analysis: …" with boldblot.com at its right end (pictures with an analysis).
+        val footer = lines.isNotEmpty()
+        val below = (if (lines.isNotEmpty()) pad + row * lines.size else 0f) + (if (footer) small * 1.6f else 0f) +
             (if (xgid != null) small * 2 else 0f) + pad / 2
         val h = (top + board.height + below).toInt()
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -324,18 +332,21 @@ object PositionShare {
         var y = top + board.height + pad + text
         for (l in lines) {
             if (l.played) {
-                c.drawRect(pad / 2, y - text * 1.05f, w - pad / 2, y + text * 0.4f, Paint().apply { color = android.graphics.Color.rgb(0xEC, 0xEF, 0xF6) })
+                // The decision made: a tint of its error level's colour, and the level in its tag.
+                c.drawRect(pad / 2, y - text * 1.05f, w - pad / 2, y + text * 0.4f, Paint().apply { color = tint(Quality.color(l.severity, false).toArgb()) })
             }
-            c.drawText(l.text + if (l.played) "   ($playedTag)" else "", pad, y, if (l.played) bold else sans)
+            c.drawText(l.text + if (l.played) "   ($playedTag · ${l.severity.label})" else "", pad, y, if (l.played) bold else sans)
             c.drawText(eq(l.equity), w - pad - text * 5.5f, y, mono)
             if (l.diff < -0.0005f) {
                 c.drawText(err(l.diff, unit), w - pad, y, Paint(mono).apply { color = Quality.color(l.severity, false).toArgb() })
             }
             y += row
         }
-        if (label != null) {
+        if (footer) {
             y += small * 0.1f
-            c.drawText("Analysis: $label", pad, y, Paint(sans).apply { textSize = small; color = grey })
+            val foot = Paint(sans).apply { textSize = small; color = grey }
+            if (label != null) c.drawText("Analysis: $label", pad, y, foot)
+            c.drawText(SITE, w - pad, y, Paint(foot).apply { textAlign = Paint.Align.RIGHT })
             y += small * 1.6f
         }
         if (xgid != null) {
@@ -343,6 +354,23 @@ object PositionShare {
             c.drawText(xgid, pad, y, Paint(sans).apply { textSize = small; color = grey; typeface = Typeface.MONOSPACE })
         }
         return out
+    }
+
+    /** The site named at the foot of a picture with an analysis. */
+    const val SITE = "boldblot.com"
+
+    /**
+     * An analysis label as a shared picture prints it: PureTD's network named either way, "PureTD 5L 3-ply"
+     * for the wide network (recorded as plain "PureTD") beside "PureTD 4L 3-ply" for the compact one.
+     */
+    fun netLabel(label: String): String = PLAIN_PURETD.replace(label, "PureTD 5L")
+
+    private val PLAIN_PURETD = Regex("""^PureTD(?! 4L\b)(?=\s|,|$)""")
+
+    /** [argb] lightened most of the way to white: the background of the decision made. */
+    private fun tint(argb: Int): Int {
+        fun mix(c: Int) = c + ((255 - c) * 0.82f).toInt()
+        return android.graphics.Color.rgb(mix(android.graphics.Color.red(argb)), mix(android.graphics.Color.green(argb)), mix(android.graphics.Color.blue(argb)))
     }
 
     /**

@@ -32,6 +32,8 @@ class PlyGroundApp : Application() {
     val pendingMatch = MutableStateFlow<String?>(null)
     /** An eXtreme Gammon .xg file opened with PlyGround from another app, waiting for the Match Library to import it. */
     val pendingMatchFile = MutableStateFlow<ByteArray?>(null)
+    /** A position (XGID) another app sent to Analyze Position ([MainActivity.ACTION_ANALYZE_POSITION]), waiting to be set up there. */
+    val pendingAnalyze = MutableStateFlow<String?>(null)
 
     override fun onCreate() {
         super.onCreate()
