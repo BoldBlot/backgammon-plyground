@@ -160,6 +160,8 @@ fun GameScreen(
     onReviewMarked: (matchId: Long, gameNumber: Int) -> Unit = { id, _ -> onReview(id) },
     /** Opens Settings; Back returns to the match. */
     onSettings: () -> Unit = {},
+    /** Opens the game quiz's menu on a finished match. */
+    onQuiz: ((matchId: Long) -> Unit)? = null,
 ) {
     val st by vm.state.collectAsState()
     val m = st.match
@@ -228,7 +230,7 @@ fun GameScreen(
     }
 
     st.gameOver?.let { info ->
-        key(summaryKey) { GameOverDialog(info, st.inStats, st.settings.gameSummary, st.analysisLeft, st.analysisEta, vm, onReview, onReviewMistakes, onReviewMarked, onBack) {
+        key(summaryKey) { GameOverDialog(info, st.inStats, st.settings.gameSummary, st.analysisLeft, st.analysisEta, vm, onReview, onReviewMistakes, onReviewMarked, onBack, onQuiz) {
             endSession(info.matchId, true, vm::endSession)
         } }
     }
@@ -237,6 +239,7 @@ fun GameScreen(
             vm.app, id, gameNumber = null, startWithMatch = true, onDismiss = { endedSession = null; onBack() },
             onReviewMistakes = { game -> endedSession = null; onReviewMistakes(id, game) },
             onDeleted = { endedSession = null; onBack() },
+            onQuiz = onQuiz?.let { q -> { q(id) } },
         )
     }
 }
@@ -1463,7 +1466,7 @@ private fun TryAgainCard(fb: Feedback, vm: GameViewModel) {
 private fun GameOverDialog(
     info: GameOverInfo, inStats: Boolean, gameSummary: Boolean, analysisLeft: Int, analysisEta: Long?, vm: GameViewModel, onReview: (Long) -> Unit,
     onReviewMistakes: (matchId: Long, gameNumber: Int) -> Unit, onReviewMarked: (matchId: Long, gameNumber: Int) -> Unit,
-    onBack: () -> Unit, onEndSession: () -> Unit,
+    onBack: () -> Unit, onQuiz: ((Long) -> Unit)?, onEndSession: () -> Unit,
 ) {
     val won = info.result.winner == Player.HUMAN
     val kind = when (info.result.type) {
@@ -1646,6 +1649,7 @@ private fun GameOverDialog(
                         TextButton(onClick = { onReview(info.matchId) }) { Text("Review") }
                     }
                     if (info.marked > 0) TextButton(onClick = { onReviewMarked(info.matchId, info.markedGame) }) { Text("Review marked") }
+                    if (info.matchOver && onQuiz != null) TextButton(onClick = { onQuiz(info.matchId) }, enabled = analysisLeft == 0) { Text("Quiz this match") }
                     if (info.isMoney && !info.matchOver) {
                         TextButton(onClick = onEndSession) { Text("End session") }
                     }

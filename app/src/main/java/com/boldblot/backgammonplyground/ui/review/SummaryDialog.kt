@@ -61,6 +61,8 @@ fun SavedSummaryDialog(
     onReviewMistakes: ((Int) -> Unit)? = null,
     /** Offers Delete for a finished match; called once it is deleted. */
     onDeleted: (() -> Unit)? = null,
+    /** Offers "Quiz this match" (the game quiz's menu). */
+    onQuiz: (() -> Unit)? = null,
 ) {
     var deleting by remember { mutableStateOf(false) }
     if (deleting) DeleteMatchDialog(app, matchId, onDismiss = { deleting = false }) { deleting = false; onDeleted?.invoke() }
@@ -143,6 +145,7 @@ fun SavedSummaryDialog(
         },
         confirmButton = {
             Row {
+                if (onQuiz != null && m != null && games.isNotEmpty()) TextButton(onClick = onQuiz) { Text("Quiz this match") }
                 if (onDeleted != null && m != null && m.status != MatchStatus.IN_PROGRESS) {
                     TextButton(onClick = { deleting = true }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
                 }

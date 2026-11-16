@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.2 — 2026-11-16 (build 83, internal test)
+
+- Game quiz: "Quiz this match" is also in a match's summary (Match Library and review) and in the summary at the
+  end of a match, once its analysis is finished.
+
 ## 0.9.1 — 2026-11-16 (build 82, internal test)
 
 - Match play, checker plays at 2-ply to 4-ply (and the plies before the played-out games): each position after a

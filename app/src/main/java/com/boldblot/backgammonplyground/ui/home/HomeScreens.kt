@@ -793,6 +793,7 @@ fun HistoryScreen(
         com.boldblot.backgammonplyground.ui.review.SavedSummaryDialog(
             app, m.id, gameNumber = null, startWithMatch = true, onDismiss = { summaryOf = null },
             onDeleted = { summaryOf = null; scope.launch { matches = app.repository.history() } },
+            onQuiz = { summaryOf = null; onQuiz(m.id) },
         )
     }
     toDelete?.let { m ->

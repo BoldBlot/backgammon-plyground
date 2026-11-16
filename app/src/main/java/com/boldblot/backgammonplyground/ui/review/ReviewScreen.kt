@@ -567,6 +567,7 @@ private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, cap
             vm.app, m.id, gameNumber = st.games.getOrNull(st.gameIndex)?.first?.number, startWithMatch = false,
             onDismiss = { summary = false },
             onDeleted = { summary = false; onBack() },
+            onQuiz = onQuiz?.let { q -> { summary = false; q(m.id) } },
         )
     }
 }

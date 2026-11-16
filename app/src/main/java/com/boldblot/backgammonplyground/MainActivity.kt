@@ -224,6 +224,7 @@ class MainActivity : ComponentActivity() {
                     onReviewMistakes = { id, game -> nav.navigate("review/$id?game=$game&mistakes=true&marks=true") },
                     onReviewMarked = { id, game -> nav.navigate("review/$id?game=$game&marks=true&markedOnly=true") },
                     onSettings = { nav.navigate("settings") },
+                    onQuiz = { id -> nav.navigate("gamequizmenu?match=$id") },
                 )
             }
             composable(
