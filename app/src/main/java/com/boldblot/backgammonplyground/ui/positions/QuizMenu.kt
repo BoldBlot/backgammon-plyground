@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -60,10 +61,12 @@ data class QuizSpec(
     val filter: Set<String> = emptySet(),
     val limit: Int = 0,
     val order: QuizOrder = QuizOrder.RANDOM,
+    /** Quiz a friend: the answers are judged and counted for the round, and nothing is written to the positions. */
+    val friend: Boolean = false,
 ) {
     /** For the quiz route (and the saved quick quiz). */
     fun encode(): String = listOf(
-        folders.joinToString(","), filter.joinToString("\n"), limit.toString(), order.code,
+        folders.joinToString(","), filter.joinToString("\n"), limit.toString(), order.code, if (friend) "1" else "",
     ).joinToString(";") { Uri.encode(it) }
 
     /** The positions [all] (already those of [folders]) that the quiz asks, before [limit] and order. */
@@ -79,6 +82,7 @@ data class QuizSpec(
                 filter = p.getOrNull(1).orEmpty().split('\n').filter { it.isNotBlank() }.toSet(),
                 limit = p.getOrNull(2)?.toIntOrNull() ?: 0,
                 order = QuizOrder.entries.firstOrNull { it.code == p.getOrNull(3) } ?: QuizOrder.RANDOM,
+                friend = p.getOrNull(4) == "1",
             )
         }
 
@@ -113,7 +117,12 @@ suspend fun quizPositions(app: PlyGroundApp, folders: List<Long>): List<SavedPos
 /** The quiz menu: folders, a label filter, how many questions and in what order. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Unit, preFilter: Set<String> = emptySet(), onStart: (QuizSpec) -> Unit) {
+fun QuizMenuScreen(
+    app: PlyGroundApp, preselected: List<Long>, onBack: () -> Unit, preFilter: Set<String> = emptySet(),
+    /** "From a match": the game quiz's menu. */
+    onGameQuiz: () -> Unit = {},
+    onStart: (QuizSpec) -> Unit,
+) {
     val settings by app.settings.settings.collectAsState(initial = null)
     var categories by remember { mutableStateOf<List<CategoryCount>?>(null) }
     var uncategorized by remember { mutableIntStateOf(0) }
@@ -122,6 +131,7 @@ fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Uni
     var filter by rememberSaveable { mutableStateOf(preFilter) }
     var limit by rememberSaveable { mutableIntStateOf(10) }
     var order by rememberSaveable { mutableStateOf(QuizOrder.RANDOM) }
+    var friend by rememberSaveable { mutableStateOf(false) }
     var savedNote by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     var matching by remember { mutableStateOf<Int?>(null) }
@@ -144,7 +154,7 @@ fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Uni
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
                     Button(
-                        onClick = { onStart(QuizSpec(folders.toList(), filter, limit, order)) },
+                        onClick = { onStart(QuizSpec(folders.toList(), filter, limit, order, friend)) },
                         enabled = (matching ?: 0) > 0, modifier = Modifier.padding(end = 8.dp),
                     ) { Text("Start") }
                 },
@@ -192,6 +202,22 @@ fun QuizMenuScreen(app: PlyGroundApp, preselected: List<Long>, onBack: () -> Uni
                     FilterChip(selected = order == o, onClick = { order = o }, label = { Text(o.label) })
                 }
             }
+            Row(Modifier.fillMaxWidth().clickable { friend = !friend }.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Quiz a friend", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Nothing is saved: no right or missed counts, last answers, trends or moves to Learned.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = friend, onCheckedChange = { friend = it })
+            }
+            Text("Game quiz", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            Text(
+                "The decisions of a saved match instead of My positions: its errors, its close decisions, either player's.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            AssistChip(onClick = onGameQuiz, label = { Text("From a match…") })
             Text("Quick quiz", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
             Text(
                 "The Quick quiz button on the main screen starts the quiz saved here (until you save one: all positions, 10, random).",

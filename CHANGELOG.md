@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.9.1 — 2026-11-16 (build 82, internal test)
+
+- Match play, checker plays at 2-ply to 4-ply (and the plies before the played-out games): each position after a
+  play is now valued with the cube inside the search. Both sides may double at every turn of the tree, and the
+  match cube formula is applied at each leaf with the cube as it is there; before, the search averaged cubeless
+  chances and applied the formula once. On our test decisions with rolled-out answers the loss per decision fell
+  by about a third at 3-ply and 4-ply, all of it with a centred cube. About a quarter slower. Money games are
+  unchanged.
+- Game quiz (new): a quiz on the decisions of a saved match. Choose what to stop at (close decisions, where the
+  two best are within an error, a blunder or your own value; errors made in the game, at least an error, a
+  blunder or your own value; any decision), whose decisions (both players, mine, the opponent's), cube decisions
+  or not, how many, which stay when the match has more (biggest errors, first, last, random) and the order (as in
+  the game, random). The opponent's decisions are shown at the bottom in their colour, at the bottom in my
+  colour, or at the top as in the game. Nothing is saved. Open it from a match's menu in the Match Library
+  ("Quiz this match"), from the review's ⋮ menu, or from the quiz menu ("From a match…").
+- Quiz: "Quiz a friend" in the quiz menu. The answers are judged and counted for the round, and nothing is
+  written to the positions: no right or missed counts, last answers, trends or moves to Learned.
+- Quiz: leaving a quiz under way (the system's back or the arrow) asks first.
+- Quiz: after "Analyze again", a position whose saved answer the new analysis calls an error says so and asks
+  whether to keep it, change it to the best answer or clear it (a saved answer decides Right and Wrong).
+- Match Library: a filter (won or lost, matches or money games, match length, my PR grade, opponent, favourites,
+  analyzed or not, when played) and an order (newest, oldest, my PR, the opponent's PR, rating after the match,
+  rating change). Both are remembered, and the game quiz's match list uses them.
+- Match Library: "Favourite" in a match's menu puts a star on it.
+- My positions: a folder can be ordered by quiz balance, lowest or highest first (positions never answered last).
+- Analyze Position: the rings on the checkers that can move sit on the top player's checkers when the top
+  player is on roll.
+
 ## 0.9.0 — 2026-11-15 (build 81)
 
 - Licence: Backgammon PlyGround is now free software under the GNU Affero General Public License, version 3 or

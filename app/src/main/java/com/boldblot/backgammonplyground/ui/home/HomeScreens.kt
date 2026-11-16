@@ -28,6 +28,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material3.AssistChip
+import com.boldblot.backgammonplyground.data.LibraryFilter
+import com.boldblot.backgammonplyground.data.LibrarySort
+import com.boldblot.backgammonplyground.data.LibraryView
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -458,8 +468,11 @@ fun HistoryScreen(
     analysisProgress: Map<Long, com.boldblot.backgammonplyground.ui.game.AnalysisProgress> = emptyMap(),
     /** The cog: Settings → Data and help, where the library's limit is. */
     onSettings: () -> Unit = {},
+    /** "Quiz this match" in a match's menu: the game quiz's menu. */
+    onQuiz: (Long) -> Unit = {},
 ) {
     var matches by remember { mutableStateOf<List<MatchEntity>?>(null) }
+    var filtering by remember { mutableStateOf(false) }
     var toDelete by remember { mutableStateOf<MatchEntity?>(null) }
     var summaryOf by remember { mutableStateOf<MatchEntity?>(null) }
     var clear by remember { mutableStateOf<ClearKind?>(null) }
@@ -561,7 +574,8 @@ fun HistoryScreen(
                     IconButton(onClick = { selecting = false; selected = emptySet() }) { Icon(Icons.Default.Close, "Stop selecting") }
                 },
                 actions = {
-                    val all = matches.orEmpty().map { it.id }.toSet()
+                    // All: the matches the filter shows.
+                    val all = LibraryView.list(matches.orEmpty(), LibraryFilter.decode(settings?.libraryFilter ?: ""), LibrarySort.NEWEST).map { it.id }.toSet()
                     TextButton(onClick = { selected = if (selected == all) emptySet() else all }) {
                         Text(if (selected == all && all.isNotEmpty()) "None" else "All")
                     }
@@ -611,9 +625,46 @@ fun HistoryScreen(
                     IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Library limit (Settings)") }
                 }
             }
+            // The filter and the order (kept in Settings; the game quiz's match list uses them too).
+            val filter = LibraryFilter.decode(settings?.libraryFilter ?: "")
+            val sort = settings?.librarySort ?: LibrarySort.NEWEST
+            val shown = list?.let { LibraryView.list(it, filter, sort) }
+            if (!list.isNullOrEmpty()) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    FilterChip(
+                        selected = filter.active, onClick = { filtering = true },
+                        leadingIcon = { Icon(Icons.Default.FilterList, null, Modifier.size(18.dp)) },
+                        label = { Text(if (filter.active) "Filter: ${shown?.size ?: 0} of ${list.size}" else "Filter") },
+                    )
+                    var sorting by remember { mutableStateOf(false) }
+                    Box {
+                        FilterChip(
+                            selected = sort != LibrarySort.NEWEST, onClick = { sorting = true },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Sort, null, Modifier.size(18.dp)) },
+                            label = { Text(sort.label) },
+                        )
+                        DropdownMenu(sorting, onDismissRequest = { sorting = false }) {
+                            LibrarySort.entries.forEach { o ->
+                                DropdownMenuItem(
+                                    text = { Text(o.label, fontWeight = if (o == sort) FontWeight.SemiBold else FontWeight.Normal) },
+                                    onClick = { sorting = false; scope.launch { app.settings.update { it.copy(librarySort = o) } } },
+                                )
+                            }
+                        }
+                    }
+                    if (filter.active) {
+                        filter.parts().forEach { part -> AssistChip(onClick = { filtering = true }, label = { Text(part) }) }
+                        TextButton(onClick = { scope.launch { app.settings.update { it.copy(libraryFilter = "") } } }) { Text("Clear") }
+                    }
+                }
+            }
             when {
-                list == null -> Unit
+                list == null || shown == null -> Unit
                 list.isEmpty() -> Text("No games played yet.", Modifier.padding(24.dp))
+                shown.isEmpty() -> Text("No matches pass the filter.", Modifier.padding(24.dp))
                 else -> LazyColumn(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
                     if (selecting) item {
                         Text(
@@ -623,12 +674,19 @@ fun HistoryScreen(
                             modifier = Modifier.padding(vertical = 6.dp),
                         )
                     }
-                    items(list, key = { it.id }) { m ->
+                    items(shown, key = { it.id }) { m ->
                         val checked = m.id in selected
                         fun toggle() { selected = if (checked) selected - m.id else selected + m.id }
                         HistoryRow(
                             m, { if (selecting) toggle() else onReview(m.id) }, { toDelete = m },
                             onSummary = { summaryOf = m },
+                            onQuiz = { onQuiz(m.id) },
+                            onFavourite = {
+                                scope.launch {
+                                    app.repository.setFavourite(m.id, !m.favourite)
+                                    matches = app.repository.history()
+                                }
+                            },
                             progress = analysisProgress[m.id],
                             selection = if (selecting) checked else null,
                             onToggleStats = {
@@ -726,6 +784,11 @@ fun HistoryScreen(
             }
         }
     }
+    if (filtering) LibraryFilterDialog(
+        matches.orEmpty(), LibraryFilter.decode(settings?.libraryFilter ?: ""),
+        onChange = { f -> scope.launch { app.settings.update { it.copy(libraryFilter = if (f.active) f.encode() else "") } } },
+        onDismiss = { filtering = false },
+    )
     summaryOf?.let { m ->
         com.boldblot.backgammonplyground.ui.review.SavedSummaryDialog(
             app, m.id, gameNumber = null, startWithMatch = true, onDismiss = { summaryOf = null },
@@ -872,6 +935,8 @@ private fun HistoryRow(
     selection: Boolean? = null,
     onToggleStats: () -> Unit,
     onSummary: () -> Unit,
+    onQuiz: () -> Unit = {},
+    onFavourite: () -> Unit = {},
     progress: com.boldblot.backgammonplyground.ui.game.AnalysisProgress? = null,
 ) {
     val perf = m.humanPerformance?.let { runCatching { AppJson.decodeFromString<PerformanceTotals>(it) }.getOrNull() }
@@ -888,7 +953,7 @@ private fun HistoryRow(
             if (selection != null) Checkbox(checked = selection, onCheckedChange = { onClick() })
             Column(Modifier.weight(1f)) {
                 Text(
-                    "${if (m.length == 0) "Money" else "${m.length}-pt match"} vs $level · $result",
+                    (if (m.favourite) "★ " else "") + "${if (m.length == 0) "Money" else "${m.length}-pt match"} vs $level · $result",
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(
@@ -916,6 +981,15 @@ private fun HistoryRow(
                     DropdownMenuItem(
                         text = { Text("Summary") }, leadingIcon = { Icon(Icons.Default.BarChart, null) },
                         onClick = { menu = false; onSummary() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (m.favourite) "Remove from favourites" else "Favourite") },
+                        leadingIcon = { Icon(if (m.favourite) Icons.Default.Star else Icons.Default.StarBorder, null) },
+                        onClick = { menu = false; onFavourite() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Quiz this match") }, leadingIcon = { Icon(Icons.Default.School, null) },
+                        onClick = { menu = false; onQuiz() },
                     )
                     DropdownMenuItem(
                         text = { Text(if (m.inStats) "Exclude from statistics" else "Count in statistics") },

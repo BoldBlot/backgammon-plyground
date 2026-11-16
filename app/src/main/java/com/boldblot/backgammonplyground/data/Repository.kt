@@ -316,6 +316,9 @@ class Repository(private val db: AppDatabase) {
         recomputeRatings()
     }
 
+    /** The star on match [id] in the Match Library. */
+    suspend fun setFavourite(id: Long, favourite: Boolean) = dao.setFavourite(id, favourite)
+
     /** Counts match [id] in the statistics and rating, or leaves it out. */
     suspend fun setInStats(id: Long, inStats: Boolean) {
         dao.setInStats(id, inStats)

@@ -164,9 +164,9 @@ class BoardGeometry(val width: Float, val height: Float, val mirrored: Boolean =
         return List(2) { i -> Rect(Offset(x0 + i * (dieSize + gap), y), Size(dieSize, dieSize)) }
     }
 
-    /** True if [p] is on (or right around) the human's dice. */
-    fun hitsHumanDice(p: Offset): Boolean {
-        val r = diceRects(Player.HUMAN)
+    /** True if [p] is on (or right around) [owner]'s dice (the human's by default). */
+    fun hitsHumanDice(p: Offset, owner: Int = Player.HUMAN): Boolean {
+        val r = diceRects(owner)
         val pad = dieSize * 0.25f
         return Rect(r[0].left - pad, r[0].top - pad, r[1].right + pad, r[1].bottom + pad).contains(p)
     }
@@ -305,12 +305,12 @@ fun BoardView(
         }
     }
     if (onTap != null || onDiceTap != null) {
-        mod = mod.pointerInput(onTap, onDiceTap) {
+        mod = mod.pointerInput(onTap, onDiceTap, dragPlayer) {
             detectTapGestures(
                 onTap = { pos ->
                     val g = geometry
                     if (g != null) {
-                        if (onDiceTap != null && g.hitsHumanDice(pos)) onDiceTap() else g.hitTest(pos)?.let { onTap?.invoke(it) }
+                        if (onDiceTap != null && g.hitsHumanDice(pos, dragPlayer)) onDiceTap() else g.hitTest(pos)?.let { onTap?.invoke(it) }
                     }
                 },
             )
@@ -355,7 +355,7 @@ fun BoardView(
             val cpu = arrowsFor(Player.CPU, com.boldblot.backgammonplyground.core.Move(lastCpuSteps), colors.lastMove)
             drawArrows(g, board, splitAtHits(cpu) { _, p -> p in lastCpuHits }, postMove = true)
         }
-        drawHighlights(g, colors, board, movable, selected, destinations)
+        drawHighlights(g, colors, board, movable, selected, destinations, dragPlayer)
         if ((!crawford && !dmp) || cubeOffered) drawCube(g, colors, cube, cubeOffered, cubeAside, measurer)
         pips?.let { drawPips(g, colors, it, measurer) }
         dice.forEach { drawDice(g, colors, it) }
@@ -481,10 +481,12 @@ private fun DrawScope.drawCheckers(g: BoardGeometry, c: BoardColors, board: Boar
 
 private fun DrawScope.drawHighlights(
     g: BoardGeometry, c: BoardColors, board: Board, movable: Set<Int>, selected: Int?, destinations: Set<Int>,
+    /** Whose checkers [movable] marks (points in human orientation either way). */
+    player: Int = Player.HUMAN,
 ) {
     for (idx in movable) {
-        val center = if (idx == BAR) g.barCenter(Player.HUMAN, (board.bar(Player.HUMAN) - 1).coerceIn(0, 3))
-        else g.checkerCenter(idx, (board.count(Player.HUMAN, idx) - 1).coerceIn(0, 4)) // top of the five drawn
+        val center = if (idx == BAR) g.barCenter(player, (board.bar(player) - 1).coerceIn(0, 3))
+        else g.checkerCenter(idx, (board.count(player, if (player == Player.HUMAN) idx else 23 - idx) - 1).coerceIn(0, 4)) // top of the five drawn
         val sel = idx == selected
         drawCircle(c.highlight, g.radius * 1.02f, center, style = Stroke(width = g.radius * if (sel) 0.28f else 0.13f), alpha = if (sel) 1f else 0.75f)
     }

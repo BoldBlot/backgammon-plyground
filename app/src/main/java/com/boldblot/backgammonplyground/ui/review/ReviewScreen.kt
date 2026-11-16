@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.LinearProgressIndicator
@@ -451,7 +452,11 @@ class ReviewViewModel(
 }
 
 @Composable
-fun ReviewScreen(vm: ReviewViewModel, onBack: () -> Unit) {
+fun ReviewScreen(
+    vm: ReviewViewModel, onBack: () -> Unit,
+    /** "Quiz this match" in the ⋮ menu: the game quiz's menu for the match. */
+    onQuiz: ((Long) -> Unit)? = null,
+) {
     val st by vm.state.collectAsState()
     Box(Modifier.fillMaxSize()) {
         when {
@@ -460,7 +465,7 @@ fun ReviewScreen(vm: ReviewViewModel, onBack: () -> Unit) {
                 Text("No finished games in this match yet.")
                 TextButton(onClick = onBack) { Text("Back") }
             }
-            else -> ReviewContent(st, vm, onBack)
+            else -> ReviewContent(st, vm, onBack, onQuiz)
         }
     }
 }
@@ -472,14 +477,14 @@ private fun title(m: MatchEntity?): String = when {
 }
 
 @Composable
-private fun ReviewContent(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit) {
+private fun ReviewContent(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, onQuiz: ((Long) -> Unit)? = null) {
     val capture = rememberBoardCapture()
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val sideWidth = minOf(390.dp, maxWidth * 0.42f)
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize().padding(6.dp)) {
                 Column(Modifier.width(sideWidth).fillMaxHeight()) {
-                    Header(st, vm, onBack, capture)
+                    Header(st, vm, onBack, capture, onQuiz)
                     ReviewTools(st, vm, Modifier.fillMaxWidth().padding(bottom = 4.dp))
                     DecisionList(st, vm, Modifier.weight(1f))
                 }
@@ -493,7 +498,7 @@ private fun ReviewContent(st: ReviewState, vm: ReviewViewModel, onBack: () -> Un
             }
         } else {
             Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
-                Header(st, vm, onBack, capture)
+                Header(st, vm, onBack, capture, onQuiz)
                 ReviewBoard(st, Modifier.fillMaxWidth().aspectRatio(1.38f).then(capture.modifier))
                 BottomBar(st, vm, landscape = false)
                 DecisionList(st, vm, Modifier.weight(1f))
@@ -503,7 +508,7 @@ private fun ReviewContent(st: ReviewState, vm: ReviewViewModel, onBack: () -> Un
 }
 
 @Composable
-private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, capture: BoardCapture) {
+private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, capture: BoardCapture, onQuiz: ((Long) -> Unit)? = null) {
     var ask by remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
@@ -512,7 +517,7 @@ private fun Header(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, cap
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
         ShareMenu(st, vm, capture)
-        MoreMenu(st, vm, onAnalyze = { ask = true })
+        MoreMenu(st, vm, onQuiz, onAnalyze = { ask = true })
     }
     st.progress?.let { (done, total) ->
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -609,7 +614,7 @@ private fun GamePicker(st: ReviewState, vm: ReviewViewModel) {
  */
 /** The ⋮ menu: Analyze again, and for a match from an .xg file, Restore original analysis (once analyzed again). */
 @Composable
-private fun MoreMenu(st: ReviewState, vm: ReviewViewModel, onAnalyze: () -> Unit) {
+private fun MoreMenu(st: ReviewState, vm: ReviewViewModel, onQuiz: ((Long) -> Unit)? = null, onAnalyze: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     val fromXg = st.games.any { (e, _) -> e.originalRecord != null }
     // The file's own analysis is kept: it can be put back once some game was analyzed again.
@@ -625,6 +630,12 @@ private fun MoreMenu(st: ReviewState, vm: ReviewViewModel, onAnalyze: () -> Unit
                 text = { Text("Analyze again") }, enabled = st.progress == null,
                 leadingIcon = { Icon(Icons.Default.Refresh, null) },
                 onClick = { open = false; onAnalyze() },
+            )
+            val matchId = st.match?.id
+            if (onQuiz != null && matchId != null) DropdownMenuItem(
+                text = { Text("Quiz this match") },
+                leadingIcon = { Icon(Icons.Default.School, null) },
+                onClick = { open = false; onQuiz(matchId) },
             )
             if (fromXg) DropdownMenuItem(
                 text = { Text("Restore original analysis") }, enabled = restorable && st.progress == null,

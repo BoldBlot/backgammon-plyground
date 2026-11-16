@@ -91,6 +91,9 @@ class MatchCubeSearch(
 
     fun canDoubleNow(owner: CubeView, v: Int) = canDouble(owner, v, a)
 
+    /** MWC of the player on roll at the root with its own cube decision made (double when min(DT, DP) beats ND). */
+    fun rootValue(owner: CubeView, v: Int): Double = value(0, 0, owner, v)
+
     /** Cubeless probabilities for the player on roll at the root, from the same tree (as PureTD's n-ply probabilities). */
     fun probs(): List<Float> = nodeProbs(0, 0).map { it.toFloat() }
 

@@ -193,3 +193,52 @@ fun AddErrorsDialog(app: PlyGroundApp, errors: List<SavedBlunder>, onDismiss: ()
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/**
+ * The Match Library's filter: within a group any of the ticked values, across groups all of them. [all]: the
+ * library's matches (their lengths and opponents are the ones offered). Changes apply at once.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun LibraryFilterDialog(
+    all: List<com.boldblot.backgammonplyground.data.MatchEntity>, filter: com.boldblot.backgammonplyground.data.LibraryFilter,
+    onChange: (com.boldblot.backgammonplyground.data.LibraryFilter) -> Unit, onDismiss: () -> Unit,
+) {
+    // The dialog's own copy: Settings answers a moment later.
+    var f by remember { mutableStateOf(filter) }
+    fun set(n: com.boldblot.backgammonplyground.data.LibraryFilter) { f = n; onChange(n) }
+    val lengths = remember(all) { all.map { it.length }.filter { it > 0 }.distinct().sorted() }
+    val opponents = remember(all) { all.map { com.boldblot.backgammonplyground.core.Opponent.name(it.cpuLevel) }.distinct().sorted() }
+    @Composable
+    fun <T> Group(title: String, options: List<T>, ticked: Set<T>, name: (T) -> String, onToggle: (T) -> Unit) {
+        if (options.isEmpty()) return
+        Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            options.forEach { o -> FilterChip(selected = o in ticked, onClick = { onToggle(o) }, label = { Text(name(o)) }) }
+        }
+    }
+    fun <T> Set<T>.toggled(o: T): Set<T> = if (o in this) this - o else this + o
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Filter") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "${com.boldblot.backgammonplyground.data.LibraryView.list(all, f, com.boldblot.backgammonplyground.data.LibrarySort.NEWEST).size} of ${all.size} matches. " +
+                        "Within a group any of the ticked, across groups all of them.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Group("Result", com.boldblot.backgammonplyground.data.LibraryOutcome.entries, f.outcomes, { it.label }) { set(f.copy(outcomes = f.outcomes.toggled(it))) }
+                Group("Kind", com.boldblot.backgammonplyground.data.LibraryKind.entries, f.kinds, { it.label }) { set(f.copy(kinds = f.kinds.toggled(it))) }
+                Group("Match length", lengths, f.lengths, { "$it-pt" }) { set(f.copy(lengths = f.lengths.toggled(it))) }
+                Group("My PR grade", com.boldblot.backgammonplyground.data.LibraryView.GRADES, f.grades, { it }) { set(f.copy(grades = f.grades.toggled(it))) }
+                Group("Opponent", opponents, f.opponents, { it }) { set(f.copy(opponents = f.opponents.toggled(it))) }
+                Group("Favourites", listOf(true), if (f.favourites) setOf(true) else emptySet(), { "★ Favourites only" }) { set(f.copy(favourites = !f.favourites)) }
+                Group("Analysis", listOf(true, false), setOfNotNull(f.analyzed), { if (it) "Analyzed" else "Not analyzed" }) { set(f.copy(analyzed = if (f.analyzed == it) null else it)) }
+                Group("Played", com.boldblot.backgammonplyground.data.LibraryPeriod.entries.toList(), setOf(f.period), { it.label }) { set(f.copy(period = it)) }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        dismissButton = { TextButton(onClick = { set(com.boldblot.backgammonplyground.data.LibraryFilter.NONE) }) { Text("Clear all") } },
+    )
+}

@@ -123,6 +123,22 @@ enum class ErrorsSort(val label: String) { NO_FOLDER("No folder"), SPLIT("Checke
 /** Order of the blunder list. */
 enum class BlunderSort(val label: String) { BIGGEST("Biggest first"), NEWEST("Newest first") }
 
+/**
+ * The order of a My positions folder. BIGGEST and NEWEST keep [BlunderSort]'s names (the stored value, shared up to 0.9.0);
+ * the balance orders go by quiz answers right minus missed, positions never answered last.
+ */
+enum class PositionsSort(val label: String) {
+    BIGGEST("Biggest first"), NEWEST("Newest first"), BALANCE_LOW("Quiz balance: lowest first"), BALANCE_HIGH("Quiz balance: highest first");
+
+    /** [all] (newest first, as stored) in this order; [error]: what was played in the game cost, null when not known. */
+    fun <T> sort(all: List<T>, error: (T) -> Float?, balance: (T) -> Int, answered: (T) -> Boolean): List<T> = when (this) {
+        NEWEST -> all
+        BIGGEST -> all.sortedByDescending { error(it) ?: -1f }
+        BALANCE_LOW -> all.filter(answered).sortedBy(balance) + all.filterNot(answered)
+        BALANCE_HIGH -> all.filter(answered).sortedByDescending(balance) + all.filterNot(answered)
+    }
+}
+
 /** The analysis depth while mistakes are shown immediately (Intuition training); [plies] 0 = as in Settings → Analysis. */
 enum class IntuitionDepth(val label: String, val plies: Int) {
     SAME("Same as Analysis", 0), ONE("1-ply", 1), TWO("2-ply", 2), THREE("3-ply", 3),
@@ -225,7 +241,7 @@ data class Settings(
     val showCubeSpread: Boolean = false,
     val blunderSort: BlunderSort = BlunderSort.BIGGEST,
     /** The order of a My positions folder: newest saved, or the biggest error made in the game (positions without one last). */
-    val positionsSort: BlunderSort = BlunderSort.NEWEST,
+    val positionsSort: PositionsSort = PositionsSort.NEWEST,
     val autoFinishSpeed: AutoFinishSpeed = AutoFinishSpeed.S03,
     val autoFinishDepth: AutoFinishDepth = AutoFinishDepth.ONE,
     /** Every roll (both sides' and the opening roll) is entered by the player instead of rolled. */
@@ -341,6 +357,11 @@ data class Settings(
     val onBoardMoveButtons: Boolean = false,
     /** The most games kept in the Match Library; the oldest go first. 0 = no limit. */
     val libraryMax: Int = 100,
+    /** The Match Library's filter ([LibraryFilter.encode]; blank = everything) and order; the game quiz's match list uses them too. */
+    val libraryFilter: String = "",
+    val librarySort: LibrarySort = LibrarySort.NEWEST,
+    /** The game quiz's choices as last started ([com.boldblot.backgammonplyground.ui.positions.GameQuizSpec.encode], without the match). */
+    val gameQuiz: String = "",
     /** Match scores in My positions, the quiz and exports as "2-away, 3-away" instead of the score and the match length. */
     val scoreAway: Boolean = false,
     /** The game screen has arrows to look at (and mark) the positions of earlier turns. */
@@ -565,6 +586,9 @@ class SettingsStore(private val context: Context) {
         // "side_move_buttons" (0.7.11–0.7.12, side column instead of on the board) is retired: don't reuse it.
         val onBoardMoveButtons = booleanPreferencesKey("board_move_buttons")
         val libraryMax = intPreferencesKey("library_max")
+        val libraryFilter = stringPreferencesKey("library_filter")
+        val librarySort = stringPreferencesKey("library_sort")
+        val gameQuiz = stringPreferencesKey("game_quiz")
         val scoreAway = booleanPreferencesKey("score_away")
         val pastPositions = booleanPreferencesKey("past_positions")
         val labelsOff = stringPreferencesKey("labels_off")
@@ -686,6 +710,9 @@ class SettingsStore(private val context: Context) {
             railRight = p[Keys.railRight] ?: d.railRight,
             onBoardMoveButtons = p[Keys.onBoardMoveButtons] ?: d.onBoardMoveButtons,
             libraryMax = p[Keys.libraryMax] ?: d.libraryMax,
+            libraryFilter = p[Keys.libraryFilter] ?: d.libraryFilter,
+            librarySort = p.enum(Keys.librarySort, d.librarySort),
+            gameQuiz = p[Keys.gameQuiz] ?: d.gameQuiz,
             scoreAway = p[Keys.scoreAway] ?: d.scoreAway,
             pastPositions = p[Keys.pastPositions] ?: d.pastPositions,
             labelsOff = lines(p[Keys.labelsOff]).toSet(),
@@ -799,6 +826,9 @@ class SettingsStore(private val context: Context) {
             p[Keys.railRight] = s.railRight
             p[Keys.onBoardMoveButtons] = s.onBoardMoveButtons
             p[Keys.libraryMax] = s.libraryMax
+            p[Keys.libraryFilter] = s.libraryFilter
+            p[Keys.librarySort] = s.librarySort.name
+            p[Keys.gameQuiz] = s.gameQuiz
             p[Keys.scoreAway] = s.scoreAway
             p[Keys.pastPositions] = s.pastPositions
             p[Keys.labelsOff] = s.labelsOff.joinToString("\n")

@@ -242,7 +242,7 @@ class MainActivity : ComponentActivity() {
                 val marks = entry.arguments?.getBoolean("marks") ?: false
                 val markedOnly = entry.arguments?.getBoolean("markedOnly") ?: false
                 val vm: ReviewViewModel = viewModel(key = "review-$id-$game-$mistakes-$marks-$markedOnly", factory = factory { ReviewViewModel(app, id, game, mistakes, marks, markedOnly) })
-                ReviewScreen(vm, onBack = { nav.popBackStack() })
+                ReviewScreen(vm, onBack = { nav.popBackStack() }, onQuiz = { m -> nav.navigate("gamequizmenu?match=$m") })
             }
             composable("stats") {
                 val vm: StatsViewModel = viewModel(factory = factory { StatsViewModel(app) })
@@ -252,6 +252,7 @@ class MainActivity : ComponentActivity() {
                 HistoryScreen(
                     app,
                     onReview = { id -> nav.navigate("review/$id") },
+                    onQuiz = { id -> nav.navigate("gamequizmenu?match=$id") },
                     onBack = { nav.popBackStack() },
                     onImported = gameVm::queueAnalysis,
                     analysisProgress = gameVm.analysisProgress.collectAsState().value,
@@ -310,7 +311,24 @@ class MainActivity : ComponentActivity() {
             ) { entry ->
                 val ids = entry.arguments?.getString("ids").orEmpty().split(',').mapNotNull { it.toLongOrNull() }
                 val filter = entry.arguments?.getString("filter").orEmpty().split('\n').filter { it.isNotBlank() }.toSet()
-                QuizMenuScreen(app, ids, onBack = { nav.popBackStack() }, preFilter = filter) { spec -> nav.navigate("positions/quiz/${spec.encode()}") }
+                QuizMenuScreen(app, ids, onBack = { nav.popBackStack() }, preFilter = filter, onGameQuiz = { nav.navigate("gamequizmenu") }) { spec ->
+                    nav.navigate("positions/quiz/${spec.encode()}")
+                }
+            }
+            // The game quiz: its menu (for [match], or with the library's list to pick one), then the quiz on that match's decisions.
+            composable("gamequizmenu?match={match}", arguments = listOf(navArgument("match") { type = NavType.LongType; defaultValue = -1L })) { entry ->
+                val match = entry.arguments?.getLong("match")?.takeIf { it > 0 }
+                com.boldblot.backgammonplyground.ui.positions.GameQuizMenuScreen(app, match, onBack = { nav.popBackStack() }) { spec ->
+                    nav.navigate("gamequiz/${spec.encode()}")
+                }
+            }
+            composable("gamequiz/{spec}") { entry ->
+                val key = entry.arguments?.getString("spec").orEmpty()
+                val vm: QuizViewModel = viewModel(
+                    key = "gamequiz-$key",
+                    factory = factory { QuizViewModel(app, QuizSpec(), com.boldblot.backgammonplyground.ui.positions.GameQuizSpec.decode(key)) },
+                )
+                QuizScreen(vm, onBack = { nav.popBackStack() }, onSettings = { nav.navigate("settings") })
             }
             composable("positions/quiz/{spec}") { entry ->
                 val key = entry.arguments?.getString("spec").orEmpty()

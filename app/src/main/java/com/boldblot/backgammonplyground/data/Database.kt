@@ -56,6 +56,8 @@ data class MatchEntity(
     @ColumnInfo(defaultValue = "0") val imported: Boolean = false,
     /** Imported: the opponent's mistakes go on the blunder list too (schema 3). */
     @ColumnInfo(defaultValue = "0") val blundersBoth: Boolean = false,
+    /** A favourite of the Match Library (schema 9): the star on its row, and the library's Favourites filter. */
+    @ColumnInfo(defaultValue = "0") val favourite: Boolean = false,
 )
 
 /** A finished game, with its full record for review and its summary for statistics. */
@@ -209,6 +211,9 @@ interface MatchDao {
 
     @Query("UPDATE matches SET inStats = :inStats WHERE id = :id")
     suspend fun setInStats(id: Long, inStats: Boolean)
+
+    @Query("UPDATE matches SET favourite = :favourite WHERE id = :id")
+    suspend fun setFavourite(id: Long, favourite: Boolean)
 
     @Query("UPDATE matches SET inStats = 0 WHERE status != ${MatchStatus.IN_PROGRESS}")
     suspend fun excludeFinishedFromStats()
@@ -411,11 +416,11 @@ interface PositionDao {
         MatchEntity::class, GameEntity::class, CurrentMatchEntity::class, BlunderEntity::class,
         PositionEntity::class, CategoryEntity::class, PositionCategoryEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
-        AutoMigration(from = 4, to = 5, spec = QuizCountsMigration::class), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8),
+        AutoMigration(from = 4, to = 5, spec = QuizCountsMigration::class), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

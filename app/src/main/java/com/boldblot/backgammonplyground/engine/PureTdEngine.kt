@@ -87,7 +87,16 @@ class PureTdEngine(
      */
     @Volatile var cubefulCheckers: Boolean = false
 
-    override val rankingMode: Any? get() = cubefulCheckers to matchAwareSearch
+    /**
+     * Match checker plays deeper than 1-ply scored by the cube-aware match search ([MatchCubeSearch]): each
+     * position after a play is the opponent's turn, with cube decisions at every node and the match Janowski
+     * at the leaves under the cube state there. Off (as up to 0.9.0, for benchmarks only): the cubeless
+     * probabilities are averaged through the tree and the match Janowski is applied once, to the position
+     * after the play.
+     */
+    @Volatile var cubeAwareMatchCheckers: Boolean = true
+
+    override val rankingMode: Any? get() = Triple(cubefulCheckers, matchAwareSearch, cubeAwareMatchCheckers)
 
     // ---- positions ------------------------------------------------------------------------------
 
@@ -178,8 +187,25 @@ class PureTdEngine(
 
     override fun evaluate(board: Board, ctx: CubeContext, posts: List<Board>, plies: Int): List<PostEval> {
         if (cubefulCheckers && ctx.matchLength == 0) return posts.map { cubefulPost(it, ctx, plies) }
+        if (cubeAwareMatchCheckers && ctx.matchLength > 0 && matchAwareSearch && plies >= 2) return posts.map { matchPost(it, ctx, plies) }
         val probs = postProbs(ctx.onRoll, posts, plies, matchWeights(ctx, ctx.onRoll))
         return posts.indices.map { PostEval(postEquity(posts[it], ctx, probs[it]), probs[it]) }
+    }
+
+    /** [post] (after [ctx].onRoll's play) valued for the mover by the opponent's cube-aware match search, [plies] - 1 rolls deep. */
+    private fun matchPost(post: Board, ctx: CubeContext, plies: Int): PostEval {
+        val mover = ctx.onRoll
+        val opp = Player.other(mover)
+        if (post.off(mover) == 15) {
+            val probs = postProbs(mover, listOf(post), 1, null)[0]
+            return PostEval(postEquity(post, ctx, probs), probs)
+        }
+        val levels = plies - 1
+        val tree = PureTdNative.nativeCubeTree(handle, state(post, opp, 0), levels, matchWeights(ctx, opp)) ?: error("PureTD cube search failed")
+        val search = MatchCubeSearch(met, tree, levels, away(ctx, opp), away(ctx, mover), ctx.crawford)
+        val probs = invertProbs(search.probs())
+        val mine = MatchCube(met, probs, away(ctx, mover), away(ctx, opp), ctx.crawford, cubeLife(post))
+        return PostEval(mine.toEmg(1 - search.rootValue(view(ctx, opp), ctx.cube.value), ctx.cube.value).toFloat(), probs)
     }
 
     /** [post] (after [ctx].onRoll's play) valued for the mover by the opponent's cube-aware money search. */

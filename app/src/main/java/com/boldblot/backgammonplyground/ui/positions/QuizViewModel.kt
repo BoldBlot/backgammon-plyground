@@ -82,9 +82,14 @@ data class QuizResult(
     /** Doubled with the follow-up question: the player's "the double was right", and the engine's. */
     val doubleClaim: Boolean? = null,
     val doubleRight: Boolean? = null,
+    /** After "Analyze again": the saved answer is an error by the new analysis, and the card asks what to do with it. */
+    val savedNote: SavedAnswerNote? = null,
 ) {
     val verdict: QuizVerdict get() = if (right) QuizVerdict.RIGHT else if (neutral) QuizVerdict.NEUTRAL else QuizVerdict.WRONG
 }
+
+/** The player's saved answer ([text]) that the analysis now calls an error of [error] (plain equity). */
+data class SavedAnswerNote(val text: String, val error: Float)
 
 /** A card answered this round, for the arrows back through the quiz and the list at its end. */
 data class QuizCard(val position: SavedPosition, val result: QuizResult)
@@ -131,12 +136,33 @@ data class QuizState(
     val viewing: Int? = null,
     /** Doubled, with the follow-up question: the take or pass given, waiting for "was the double right?". */
     val firstCube: DecisionKind? = null,
+    /** Quiz a friend: nothing is written to the positions. */
+    val friend: Boolean = false,
+    /** A game quiz ([gameTitle]: its match): the cards are a match's decisions, not in My positions; nothing is saved. */
+    val detached: Boolean = false,
+    val gameTitle: String? = null,
+    /** Game quiz: the cards that are the opponent's decisions, and how they are shown. */
+    val theirs: Set<Long> = emptySet(),
+    val theirView: TheirView = TheirView.COLOUR,
 ) {
+    /** Whether [sp] is shown as the opponent's decision, and how. */
+    fun viewOf(sp: SavedPosition): TheirView? = theirView.takeIf { sp.id in theirs }
+
     val current: SavedPosition? get() = queue.firstOrNull()
 }
 
-/** The My positions quiz: the positions [spec] picks (folders, labels, how many, order), answered on the board. */
-class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewModel() {
+/**
+ * The My positions quiz: the positions [spec] picks (folders, labels, how many, order), answered on the board.
+ * With [game] it is a game quiz instead: the decisions of a saved match, which are not in My positions.
+ */
+class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private val game: GameQuizSpec? = null) : ViewModel() {
+
+    /** The cards are not in My positions (game quiz): nothing about them is stored. */
+    private val detached = game != null
+    /** The answers go to the positions' quiz counts, last answers and trends (not with Quiz a friend or a game quiz). */
+    private val keep = !spec.friend && !detached
+    private var theirs: Set<Long> = emptySet()
+    private var gameTitle: String? = null
 
     private val _state = MutableStateFlow(QuizState())
     val state: StateFlow<QuizState> = _state.asStateFlow()
@@ -148,7 +174,13 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
     init {
         viewModelScope.launch {
             val s = app.settings.settings.first()
-            all = spec.pick(quizPositions(app, spec.folders), s)
+            if (game != null) {
+                // The priority and the limit pick the decisions once; "Repeat" asks the same ones.
+                gameQuizDecisions(app, game.matchId)?.let { (m, ds) ->
+                    val (cards, their) = gameQuizCards(m, com.boldblot.backgammonplyground.core.GameQuiz.pick(ds, game.rules))
+                    all = cards; theirs = their; gameTitle = matchTitle(m)
+                }
+            } else all = spec.pick(quizPositions(app, spec.folders), s)
             _state.update { it.copy(loading = false, settings = s) }
             start()
             // Settings opened from the quiz apply when it comes back (the round's cards stay as they are).
@@ -172,24 +204,30 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
     fun repeat() = ask(round.filter { it.id !in gone })
 
     /** How many cards "Another" would ask (0 = none left, or the quiz asks them all). */
-    fun anotherCount(): Int = if (spec.limit <= 0) 0 else minOf(spec.limit, all.count { it.id !in gone && it.id !in seen })
+    fun anotherCount(): Int = if (spec.limit <= 0 || detached) 0 else minOf(spec.limit, all.count { it.id !in gone && it.id !in seen })
 
     private fun begin(fresh: Boolean) {
         val left = all.filter { it.id !in gone && !(fresh && it.id in seen) }
-        val ordered = spec.order.sort(left)
-        round = if (spec.limit > 0) ordered.take(spec.limit) else ordered
+        // A game quiz's cards come picked and in order.
+        val ordered = if (detached) left else spec.order.sort(left)
+        round = if (spec.limit > 0 && !detached) ordered.take(spec.limit) else ordered
         ask(round)
     }
 
     private fun ask(picked: List<SavedPosition>) {
         seen += picked.map { it.id }
         // Turned over, a double becomes the doubler's full decision (the player's own answer is about the take).
-        val turn = _state.value.settings.quizTheirCube == QuizTheirCube.FLIP
+        val turn = _state.value.settings.quizTheirCube == QuizTheirCube.FLIP && !detached
         val list = picked.map { old ->
             val sp = latest[old.id]?.let { l -> old.copy(entity = l.entity, lastAnswer = l.lastAnswer, labels = l.labels) } ?: old
             if (turn && sp.position.doubled) sp.copy(position = turnedToDoubler(sp.position), answer = null, played = null) else sp
         }
-        _state.update { QuizState(loading = false, settings = it.settings, queue = list, total = list.size, finished = list.isEmpty()) }
+        _state.update {
+            QuizState(
+                loading = false, settings = it.settings, queue = list, total = list.size, finished = list.isEmpty(),
+                friend = spec.friend && !detached, detached = detached, gameTitle = gameTitle, theirs = theirs, theirView = game?.theirView ?: TheirView.COLOUR,
+            )
+        }
         show()
     }
 
@@ -339,7 +377,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
         viewModelScope.launch {
             try {
                 // A position saved without analysis (or imported) is analyzed now, and keeps it.
-                val a = sp.analysis ?: analyzePosition(app, p, s, keep = keepMoves(sp)).also { app.positions.setAnalysis(sp.id, it) }
+                val a = sp.analysis ?: analyzePosition(app, p, s, keep = keepMoves(sp)).also { if (!detached) app.positions.setAnalysis(sp.id, it) }
                 val factor = factorOf(p)
                 val asked = cubeAnswer?.let { if (partial) withBestResponse(p, a, it.double) else it }
                 val judged = judge(sp, a, move, cube, asked, s, null)
@@ -347,20 +385,21 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
                 val asJudged = judged.withAsked(p, a, s, cubeAnswer.takeIf { partial }, claim)
                 // The trend: this answer's cost against the last answer's (the first time, the original play's), both by
                 // the analysis the position has now (a play outside the candidates is valued by the engine, as a new one is).
-                val trend = Labels.trend(
+                // Not kept (Quiz a friend, game quiz): no trend, and nothing written.
+                val trend = if (!keep) null else Labels.trend(
                     (sp.lastAnswer ?: sp.played)?.let { answerCost(p, a, it, s) },
                     if (move != null) judged.error else answerError(p, a, given),
                     right = asJudged.right,
                 )
                 val result = asJudged.copy(trend = trend)
-                val counted = app.positions.setResult(sp.id, result.verdict, given, trend)?.let {
+                val counted = (if (keep) app.positions.setResult(sp.id, result.verdict, given, trend) else null)?.let {
                     sp.copy(
                         entity = it, analysis = a, lastAnswer = given,
                         labels = sp.labels.filterNotTo(HashSet()) { k -> Labels.isTrend(k) } + listOfNotNull(trend?.name),
                     )
                 }
                 counted?.let { latest[sp.id] = it }
-                val favourite = app.positions.isFavourite(sp.id)
+                val favourite = !detached && app.positions.isFavourite(sp.id)
                 // A neutral answer leaves the balance alone, so it never moves a position to Learned.
                 val deleted = counted != null && !result.neutral && s.quizAutoDelete && counted.quizBalance >= s.quizDeleteAt && !favourite
                 if (deleted) {
@@ -487,32 +526,80 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
             try {
                 val p = sp.position
                 val a = analyzePosition(app, p, r.engine, r.checker, r.cube, Waiting.ANALYSIS, keep = keepMoves(sp))
-                val kept = !old.deleted && old.removed == null
+                val kept = !old.deleted && old.removed == null && !detached
                 if (kept) app.positions.setAnalysis(sp.id, a)
-                // An answer of the cube action alone is judged again with the opponent's best answer by the new analysis.
-                val partialOf = old.cubeAnswer.takeIf { old.youText != null }
-                val asked = partialOf?.let { withBestResponse(p, a, it.double) } ?: old.cubeAnswer
-                val fresh = judge(sp.copy(analysis = a), a, old.move, old.cube, asked, s, r.engine).withAsked(p, a, s, partialOf, old.doubleClaim)
-                val flipped = fresh.verdict != old.verdict
-                val counted = if (kept && flipped) app.positions.fixResult(sp.id, old.verdict, fresh.verdict)?.let { sp.copy(entity = it) } else null
-                val result = fresh.copy(
-                    trend = old.trend,
-                    played = sp.played?.let { answerWithError(p, a, it, s.errorUnit) },
-                    counts = counted?.let(::quizCountText) ?: old.counts, deleted = old.deleted, removed = old.removed,
-                )
-                _state.update {
-                    it.copy(
-                        reanalyzing = false, result = result, candidate = null,
-                        queue = it.queue.mapIndexed { i, q -> if (i == 0) q.copy(analysis = a, entity = counted?.entity ?: q.entity) else q },
-                        right = it.right + (if (fresh.right) 1 else 0) - (if (old.right) 1 else 0),
-                        neutral = it.neutral + (if (fresh.neutral) 1 else 0) - (if (old.neutral) 1 else 0),
-                        totalError = it.totalError - old.error / old.factor + fresh.error / fresh.factor,
-                        message = "Analyzed again: ${a.label}." + if (flipped) " The verdict changed." else "",
-                    )
+                // A saved answer that the new analysis calls an error: the card asks what to do with it.
+                val note = sp.answer?.takeIf { kept }?.let { mine ->
+                    val cost = answerCost(p, a, mine, s) ?: return@let null
+                    if (s.quizVerdict(cost, if (s.quizNeedsAverage) libraryAverageError(app) else null) == QuizVerdict.RIGHT) null
+                    else SavedAnswerNote(answerText(p, mine), cost / factorOf(p))
                 }
+                rejudge(sp, a, old, r.engine, "Analyzed again: ${a.label}.", note)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 AppLog.error("Quiz analysis failed", e)
+                _state.update { it.copy(reanalyzing = false, message = "Analysis failed: ${e.message}") }
+            }
+        }
+    }
+
+    /**
+     * The answer [old] to [sp] judged again by analysis [a] (after "Analyze again", or a change of the saved
+     * answer). If right / missed changes, the position's quiz counts and this round's score change with it.
+     */
+    private suspend fun rejudge(sp: SavedPosition, a: PositionAnalysis, old: QuizResult, engine: EngineKind?, message: String, note: SavedAnswerNote?) {
+        val s = _state.value.settings
+        val p = sp.position
+        val kept = !old.deleted && old.removed == null && !detached
+        // An answer of the cube action alone is judged again with the opponent's best answer by the new analysis.
+        val partialOf = old.cubeAnswer.takeIf { old.youText != null }
+        val asked = partialOf?.let { withBestResponse(p, a, it.double) } ?: old.cubeAnswer
+        val fresh = judge(sp.copy(analysis = a), a, old.move, old.cube, asked, s, engine).withAsked(p, a, s, partialOf, old.doubleClaim)
+        val flipped = fresh.verdict != old.verdict
+        val counted = if (kept && keep && flipped) app.positions.fixResult(sp.id, old.verdict, fresh.verdict)?.let { sp.copy(entity = it) } else null
+        val result = fresh.copy(
+            trend = old.trend,
+            played = sp.played?.let { answerWithError(p, a, it, s.errorUnit) },
+            counts = counted?.let(::quizCountText) ?: old.counts, deleted = old.deleted, removed = old.removed,
+            favourite = old.favourite, learnedByHand = old.learnedByHand, savedNote = note,
+        )
+        _state.update {
+            it.copy(
+                reanalyzing = false, result = result, candidate = null,
+                queue = it.queue.mapIndexed { i, q -> if (i == 0) sp.copy(analysis = a, entity = counted?.entity ?: q.entity) else q },
+                right = it.right + (if (fresh.right) 1 else 0) - (if (old.right) 1 else 0),
+                neutral = it.neutral + (if (fresh.neutral) 1 else 0) - (if (old.neutral) 1 else 0),
+                totalError = it.totalError - old.error / old.factor + fresh.error / fresh.factor,
+                message = message + if (flipped) " The verdict changed." else "",
+            )
+        }
+    }
+
+    /** The note after "Analyze again": the saved answer stays as it is. */
+    fun keepSavedAnswer() = _state.update { it.copy(result = it.result?.copy(savedNote = null)) }
+
+    /**
+     * The note after "Analyze again": the saved answer becomes the analysis's best ([toBest]) or is cleared, and
+     * the answer is judged again.
+     */
+    fun changeSavedAnswer(toBest: Boolean) {
+        val st = _state.value
+        val old = st.result ?: return
+        val sp = st.current ?: return
+        if (old.savedNote == null || st.reanalyzing || detached) return
+        val a = old.analysis
+        val p = sp.position
+        val best = if (!toBest) null else a.checker?.candidates?.firstOrNull()?.let { MyAnswer(move = it.move) }
+            ?: (if (p.doubled) bestCube(p, a)?.let { MyAnswer(cube = it) } else cubeAnswerChoices(p).minByOrNull { answerError(p, a, it) ?: Float.MAX_VALUE })
+        if (toBest && best == null) return
+        _state.update { it.copy(reanalyzing = true, message = null) }
+        viewModelScope.launch {
+            try {
+                app.positions.setAnswer(sp.id, best)
+                rejudge(sp.copy(answer = best), a, old, null, if (best == null) "Saved answer cleared." else "Saved answer: ${answerText(p, best)}.", null)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                AppLog.error("Quiz: the saved answer could not be changed", e)
                 _state.update { it.copy(reanalyzing = false, message = "Analysis failed: ${e.message}") }
             }
         }
@@ -543,6 +630,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
 
     /** Files the card shown (the current one, or an answered one) in [folders] instead of its folders now. */
     fun moveToFolders(id: Long, folders: Set<Long>) {
+        if (detached) return
         viewModelScope.launch {
             app.positions.setCategories(id, folders)
             _state.update { it.copy(message = if (folders.isEmpty()) "Out of all folders." else "Moved.") }
@@ -558,6 +646,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
 
     /** Deletes the answered position from My positions and all its folders (Undo: [undoDelete]). */
     fun deleteCurrent() {
+        if (detached) return
         val st = _state.value
         val r = st.result ?: return
         val sp = st.current ?: return
@@ -576,6 +665,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
 
     /** The Learned chip on the result: into Learned, or (tapped again) back. A favourite stays out of Learned. */
     fun toggleLearned(resetCounters: Boolean = false) {
+        if (detached) return
         val st = _state.value
         val r = st.result ?: return
         val sp = st.current ?: return
@@ -601,6 +691,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
 
     /** A position that went to Learned in this round, put back from the summary. */
     fun putBack(id: Long, resetCounters: Boolean) {
+        if (detached) return
         viewModelScope.launch {
             app.positions.unlearn(listOf(id), resetCounters)
             gone -= id
@@ -617,6 +708,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec) : ViewMod
 
     /** The star on the result: into Favourites (out of Learned, if the Learned chip just sent it there), or out. */
     fun toggleFavourite() {
+        if (detached) return
         val st = _state.value
         val r = st.result ?: return
         val sp = st.current ?: return
