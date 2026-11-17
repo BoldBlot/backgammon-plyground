@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.4 — 2026-11-17 (build 85, internal test)
+## 0.9.4 — 2026-11-17 (build 85)
 
 - Review, Blunders, My positions and the quiz result: the three view chips (Arrows, Board, After) are now two
   buttons that name what a tap shows: Arrows / Board, and Before / After, which work together (the move's arrows
