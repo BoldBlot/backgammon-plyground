@@ -1272,8 +1272,8 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
     val checker = r?.analysis?.checker
     val picked = st.candidate?.let { checker?.candidates?.getOrNull(it) }
     // After an answer: the position after the play picked in the list (or the answer), or the position itself.
-    val afterMove = if (r != null && st.view == ReviewView.AFTER) (picked?.move ?: r.move) else null
-    val arrows = if (r == null || st.view != ReviewView.ARROWS) emptyList() else if (picked != null && checker != null) {
+    val afterMove = if (r != null && st.view.after) (picked?.move ?: r.move) else null
+    val arrows = if (r == null || !st.view.arrows) emptyList() else if (picked != null && checker != null) {
         arrowsFor(side, picked.move, ArrowColors.forSeverity(XgRules.severity((checker.bestEquity - picked.equity) * r.factor)))
     } else buildList {
         val right = when {
@@ -1550,15 +1550,10 @@ private fun QuizResultCard(
             r.analysis.cube?.let { CubeTable(it, if (p.doubled) DecisionKind.TAKE else null, factorOf(p), p.beavers, colors = colors, rollerHuman = !p.doubled) }
             r.analysis.checker?.let { c ->
                 ReviewViewChips(st.view, true, vm::setView, null, Modifier.fillMaxWidth())
-                FilterChip(
-                    selected = st.settings.quizChances, onClick = { vm.setQuizChances(!st.settings.quizChances) },
-                    label = { Text("Chances", maxLines = 1, softWrap = false) },
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                )
                 CandidateList(
                     board = p.board, player = Player.HUMAN, analysis = c, factor = factorOf(p),
                     highlightIndex = answerIndex, maxRows = 5, selectedIndex = st.candidate,
-                    detailed = st.settings.quizChances,
+                    detailed = true,
                     moverColor = colors.human, opponentColor = colors.cpu, moverRim = colors.humanRim, opponentRim = colors.cpuRim,
                     onSelect = { i, _ -> vm.selectCandidate(if (st.candidate == i) null else i) },
                 )

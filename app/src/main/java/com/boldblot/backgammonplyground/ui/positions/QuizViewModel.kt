@@ -642,9 +642,6 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
 
     fun setView(v: ReviewView) = _state.update { it.copy(view = v) }
 
-    /** The Chances chip: win / gammon / backgammon chances in the result's list of plays (kept as a setting). */
-    fun setQuizChances(on: Boolean) { viewModelScope.launch { app.settings.update { it.copy(quizChances = on) } } }
-
     /** Shows play [i] of the analysis on the board (null: the best play and the answer). */
     fun selectCandidate(i: Int?) = _state.update { it.copy(candidate = i) }
 

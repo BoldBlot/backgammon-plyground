@@ -60,27 +60,51 @@ import com.boldblot.backgammonplyground.ui.theme.Quality
 import kotlinx.coroutines.launch
 import java.io.File
 
-/** What a review board shows: the decision with arrows, the bare position, or the position after a move. */
-enum class ReviewView(val label: String) { ARROWS("Arrows"), BOARD("Board"), AFTER("After") }
+/**
+ * What a review board shows: the position before or after the move ([after]), with the move's arrows or without
+ * them ([arrows]). Two buttons turn them (see [ReviewViewChips]).
+ */
+enum class ReviewView(val arrows: Boolean, val after: Boolean) {
+    ARROWS(true, false), BOARD(false, false), AFTER_ARROWS(true, true), AFTER(false, true);
+
+    fun withArrows(on: Boolean) = of(on, after)
+    fun withAfter(on: Boolean) = of(arrows, on)
+
+    companion object {
+        fun of(arrows: Boolean, after: Boolean) = entries.first { it.arrows == arrows && it.after == after }
+    }
+}
 
 /**
- * The chips that pick [ReviewView] (After greyed out for a decision without a move), then a Save chip
- * that saves the position to My positions ([onSave]; none when it cannot be saved).
+ * The buttons that turn [ReviewView]: Arrows / Board (it names what a tap shows), Before / After (After greyed
+ * out for a decision without a move), a Chances chip (win / gammon / backgammon chances under the plays and
+ * the cube actions, everywhere), then a Save chip that saves the position to My positions ([onSave]; none when
+ * it cannot be saved).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ReviewViewChips(view: ReviewView, hasMove: Boolean, onPick: (ReviewView) -> Unit, onSave: (() -> Unit)?, modifier: Modifier = Modifier) {
-    val shown = if (!hasMove && view == ReviewView.AFTER) ReviewView.BOARD else view
+    val after = view.after && hasMove
+    val chances = com.boldblot.backgammonplyground.ui.components.LocalShowChances.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     FlowRow(
         modifier, horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
-        ReviewView.entries.forEach { v ->
-            FilterChip(
-                selected = shown == v, onClick = { onPick(v) }, label = { Text(v.label) },
-                enabled = hasMove || v != ReviewView.AFTER,
-            )
-        }
+        AssistChip(onClick = { onPick(view.withArrows(!view.arrows)) }, label = { Text(if (view.arrows) "Board" else "Arrows", maxLines = 1, softWrap = false) })
+        AssistChip(
+            onClick = { onPick(view.withAfter(!after)) }, enabled = hasMove,
+            label = { Text(if (after) "Before" else "After", maxLines = 1, softWrap = false) },
+        )
+        FilterChip(
+            selected = chances,
+            onClick = {
+                val app = context.applicationContext as? com.boldblot.backgammonplyground.PlyGroundApp
+                if (app != null) scope.launch { app.settings.update { it.copy(showChances = !chances) } }
+            },
+            label = { Text("Chances", maxLines = 1, softWrap = false) },
+        )
         if (onSave != null) {
             AssistChip(
                 onClick = onSave, label = { Text("Save") },
@@ -109,7 +133,7 @@ fun EmptyPlayedBestBar() = PlayedBestBar("", null, Severity.NONE, "", null, Modi
  * Returns the board and whether it is the position after a move.
  */
 fun reviewBoard(d: DecisionRecord, view: ReviewView, candidate: Int?): Pair<Board, Boolean> {
-    if (view != ReviewView.AFTER) return d.board to false
+    if (!view.after) return d.board to false
     val move = candidate?.let { d.checker?.candidates?.getOrNull(it)?.move } ?: d.reviewMove ?: return d.board to false
     return d.board.applyMove(d.player, move) to true
 }
@@ -356,14 +380,14 @@ object PositionShare {
         val pad = w / 30f
         val text = w / 30f
         val small = text * 0.7f
-        val row = text * 1.45f
-        val top = pad + row
+        val top = pad + text * 1.45f
         val label = analysisLabel?.takeIf { lines.isNotEmpty() }?.let(::netLabel)
         // The footer: "Analysis: …" with boldblot.com at its right end (pictures with an analysis).
         val footer = lines.isNotEmpty()
-        val extra = if (chances) small * 1.25f else 0f
-        fun extraOf(l: Line) = if (chances && l.chances != null) extra else 0f
-        val below = (if (lines.isNotEmpty()) pad + row * lines.size + lines.sumOf { extraOf(it).toDouble() }.toFloat() else 0f) + (if (footer) small * 1.6f else 0f) +
+        // A row is a block (its highlight): the play's line, the chances line under it if any, with room above and below.
+        val gap = text * 0.3f
+        fun block(l: Line) = if (chances && l.chances != null) text * 2.65f else text * 1.75f
+        val below = (if (lines.isNotEmpty()) pad + lines.sumOf { (block(it) + gap).toDouble() }.toFloat() + text * 0.4f else 0f) + (if (footer) small * 1.6f else 0f) +
             (if (xgid != null) small * 2 else 0f) + pad / 2
         val h = (top + board.height + below).toInt()
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -376,23 +400,28 @@ object PositionShare {
         val mono = Paint(sans).apply { typeface = Typeface.MONOSPACE; textAlign = Paint.Align.RIGHT }
         drawTitle(c, title, pad, pad + text, bold, checkers)
         c.drawBitmap(board.copy(Bitmap.Config.ARGB_8888, false), 0f, top, null)
-        var y = top + board.height + pad + text
+        var y = top + board.height + pad
         for (l in lines) {
+            val h = block(l)
+            val mid = y + h / 2 + text * 0.35f
             if (l.played) {
-                // The decision made: a tint of its error level's colour, and the level in its tag.
-                c.drawRect(pad / 2, y - text * 1.05f, w - pad / 2, y + text * 0.4f, Paint().apply { color = tint(Quality.color(l.severity, false).toArgb()) })
+                // The decision made: a tint of its error level's colour behind the play and its chances, and the level in its tag.
+                c.drawRect(pad / 2, y, w - pad / 2, y + h, Paint().apply { color = tint(Quality.color(l.severity, false).toArgb()) })
             }
-            c.drawText(l.text + if (l.played) "   (${l.tag ?: playedTag} · ${l.severity.label})" else "", pad, y, if (l.played) bold else sans)
-            c.drawText(eq(l.equity), w - pad - text * 5.5f, y, mono)
+            val withChances = chances && l.chances != null
+            // The play's line; with chances under it, the pair is centred in the block, and the equity beside both.
+            val line1 = if (withChances) y + text * 1.15f else mid
+            c.drawText(l.text + if (l.played) "   (${l.tag ?: playedTag} · ${l.severity.label})" else "", pad, line1, if (l.played) bold else sans)
+            c.drawText(eq(l.equity), w - pad - text * 5.5f, mid, mono)
             if (l.diff < -0.0005f) {
-                c.drawText(err(l.diff, unit), w - pad, y, Paint(mono).apply { color = Quality.color(l.severity, false).toArgb() })
+                c.drawText(err(l.diff, unit), w - pad, mid, Paint(mono).apply { color = Quality.color(l.severity, false).toArgb() })
             }
-            if (chances && l.chances != null) {
-                y += small * 1.05f
-                c.drawText(l.chances, pad + text * 1.2f, y, Paint(sans).apply { textSize = small * 0.9f; color = grey })
-                y += row - small * 0.8f
-            } else y += row
+            if (withChances) {
+                c.drawText(l.chances!!, pad + text * 1.2f, line1 + small * 1.45f, Paint(sans).apply { textSize = small * 0.9f; color = grey })
+            }
+            y += h + gap
         }
+        y += text * 0.4f
         if (footer) {
             y += small * 0.1f
             val foot = Paint(sans).apply { textSize = small; color = grey }

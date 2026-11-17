@@ -734,7 +734,7 @@ private fun ReviewBoard(st: ReviewState, modifier: Modifier) {
         crawfordSign = st.settings.crawfordSign,
         dmp = d != null && com.boldblot.backgammonplyground.core.Scoring.isDmp(st.match?.length ?: 0, d.score, d.crawford),
         pips = listOf(board.pipCount(Player.HUMAN), board.pipCount(Player.CPU)),
-        arrows = if (st.view == ReviewView.ARROWS) arrowsOf(st) else emptyList(),
+        arrows = if (st.view.arrows) arrowsOf(st) else emptyList(),
     )
 }
 

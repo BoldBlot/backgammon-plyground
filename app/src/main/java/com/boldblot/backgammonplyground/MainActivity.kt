@@ -139,8 +139,9 @@ class MainActivity : ComponentActivity() {
             val scoreAway by androidx.compose.runtime.remember { app.settings.settings.map { it.scoreAway } }.collectAsState(initial = false)
             val cubeSpread by androidx.compose.runtime.remember { app.settings.settings.map { it.showCubeSpread } }.collectAsState(initial = false)
             val shareChances by androidx.compose.runtime.remember { app.settings.settings.map { it.shareChances } }.collectAsState(initial = true)
+            val showChances by androidx.compose.runtime.remember { app.settings.settings.map { it.showChances } }.collectAsState(initial = true)
             GammonTheme {
-                androidx.compose.runtime.CompositionLocalProvider(com.boldblot.backgammonplyground.ui.components.LocalShareChances provides shareChances, com.boldblot.backgammonplyground.ui.components.LocalScoreAway provides scoreAway, com.boldblot.backgammonplyground.ui.components.LocalCubeSpread provides cubeSpread, com.boldblot.backgammonplyground.ui.components.LocalErrorUnit provides errorUnit, com.boldblot.backgammonplyground.ui.components.LocalCheckerStyle provides checkerStyle) {
+                androidx.compose.runtime.CompositionLocalProvider(com.boldblot.backgammonplyground.ui.components.LocalShareChances provides shareChances, com.boldblot.backgammonplyground.ui.components.LocalShowChances provides showChances, com.boldblot.backgammonplyground.ui.components.LocalScoreAway provides scoreAway, com.boldblot.backgammonplyground.ui.components.LocalCubeSpread provides cubeSpread, com.boldblot.backgammonplyground.ui.components.LocalErrorUnit provides errorUnit, com.boldblot.backgammonplyground.ui.components.LocalCheckerStyle provides checkerStyle) {
                     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                         Box(Modifier.fillMaxSize().safeDrawingPadding()) { AppNav() }
                     }
@@ -246,9 +247,9 @@ class MainActivity : ComponentActivity() {
                 val vm: ReviewViewModel = viewModel(key = "review-$id-$game-$mistakes-$marks-$markedOnly", factory = factory { ReviewViewModel(app, id, game, mistakes, marks, markedOnly) })
                 ReviewScreen(vm, onBack = { nav.popBackStack() }, onQuiz = { m -> nav.navigate("gamequizmenu?match=$m") })
             }
-            composable("stats") {
+            composable("stats?quiz={quiz}", arguments = listOf(navArgument("quiz") { type = NavType.BoolType; defaultValue = false })) { entry ->
                 val vm: StatsViewModel = viewModel(factory = factory { StatsViewModel(app) })
-                StatsScreen(vm, onBack = { nav.popBackStack() })
+                StatsScreen(vm, onBack = { nav.popBackStack() }, quizFirst = entry.arguments?.getBoolean("quiz") ?: false, onOpenPosition = { p -> nav.navigate("positions/item/$p") })
             }
             composable("history") {
                 HistoryScreen(
@@ -313,14 +314,11 @@ class MainActivity : ComponentActivity() {
             ) { entry ->
                 val ids = entry.arguments?.getString("ids").orEmpty().split(',').mapNotNull { it.toLongOrNull() }
                 val filter = entry.arguments?.getString("filter").orEmpty().split('\n').filter { it.isNotBlank() }.toSet()
-                QuizMenuScreen(app, ids, onBack = { nav.popBackStack() }, preFilter = filter, onGameQuiz = { nav.navigate("gamequizmenu") }, onStats = { nav.navigate("quizstats") }) { spec ->
+                QuizMenuScreen(app, ids, onBack = { nav.popBackStack() }, preFilter = filter, onGameQuiz = { nav.navigate("gamequizmenu") }, onStats = { nav.navigate("stats?quiz=true") }) { spec ->
                     nav.navigate("positions/quiz/${spec.encode()}")
                 }
             }
             // The game quiz: its menu (for [match], or with the library's list to pick one), then the quiz on that match's decisions.
-            composable("quizstats") {
-                com.boldblot.backgammonplyground.ui.positions.QuizStatsScreen(app, onBack = { nav.popBackStack() }, onOpen = { p -> nav.navigate("positions/item/$p") })
-            }
             composable("gamequizmenu?match={match}", arguments = listOf(navArgument("match") { type = NavType.LongType; defaultValue = -1L })) { entry ->
                 val match = entry.arguments?.getLong("match")?.takeIf { it > 0 }
                 com.boldblot.backgammonplyground.ui.positions.GameQuizMenuScreen(app, match, onBack = { nav.popBackStack() }) { spec ->

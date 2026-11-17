@@ -56,6 +56,9 @@ import com.boldblot.backgammonplyground.core.NewErrors
 import com.boldblot.backgammonplyground.core.Opponent
 import com.boldblot.backgammonplyground.core.Player
 import com.boldblot.backgammonplyground.core.Reanalysis
+import com.boldblot.backgammonplyground.ui.review.ReanalyzeDialog
+import com.boldblot.backgammonplyground.ui.review.ReanalyzeRequest
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.LinearProgressIndicator
 import com.boldblot.backgammonplyground.core.PositionAnalysis
 import com.boldblot.backgammonplyground.core.StudyPosition
@@ -182,6 +185,49 @@ fun GameQuizMenuScreen(app: PlyGroundApp, matchId: Long?, onBack: () -> Unit, on
             decisions = r?.second ?: emptyList()
         }
     }
+    var askingAnalysis by remember { mutableStateOf(false) }
+    // Analyzes the match: [req] null = only the computer's decisions never analyzed (the opponent card), at the settings' depths;
+    // otherwise as asked (Analyze match: every decision, the computer's too if asked).
+    fun startAnalysis(req: ReanalyzeRequest?) {
+        val st = settings ?: return
+        val mm = match ?: return
+        val id = chosen ?: return
+        if (reviewJob?.isActive == true) return
+        reviewMessage = null
+        reviewJob = scope.launch {
+            val engine = req?.engine ?: st.analysisEngine
+            val re = Reanalysis(
+                app.engine.of(engine), (req?.checker ?: st.checkerDepth(mm.length > 0)).code, (req?.cube ?: st.cubeDepth(mm.length > 0)).code,
+            )
+            fun wanted(d: com.boldblot.backgammonplyground.core.DecisionRecord) = if (req == null) Reanalysis.isUnanalyzedCpu(d) else re.wanted(d, req.cpu)
+            val games = app.repository.games(id)
+            val total = games.sumOf { (_, g) -> g.decisions.count(::wanted) }
+            var done = 0
+            progress = 0 to total
+            try {
+                for ((e, g) in games) {
+                    if (g.decisions.none(::wanted)) continue
+                    val ds2 = g.decisions.toMutableList()
+                    for ((k, d) in g.decisions.withIndex()) {
+                        if (!wanted(d)) continue
+                        ds2[k] = app.engine.run(engine) { re.decision(d, mm.length, mm.jacoby) }
+                        done++
+                        progress = done to total
+                    }
+                    app.repository.saveReanalyzedGame(e, g.copy(decisions = ds2), mm.length)
+                }
+                reviewed = reviewed + 1
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                reviewMessage = "Stopped. What was analyzed so far is kept."
+                reviewed = reviewed + 1
+                throw c
+            } catch (t: Throwable) {
+                reviewMessage = "Analysis failed: ${t.message}"
+            } finally {
+                progress = null
+            }
+        }
+    }
     val r = rules
     val matching = if (r != null) decisions?.let { GameQuiz.matching(it, r).size } else null
     Scaffold(
@@ -240,10 +286,27 @@ fun GameQuizMenuScreen(app: PlyGroundApp, matchId: Long?, onBack: () -> Unit, on
                 }
                 TextButton(onClick = { chosen = null }) { Text("Change") }
             }
+            if (m != null) {
+                val pr = progress
+                if (pr != null) {
+                    Text("Analyzing the match… ${pr.first} / ${pr.second} decisions", style = MaterialTheme.typography.bodyMedium)
+                    LinearProgressIndicator(progress = { if (pr.second == 0) 0f else pr.first / pr.second.toFloat() }, modifier = Modifier.fillMaxWidth())
+                    TextButton(onClick = { reviewJob?.cancel() }) { Text("Stop") }
+                } else {
+                    OutlinedButton(onClick = { askingAnalysis = true }) { Text("Analyze match") }
+                    reviewMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp)) }
+                }
+            }
+            if (askingAnalysis && m != null) {
+                ReanalyzeDialog(
+                    s, gameNumber = null, onDismiss = { askingAnalysis = false }, cpuDefault = true, match = m.length > 0, wholeMatch = true,
+                    onStart = { req -> askingAnalysis = false; startAnalysis(req) },
+                )
+            }
             val ds = decisions
             if (ds != null && ds.isEmpty()) {
                 Text(
-                    "This match has no analyzed decisions to ask. Analyze it first: open it from the Match Library and use Analyze again.",
+                    "This match has no analyzed decisions to ask. Analyze it first with Analyze match above.",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp),
                 )
                 return@Column
@@ -275,63 +338,18 @@ fun GameQuizMenuScreen(app: PlyGroundApp, matchId: Long?, onBack: () -> Unit, on
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 GameQuizSide.entries.forEach { o -> FilterChip(selected = r.side == o, onClick = { set(r.copy(side = o)) }, label = { Text(o.label) }) }
             }
-            if (r.side != GameQuizSide.MINE && (cpuTodo > 0 || progress != null || reviewMessage != null)) {
+            if (r.side != GameQuizSide.MINE && cpuTodo > 0 && progress == null) {
                 Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        val pr = progress
-                        if (pr != null) {
-                            Text("Reviewing the opponent's moves… ${pr.first} / ${pr.second}", style = MaterialTheme.typography.bodyMedium)
-                            LinearProgressIndicator(progress = { if (pr.second == 0) 0f else pr.first / pr.second.toFloat() }, modifier = Modifier.fillMaxWidth())
-                            TextButton(onClick = { reviewJob?.cancel() }) { Text("Stop") }
-                        } else {
-                            if (cpuTodo > 0) {
-                                Text(
-                                    "The opponent's moves in this match have not been reviewed ($cpuTodo decisions), so none of them can be asked.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                                Button(onClick = {
-                                    val st = s
-                                    val mm = m ?: return@Button
-                                    val id = chosen ?: return@Button
-                                    reviewMessage = null
-                                    reviewJob = scope.launch {
-                                        val engine = st.analysisEngine
-                                        val re = Reanalysis(app.engine.of(engine), st.checkerDepth(mm.length > 0).code, st.cubeDepth(mm.length > 0).code)
-                                        val games = app.repository.games(id)
-                                        val total = Reanalysis.unanalyzedCpuCount(games.map { it.second })
-                                        var done = 0
-                                        progress = 0 to total
-                                        try {
-                                            for ((e, g) in games) {
-                                                if (!Reanalysis.unanalyzedCpu(g)) continue
-                                                val ds2 = g.decisions.toMutableList()
-                                                for ((k, d) in g.decisions.withIndex()) {
-                                                    if (!Reanalysis.isUnanalyzedCpu(d)) continue
-                                                    ds2[k] = app.engine.run(engine) { re.decision(d, mm.length, mm.jacoby) }
-                                                    done++
-                                                    progress = done to total
-                                                }
-                                                app.repository.saveReanalyzedGame(e, g.copy(decisions = ds2), mm.length)
-                                            }
-                                            reviewed = reviewed + 1
-                                        } catch (c: kotlinx.coroutines.CancellationException) {
-                                            reviewMessage = "Stopped. What was reviewed so far is kept."
-                                            reviewed = reviewed + 1
-                                            throw c
-                                        } catch (t: Throwable) {
-                                            reviewMessage = "Review failed: ${t.message}"
-                                        } finally {
-                                            progress = null
-                                        }
-                                    }
-                                }) { Text("Review the opponent's moves") }
-                                Text(
-                                    "Uses the analysis depths of Settings → Analysis.",
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            reviewMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                        }
+                        Text(
+                            "The opponent's moves in this match have not been reviewed ($cpuTodo decisions), so none of them can be asked.",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Button(onClick = { startAnalysis(null) }) { Text("Review the opponent's moves") }
+                        Text(
+                            "Uses the analysis depths of Settings → Analysis.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }

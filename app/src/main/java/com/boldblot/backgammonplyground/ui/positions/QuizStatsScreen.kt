@@ -55,9 +55,9 @@ private fun pct(r: Double?) = if (r == null) "–" else "${fmt(r * 100, 0)}%"
 private fun tallyText(t: QuizTally) = if (t.answered == 0) "–" else "${pct(t.rate)} of ${t.answered}"
 
 /** The quiz's statistics: how the answers kept so far went (not game quizzes or Quiz a friend). */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun QuizStatsScreen(app: PlyGroundApp, onBack: () -> Unit, onOpen: (Long) -> Unit) {
+fun QuizStatsBody(app: PlyGroundApp, onOpen: (Long) -> Unit, modifier: Modifier = Modifier) {
     var period by remember { mutableStateOf(Period.MONTH) }
     var report by remember { mutableStateOf<QuizStatsReport?>(null) }
     var titles by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
@@ -73,16 +73,9 @@ fun QuizStatsScreen(app: PlyGroundApp, onBack: () -> Unit, onOpen: (Long) -> Uni
         titles = r.missed.mapNotNull { m -> app.positions.savedPosition(m.positionId)?.let { m.positionId to (it.entity.source.ifBlank { "Position ${m.positionId}" } + " · " + (if (it.position.dice == null) "cube" else "roll ${it.position.dice}")) } }.toMap()
         report = r
     }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Title("Quiz statistics") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-            )
-        },
-    ) { padding ->
+    run {
         val r = report
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (r == null) {
                 Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 return@Column

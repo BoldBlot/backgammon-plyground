@@ -31,6 +31,8 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material3.AssistChip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -88,16 +90,26 @@ private val dateFmt = SimpleDateFormat("d MMM", Locale.getDefault())
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StatsScreen(vm: StatsViewModel, onBack: () -> Unit) {
+fun StatsScreen(vm: StatsViewModel, onBack: () -> Unit, quizFirst: Boolean = false, onOpenPosition: (Long) -> Unit = {}) {
     val st by vm.state.collectAsState()
+    // The Quiz chip (top right) switches to the quiz statistics and then reads Games.
+    var quiz by rememberSaveable { mutableStateOf(quizFirst) }
+    val app = LocalContext.current.applicationContext as com.boldblot.backgammonplyground.PlyGroundApp
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Statistics") },
+                title = { Text(if (quiz) "Quiz statistics" else "Statistics") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+                actions = {
+                    AssistChip(onClick = { quiz = !quiz }, label = { Text(if (quiz) "Games" else "Quiz", maxLines = 1, softWrap = false) }, modifier = Modifier.padding(end = 8.dp))
+                },
             )
         },
     ) { padding ->
+        if (quiz) {
+            com.boldblot.backgammonplyground.ui.positions.QuizStatsBody(app, onOpenPosition, Modifier.padding(padding))
+            return@Scaffold
+        }
         Column(Modifier.padding(padding).fillMaxSize()) {
             Filters(st.filter, vm::load)
             Box(Modifier.fillMaxSize()) {

@@ -1776,8 +1776,8 @@ private fun DisplaySettings(s: Settings, update: (f: (Settings) -> Settings) -> 
     Note("How much equity a play or cube action loses, everywhere in the app: in equity (Eq) or in thousandths of it (mEq, as some programs show).")
     Toggle("Chances in shared pictures", s.shareChances) { v -> update { it.copy(shareChances = v) } }
     Note("A shared board with its top plays or cube actions prints win, gammon and backgammon chances for both sides under each row. Off: equities only.")
-    Toggle("Chances in the quiz's result", s.quizChances) { v -> update { it.copy(quizChances = v) } }
-    Note("After an answer, each play in the list shows win, gammon and backgammon chances. The quiz result also has a Chances chip to turn them on or off.")
+    Toggle("Chances under plays and cube actions", s.showChances) { v -> update { it.copy(showChances = v) } }
+    Note("Each play in a list and the cube table show win, gammon and backgammon chances for both sides. Reviews, Blunders, My positions and the quiz also have a Chances button to turn them on or off.")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Board")
     BoardSettings(s) { f -> update(f) }

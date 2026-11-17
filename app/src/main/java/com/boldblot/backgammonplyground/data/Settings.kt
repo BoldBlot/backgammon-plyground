@@ -241,8 +241,8 @@ data class Settings(
     val showCubeSpread: Boolean = false,
     /** Shared pictures with an analysis print win / gammon / backgammon chances under each play (build 84). */
     val shareChances: Boolean = true,
-    /** The quiz's result lists show win / gammon / backgammon chances for each play (build 84). */
-    val quizChances: Boolean = false,
+    /** Plays and cube actions show win / gammon / backgammon chances, in every view (the Chances button; build 85). */
+    val showChances: Boolean = true,
     val blunderSort: BlunderSort = BlunderSort.BIGGEST,
     /** The order of a My positions folder: newest saved, or the biggest error made in the game (positions without one last). */
     val positionsSort: PositionsSort = PositionsSort.NEWEST,
@@ -515,7 +515,7 @@ class SettingsStore(private val context: Context) {
         val gamesOnErrorsOnly = booleanPreferencesKey("games_on_errors_only")
         val showCubeSpread = booleanPreferencesKey("show_cube_spread")
         val shareChances = booleanPreferencesKey("share_chances")
-        val quizChances = booleanPreferencesKey("quiz_chances")
+        val showChances = booleanPreferencesKey("show_chances")
         val errorRate = floatPreferencesKey("mistake_errors")
         val blunderRate = floatPreferencesKey("mistake_blunders")
         val mistakeCheckerPlies = intPreferencesKey("mistake_checker_plies")
@@ -643,7 +643,7 @@ class SettingsStore(private val context: Context) {
             gamesOnErrorsOnly = p[Keys.gamesOnErrorsOnly] ?: d.gamesOnErrorsOnly,
             showCubeSpread = p[Keys.showCubeSpread] ?: d.showCubeSpread,
             shareChances = p[Keys.shareChances] ?: d.shareChances,
-            quizChances = p[Keys.quizChances] ?: d.quizChances,
+            showChances = p[Keys.showChances] ?: d.showChances,
             welcomeSeen = p[Keys.welcomeSeen] ?: d.welcomeSeen,
             blunderSort = p.enum(Keys.blunderSort, d.blunderSort),
             positionsSort = p.enum(Keys.positionsSort, d.positionsSort),
@@ -767,7 +767,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.gamesOnErrorsOnly] = s.gamesOnErrorsOnly
             p[Keys.showCubeSpread] = s.showCubeSpread
             p[Keys.shareChances] = s.shareChances
-            p[Keys.quizChances] = s.quizChances
+            p[Keys.showChances] = s.showChances
             p[Keys.blunderSort] = s.blunderSort.name
             p[Keys.positionsSort] = s.positionsSort.name
             p[Keys.autoFinish] = s.autoFinishSpeed.name

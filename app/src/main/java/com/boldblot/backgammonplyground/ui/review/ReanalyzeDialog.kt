@@ -53,9 +53,11 @@ fun ReanalyzeDialog(
     cpuDefault: Boolean = settings.cpuAnalysis,
     /** A match position or game: the match depths in Settings to start from, and the searches by played-out games on offer. */
     match: Boolean = false,
+    /** The whole match (from the game quiz's menu): no game to pick, the computer's decisions on offer. */
+    wholeMatch: Boolean = false,
     onStart: (ReanalyzeRequest) -> Unit,
 ) {
-    var r by remember { mutableStateOf(ReanalyzeRequest(settings.analysisEngine, settings.checkerDepth(match), settings.cubeDepth(match), cpu = cpuDefault)) }
+    var r by remember { mutableStateOf(ReanalyzeRequest(settings.analysisEngine, settings.checkerDepth(match), settings.cubeDepth(match), wholeMatch = wholeMatch, cpu = cpuDefault)) }
     AlertDialog(
         onDismissRequest = onDismiss,
         // Wider than the default, so that four depth buttons fit across.
@@ -68,9 +70,9 @@ fun ReanalyzeDialog(
                     engine = r.engine, onEngine = { r = r.copy(engine = it) },
                     checker = r.checker, cube = r.cube, onChange = { c, cube -> r = r.copy(checker = c, cube = cube) }, match = match,
                 )
-                if (gameNumber != null) {
+                if (gameNumber != null || wholeMatch) {
                     Spacer(Modifier.height(10.dp))
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    if (gameNumber != null) SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                         listOf(false to "Game $gameNumber", true to "Whole match").forEachIndexed { i, (whole, label) ->
                             SegmentedButton(
                                 selected = r.wholeMatch == whole, onClick = { r = r.copy(wholeMatch = whole) },

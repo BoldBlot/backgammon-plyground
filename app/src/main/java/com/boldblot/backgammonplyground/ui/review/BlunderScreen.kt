@@ -393,7 +393,7 @@ private fun Board(st: BlunderState, d: DecisionRecord, modifier: Modifier) {
         crawfordSign = st.settings.crawfordSign,
         dmp = com.boldblot.backgammonplyground.core.Scoring.isDmp(st.current?.entity?.matchLength ?: 0, d.score, d.crawford),
         pips = listOf(board.pipCount(Player.HUMAN), board.pipCount(Player.CPU)),
-        arrows = if (st.view == ReviewView.ARROWS) decisionArrows(d, st.candidate, st.factor) else emptyList(),
+        arrows = if (st.view.arrows) decisionArrows(d, st.candidate, st.factor) else emptyList(),
     )
 }
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.4 — 2026-11-17 (build 85, internal test)
+
+- Review, Blunders, My positions and the quiz result: the three view chips (Arrows, Board, After) are now two
+  buttons that name what a tap shows: Arrows / Board, and Before / After, which work together (the move's arrows
+  can be shown on the position after it too). Beside them a Chances button turns win, gammon and backgammon
+  chances on and off in every list of plays and in the cube table (Settings → Display, "Chances under plays and
+  cube actions"; on by default). It replaces the quiz's own Chances chip from build 84.
+- Statistics: a Quiz chip in the top right switches to the quiz statistics and then reads Games. The chart icon in
+  the quiz menu opens the Statistics screen on the quiz.
+- Shared pictures with chances: the highlight of the play covers its chances line, the equity is centred in the
+  highlight, and the rows have more room.
+- Game quiz: an Analyze match button in the match's block analyzes every decision of the match, the opponent's too
+  (engine and depths as asked); it also works for a match that was never analyzed.
+
 ## 0.9.3 — 2026-11-17 (build 84, internal test)
 
 - Quiz statistics (new): a chart icon in the quiz menu opens them. Right rate for the last 7 days, 30 days or all
