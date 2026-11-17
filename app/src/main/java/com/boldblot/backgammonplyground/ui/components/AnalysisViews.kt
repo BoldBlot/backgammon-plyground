@@ -61,6 +61,8 @@ val LocalErrorUnit = staticCompositionLocalOf { ErrorUnit.EQ }
 
 /** Cube decisions from played-out games show a small ± that opens their standard error (Settings → Analysis). */
 val LocalCubeSpread = staticCompositionLocalOf { false }
+/** Settings → Display: shared pictures print the chances under each play. */
+val LocalShareChances = staticCompositionLocalOf { true }
 
 /** Match scores as "2-away, 3-away" instead of the score and the match length (Settings → Display). */
 val LocalScoreAway = staticCompositionLocalOf { false }

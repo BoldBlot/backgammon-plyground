@@ -1419,7 +1419,9 @@ private fun QuizResultCard(
     if (puttingBack) {
         PutBackDialog(1, onDismiss = { puttingBack = false }) { reset -> puttingBack = false; vm.toggleLearned(reset) }
     }
-    if (filing) {
+    // A game quiz's card is not in My positions: its folder button saves it there (with what was played in the game).
+    if (filing && st.detached) SaveToPositionsDialog(vm.app, p, "Game quiz", played = sp.played) { filing = false }
+    else if (filing) {
         CategoriesDialog(vm.app, initial = null, positionId = sp.id, title = "Move to folder", onDismiss = { filing = false }) { ids, _ ->
             filing = false
             vm.moveToFolders(sp.id, ids)
@@ -1444,7 +1446,7 @@ private fun QuizResultCard(
                         SharePositionItems(p, r.analysis, answerIndex, r.cube, capture) { sharing = false }
                     }
                 }
-                if (!st.detached && !r.deleted && r.removed == null) IconButton(onClick = { filing = true }, icon) { Icon(Icons.Default.Folder, "Move to folder") }
+                if (st.detached || (!r.deleted && r.removed == null)) IconButton(onClick = { filing = true }, icon) { Icon(Icons.Default.Folder, if (st.detached) "Save to My positions" else "Move to folder") }
                 if (!st.detached && !readOnly && !r.deleted && r.removed == null) IconButton(onClick = vm::deleteCurrent, icon) { Icon(Icons.Default.Delete, "Delete from My positions") }
                 if (!readOnly) Button(onClick = vm::next, Modifier.padding(start = 4.dp), contentPadding = PaddingValues(horizontal = 18.dp)) { Text("Next", maxLines = 1, softWrap = false) }
             }
@@ -1548,9 +1550,16 @@ private fun QuizResultCard(
             r.analysis.cube?.let { CubeTable(it, if (p.doubled) DecisionKind.TAKE else null, factorOf(p), p.beavers, colors = colors, rollerHuman = !p.doubled) }
             r.analysis.checker?.let { c ->
                 ReviewViewChips(st.view, true, vm::setView, null, Modifier.fillMaxWidth())
+                FilterChip(
+                    selected = st.settings.quizChances, onClick = { vm.setQuizChances(!st.settings.quizChances) },
+                    label = { Text("Chances", maxLines = 1, softWrap = false) },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
                 CandidateList(
                     board = p.board, player = Player.HUMAN, analysis = c, factor = factorOf(p),
                     highlightIndex = answerIndex, maxRows = 5, selectedIndex = st.candidate,
+                    detailed = st.settings.quizChances,
+                    moverColor = colors.human, opponentColor = colors.cpu, moverRim = colors.humanRim, opponentRim = colors.cpuRim,
                     onSelect = { i, _ -> vm.selectCandidate(if (st.candidate == i) null else i) },
                 )
             }

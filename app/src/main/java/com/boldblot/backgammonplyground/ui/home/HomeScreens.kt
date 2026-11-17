@@ -1774,6 +1774,10 @@ private fun DisplaySettings(s: Settings, update: (f: (Settings) -> Settings) -> 
     Note("In the Crawford game and at double match point nobody can double, so a CRAWFORD or DMP sign stands on the bar instead of the cube. Off: the bar is left empty.")
     Chips("Errors in", ErrorUnit.entries, s.errorUnit, { it.label }) { v -> update { it.copy(errorUnit = v) } }
     Note("How much equity a play or cube action loses, everywhere in the app: in equity (Eq) or in thousandths of it (mEq, as some programs show).")
+    Toggle("Chances in shared pictures", s.shareChances) { v -> update { it.copy(shareChances = v) } }
+    Note("A shared board with its top plays or cube actions prints win, gammon and backgammon chances for both sides under each row. Off: equities only.")
+    Toggle("Chances in the quiz's result", s.quizChances) { v -> update { it.copy(quizChances = v) } }
+    Note("After an answer, each play in the list shows win, gammon and backgammon chances. The quiz result also has a Chances chip to turn them on or off.")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Board")
     BoardSettings(s) { f -> update(f) }

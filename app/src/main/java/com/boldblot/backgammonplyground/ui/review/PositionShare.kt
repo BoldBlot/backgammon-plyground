@@ -178,6 +178,7 @@ fun SharePositionItems(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val unit = LocalErrorUnit.current
+    val chances = com.boldblot.backgammonplyground.ui.components.LocalShareChances.current
     // The players' checkers beside their scores in the picture's heading, in the board's colours.
     val app = context.applicationContext as? com.boldblot.backgammonplyground.PlyGroundApp
     val settings = app?.settings?.settings?.collectAsState(initial = null)?.value
@@ -206,7 +207,7 @@ fun SharePositionItems(
             onClick = {
                 onDone()
                 if (lines.isEmpty()) noAnalysis?.invoke()
-                else scope.launch { PositionShare.analysisImage(context, capture, title, lines, xgid, unit, playedTag, analysisLabel, checkers) }
+                else scope.launch { PositionShare.analysisImage(context, capture, title, lines, xgid, unit, playedTag, analysisLabel, checkers, chances) }
             },
         )
     }
@@ -218,7 +219,9 @@ object PositionShare {
     data class ScoreCheckers(val human: Int, val humanRim: Int, val cpu: Int, val cpuRim: Int)
 
     /** One row of the analysis under a shared board: a play or cube action, its equity and its error. */
-    data class Line(val text: String, val equity: Float, val diff: Float, val severity: Severity, val played: Boolean, val tag: String? = null)
+    data class Line(val text: String, val equity: Float, val diff: Float, val severity: Severity, val played: Boolean, val tag: String? = null,
+        /** "Win 62.3% (G 18.1% B 1.2%) · Lose 37.7% (G 12.0% B 0.3%)": drawn under the row when the picture asks for chances. */
+        val chances: String? = null)
 
     fun text(context: Context, text: String) {
         val send = Intent(Intent.ACTION_SEND).apply {
@@ -246,8 +249,8 @@ object PositionShare {
     /** Shares the board as [capture] shows it with [lines] (the top 5 or the cube actions) under it. */
     suspend fun analysisImage(
         context: Context, capture: BoardCapture, title: String, lines: List<Line>, xgid: String?, unit: ErrorUnit,
-        playedTag: String = "played", analysisLabel: String? = null, checkers: ScoreCheckers? = null,
-    ) = image(context, withAnalysis(capture.image().asAndroidBitmap(), title, lines, xgid, unit, playedTag, analysisLabel, checkers), "analysis")
+        playedTag: String = "played", analysisLabel: String? = null, checkers: ScoreCheckers? = null, chances: Boolean = false,
+    ) = image(context, withAnalysis(capture.image().asAndroidBitmap(), title, lines, xgid, unit, playedTag, analysisLabel, checkers, chances), "analysis")
 
     /** The analysis of decision [d] for a shared picture (see the other [analysisLines]). */
     fun analysisLines(d: DecisionRecord, factor: Float): List<Line> {
@@ -256,6 +259,14 @@ object PositionShare {
             d.board, d.player, d.checker, d.cubeEval, response = d.kind.isResponse, beavers = d.beavers || d.kind == DecisionKind.BEAVER,
             playedIndex = d.reviewIndex, playedKind = d.reviewKind, factor = factor,
         )
+    }
+
+    /** [probs] (win, gammon, backgammon, lose gammon, lose backgammon; the roller's) as text; [swap]: seen from the other side. */
+    fun chancesText(probs: List<Float>, swap: Boolean = false): String? {
+        if (probs.size < 5) return null
+        val q = if (swap) listOf(1f - probs[0], probs[3], probs[4], probs[1], probs[2]) else probs
+        val (win, lose) = com.boldblot.backgammonplyground.ui.components.odds(q)
+        return "Win $win · Lose $lose"
     }
 
     /**
@@ -278,15 +289,17 @@ object PositionShare {
             val shown = (a.candidates.indices.take(5) + listOfNotNull(playedIndex, alsoIndex).filter { it >= 5 && it < a.candidates.size }).distinct().sorted()
             return shown.map { i ->
                 val c = a.candidates[i]
-                line("${i + 1}. ${MoveNotation.format(board, player, c.move)}", c.equity, a.bestEquity, i == playedIndex)
+                line("${i + 1}. ${MoveNotation.format(board, player, c.move)}", c.equity, a.bestEquity, i == playedIndex).copy(chances = chancesText(c.probs))
             }
         }
         val e = cube ?: return emptyList()
         if (response) {
             val (take, pass, beaver) = DecisionMath.responseEquities(e, beavers)
             val best = maxOf(take, pass, beaver ?: take)
+            // The cubeless chances are the doubler's; the taker's are their mirror.
+            val ch = chancesText(e.probs, swap = true)
             return listOfNotNull(
-                line("Take", take, best, playedKind == DecisionKind.TAKE),
+                line("Take", take, best, playedKind == DecisionKind.TAKE).copy(chances = ch),
                 line("Pass", pass, best, playedKind == DecisionKind.PASS),
                 beaver?.let { line("Beaver", it, best, playedKind == DecisionKind.BEAVER) },
             )
@@ -295,7 +308,7 @@ object PositionShare {
         val doubled = playedKind == DecisionKind.DOUBLE
         val takeRow = if (doubled && playedAnswer != null) playedAnswer == DecisionKind.TAKE else e.doubleTake <= e.doublePass
         val lines = listOf(
-            line("No double", e.noDouble, best, playedKind == DecisionKind.NO_DOUBLE),
+            line("No double", e.noDouble, best, playedKind == DecisionKind.NO_DOUBLE).copy(chances = chancesText(e.probs)),
             line("Double, take", e.doubleTake, best, doubled && takeRow),
             line("Double, pass", e.doublePass, best, doubled && !takeRow),
         )
@@ -337,7 +350,7 @@ object PositionShare {
     /** [board] under [title], with the analysis [lines] and the [xgid] below it (if any), on a white card. */
     fun withAnalysis(
         board: Bitmap, title: String, lines: List<Line>, xgid: String?, unit: ErrorUnit = ErrorUnit.EQ, playedTag: String = "played",
-        analysisLabel: String? = null, checkers: ScoreCheckers? = null,
+        analysisLabel: String? = null, checkers: ScoreCheckers? = null, chances: Boolean = false,
     ): Bitmap {
         val w = board.width
         val pad = w / 30f
@@ -348,7 +361,9 @@ object PositionShare {
         val label = analysisLabel?.takeIf { lines.isNotEmpty() }?.let(::netLabel)
         // The footer: "Analysis: …" with boldblot.com at its right end (pictures with an analysis).
         val footer = lines.isNotEmpty()
-        val below = (if (lines.isNotEmpty()) pad + row * lines.size else 0f) + (if (footer) small * 1.6f else 0f) +
+        val extra = if (chances) small * 1.25f else 0f
+        fun extraOf(l: Line) = if (chances && l.chances != null) extra else 0f
+        val below = (if (lines.isNotEmpty()) pad + row * lines.size + lines.sumOf { extraOf(it).toDouble() }.toFloat() else 0f) + (if (footer) small * 1.6f else 0f) +
             (if (xgid != null) small * 2 else 0f) + pad / 2
         val h = (top + board.height + below).toInt()
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -372,7 +387,11 @@ object PositionShare {
             if (l.diff < -0.0005f) {
                 c.drawText(err(l.diff, unit), w - pad, y, Paint(mono).apply { color = Quality.color(l.severity, false).toArgb() })
             }
-            y += row
+            if (chances && l.chances != null) {
+                y += small * 1.05f
+                c.drawText(l.chances, pad + text * 1.2f, y, Paint(sans).apply { textSize = small * 0.9f; color = grey })
+                y += row - small * 0.8f
+            } else y += row
         }
         if (footer) {
             y += small * 0.1f

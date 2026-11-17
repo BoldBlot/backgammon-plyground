@@ -20,8 +20,12 @@ class Reanalysis(
 
     companion object {
         /** Whether [g] has computer decisions that were never analyzed (computer analysis off, or still pending). */
-        fun unanalyzedCpu(g: GameState): Boolean =
-            g.decisions.any { it.player == Player.CPU && !it.auto && it.checker == null && it.cubeEval == null }
+        fun unanalyzedCpu(g: GameState): Boolean = g.decisions.any(::isUnanalyzedCpu)
+
+        /** The computer's decisions in [games] that were never analyzed (the opponent's, in a game quiz). */
+        fun unanalyzedCpuCount(games: List<GameState>): Int = games.sumOf { g -> g.decisions.count(::isUnanalyzedCpu) }
+
+        fun isUnanalyzedCpu(d: DecisionRecord): Boolean = d.player == Player.CPU && !d.auto && d.checker == null && d.cubeEval == null
     }
 
     /** Whether "analyze again" redoes [d] ([cpu]: the computer's decisions too). */

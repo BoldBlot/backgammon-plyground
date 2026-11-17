@@ -138,8 +138,9 @@ class MainActivity : ComponentActivity() {
             val checkerStyle by androidx.compose.runtime.remember { app.settings.settings.map { it.checkerStyle } }.collectAsState(initial = com.boldblot.backgammonplyground.data.CheckerStyle.RIMMED)
             val scoreAway by androidx.compose.runtime.remember { app.settings.settings.map { it.scoreAway } }.collectAsState(initial = false)
             val cubeSpread by androidx.compose.runtime.remember { app.settings.settings.map { it.showCubeSpread } }.collectAsState(initial = false)
+            val shareChances by androidx.compose.runtime.remember { app.settings.settings.map { it.shareChances } }.collectAsState(initial = true)
             GammonTheme {
-                androidx.compose.runtime.CompositionLocalProvider(com.boldblot.backgammonplyground.ui.components.LocalScoreAway provides scoreAway, com.boldblot.backgammonplyground.ui.components.LocalCubeSpread provides cubeSpread, com.boldblot.backgammonplyground.ui.components.LocalErrorUnit provides errorUnit, com.boldblot.backgammonplyground.ui.components.LocalCheckerStyle provides checkerStyle) {
+                androidx.compose.runtime.CompositionLocalProvider(com.boldblot.backgammonplyground.ui.components.LocalShareChances provides shareChances, com.boldblot.backgammonplyground.ui.components.LocalScoreAway provides scoreAway, com.boldblot.backgammonplyground.ui.components.LocalCubeSpread provides cubeSpread, com.boldblot.backgammonplyground.ui.components.LocalErrorUnit provides errorUnit, com.boldblot.backgammonplyground.ui.components.LocalCheckerStyle provides checkerStyle) {
                     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                         Box(Modifier.fillMaxSize().safeDrawingPadding()) { AppNav() }
                     }
@@ -312,11 +313,14 @@ class MainActivity : ComponentActivity() {
             ) { entry ->
                 val ids = entry.arguments?.getString("ids").orEmpty().split(',').mapNotNull { it.toLongOrNull() }
                 val filter = entry.arguments?.getString("filter").orEmpty().split('\n').filter { it.isNotBlank() }.toSet()
-                QuizMenuScreen(app, ids, onBack = { nav.popBackStack() }, preFilter = filter, onGameQuiz = { nav.navigate("gamequizmenu") }) { spec ->
+                QuizMenuScreen(app, ids, onBack = { nav.popBackStack() }, preFilter = filter, onGameQuiz = { nav.navigate("gamequizmenu") }, onStats = { nav.navigate("quizstats") }) { spec ->
                     nav.navigate("positions/quiz/${spec.encode()}")
                 }
             }
             // The game quiz: its menu (for [match], or with the library's list to pick one), then the quiz on that match's decisions.
+            composable("quizstats") {
+                com.boldblot.backgammonplyground.ui.positions.QuizStatsScreen(app, onBack = { nav.popBackStack() }, onOpen = { p -> nav.navigate("positions/item/$p") })
+            }
             composable("gamequizmenu?match={match}", arguments = listOf(navArgument("match") { type = NavType.LongType; defaultValue = -1L })) { entry ->
                 val match = entry.arguments?.getLong("match")?.takeIf { it > 0 }
                 com.boldblot.backgammonplyground.ui.positions.GameQuizMenuScreen(app, match, onBack = { nav.popBackStack() }) { spec ->

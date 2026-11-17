@@ -350,6 +350,18 @@ class PositionsRepository(db: AppDatabase) {
         return updated
     }
 
+    /** Keeps a quiz answer for the quiz statistics. */
+    suspend fun recordAnswer(id: Long, verdict: QuizVerdict, error: Float, cube: Boolean, match: Boolean, at: Long = System.currentTimeMillis()) {
+        dao.insertAnswer(QuizAnswerEntity(at = at, positionId = id, verdict = verdict.name, error = error, cube = cube, match = match))
+    }
+
+    suspend fun quizAnswers(): List<QuizAnswerEntity> = dao.quizAnswers()
+
+    suspend fun folderLinks(): List<FolderLink> = dao.folderLinks()
+
+    /** A saved position by id (null when it is gone). */
+    suspend fun savedPosition(id: Long): SavedPosition? = dao.position(id)?.let(::decode)
+
     /** The last quiz answer to position [id] turned out [to] instead of [from] (analyzed again): one count moves over. */
     suspend fun fixResult(id: Long, from: QuizVerdict, to: QuizVerdict): PositionEntity? {
         val e = dao.position(id) ?: return null

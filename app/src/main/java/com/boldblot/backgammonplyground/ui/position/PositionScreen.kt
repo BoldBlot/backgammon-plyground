@@ -156,6 +156,7 @@ private fun TopRow(vm: PositionViewModel, st: PositionState, capture: com.boldbl
         // (analyzed first when there is no analysis yet).
         val context = LocalContext.current
         val unit = com.boldblot.backgammonplyground.ui.components.LocalErrorUnit.current
+        val shareChances = com.boldblot.backgammonplyground.ui.components.LocalShareChances.current
         val scope = rememberCoroutineScope()
         val away = com.boldblot.backgammonplyground.ui.components.LocalScoreAway.current
         fun shareTitle() = vm.study()?.let { com.boldblot.backgammonplyground.ui.review.PositionShare.title(it, away) } ?: "Analyze Position"
@@ -179,7 +180,7 @@ private fun TopRow(vm: PositionViewModel, st: PositionState, capture: com.boldbl
                             val s = vm.state.value
                             val lines = shareLines(s)
                             if (lines.isNotEmpty()) com.boldblot.backgammonplyground.ui.review.PositionShare.analysisImage(
-                                context, capture, shareTitle(), lines, vm.exportId(xgid = true), unit, playedTag = "decision", analysisLabel = shareLabel(s),
+                                context, capture, shareTitle(), lines, vm.exportId(xgid = true), unit, playedTag = "decision", analysisLabel = shareLabel(s), chances = shareChances,
                             )
                         }
                     },

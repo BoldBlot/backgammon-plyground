@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.3 — 2026-11-17 (build 84, internal test)
+
+- Quiz statistics (new): a chart icon in the quiz menu opens them. Right rate for the last 7 days, 30 days or all
+  time, streak of days with a quiz, average equity lost, checker plays against cube decisions, match against money,
+  a chart of the right rate and the answers per day, the hardest folders and the positions missed most (tap to
+  open). The answers are kept from this build on, so the history starts now. Game quizzes and Quiz a friend are
+  not counted.
+- Quiz result: a Chances chip shows win, gammon and backgammon chances for each play in the list (Settings →
+  Display, "Chances in the quiz's result", keeps the choice).
+- Shared pictures of a position with its analysis print the chances under each play or cube action (Settings →
+  Display, "Chances in shared pictures", on by default).
+- Game quiz: the Folder button is back; it saves the position to My positions (in the folders you tick) with what
+  was played in the game.
+- Game quiz: if the opponent's moves in the match were never reviewed, the menu says so and offers "Review the
+  opponent's moves" (at the depths of Settings → Analysis), so their decisions can be asked.
+
 ## 0.9.2 — 2026-11-16 (build 83, internal test)
 
 - Game quiz: "Quiz this match" is also in a match's summary (Match Library and review) and in the summary at the

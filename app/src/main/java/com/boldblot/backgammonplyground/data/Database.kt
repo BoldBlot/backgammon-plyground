@@ -141,6 +141,25 @@ data class CategoryEntity(
     @ColumnInfo(defaultValue = "0") val autoAdd: Boolean = false,
 )
 
+/** One quiz answer, kept for the quiz statistics (schema 10). Game quizzes and Quiz a friend leave none. */
+@Entity(tableName = "quiz_answers", indices = [Index("at"), Index("positionId")])
+data class QuizAnswerEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val at: Long,
+    val positionId: Long,
+    /** A [com.boldblot.backgammonplyground.data.QuizVerdict] name. */
+    val verdict: String,
+    /** The equity the answer lost (plain, not scaled to the match). */
+    val error: Float,
+    /** A cube decision (otherwise a checker play). */
+    val cube: Boolean,
+    /** A match position (otherwise money). */
+    val match: Boolean,
+)
+
+/** A position and a folder it is in, for the quiz statistics. */
+data class FolderLink(val positionId: Long, val name: String)
+
 /** A position's place in a category (a position can be in several). */
 @Entity(tableName = "position_categories", primaryKeys = ["positionId", "categoryId"], indices = [Index("categoryId")])
 data class PositionCategoryEntity(val positionId: Long, val categoryId: Long)
@@ -331,6 +350,15 @@ interface PositionDao {
     @Query("SELECT * FROM positions WHERE id = :id")
     suspend fun position(id: Long): PositionEntity?
 
+    @Insert
+    suspend fun insertAnswer(a: QuizAnswerEntity)
+
+    @Query("SELECT * FROM quiz_answers ORDER BY at")
+    suspend fun quizAnswers(): List<QuizAnswerEntity>
+
+    @Query("SELECT pc.positionId AS positionId, c.name AS name FROM position_categories pc JOIN categories c ON c.id = pc.categoryId")
+    suspend fun folderLinks(): List<FolderLink>
+
     @Query("SELECT * FROM positions WHERE learnedAt IS NULL ORDER BY savedAt DESC")
     suspend fun all(): List<PositionEntity>
 
@@ -414,13 +442,13 @@ interface PositionDao {
 @Database(
     entities = [
         MatchEntity::class, GameEntity::class, CurrentMatchEntity::class, BlunderEntity::class,
-        PositionEntity::class, CategoryEntity::class, PositionCategoryEntity::class,
+        PositionEntity::class, CategoryEntity::class, PositionCategoryEntity::class, QuizAnswerEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
-        AutoMigration(from = 4, to = 5, spec = QuizCountsMigration::class), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9),
+        AutoMigration(from = 4, to = 5, spec = QuizCountsMigration::class), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9), AutoMigration(from = 9, to = 10),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

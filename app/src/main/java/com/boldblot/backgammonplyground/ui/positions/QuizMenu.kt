@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -121,6 +122,7 @@ fun QuizMenuScreen(
     app: PlyGroundApp, preselected: List<Long>, onBack: () -> Unit, preFilter: Set<String> = emptySet(),
     /** "From a match": the game quiz's menu. */
     onGameQuiz: () -> Unit = {},
+    onStats: () -> Unit = {},
     onStart: (QuizSpec) -> Unit,
 ) {
     val settings by app.settings.settings.collectAsState(initial = null)
@@ -153,6 +155,7 @@ fun QuizMenuScreen(
                 title = { Title("Quiz") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
+                    IconButton(onClick = onStats) { Icon(Icons.Default.BarChart, "Quiz statistics") }
                     Button(
                         onClick = { onStart(QuizSpec(folders.toList(), filter, limit, order, friend)) },
                         enabled = (matching ?: 0) > 0, modifier = Modifier.padding(end = 8.dp),
