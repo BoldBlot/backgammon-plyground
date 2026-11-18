@@ -145,22 +145,24 @@ class GameSearchTest {
     }
 
     @Test
-    fun `whole-game analysis plays games out only for errors`() {
+    fun `whole-game analysis plays games out only where the second play is close`() {
         val e = TestEngine.engine
         assumeTrue(e != null)
         e!!
-        val full = e.rankMoves(play.board, play.ctx, play.d1, play.d2, GameSearch.G36.code, null)
         val quick = e.rankMoves(play.board, play.ctx, play.d1, play.d2, Depth(3, MoveFilter.WIDE).code, null)
+        val gap = quick.candidates[0].equity - quick.candidates[1].equity
         e.gamesOnErrorsOnly = true
         try {
-            // The 3-ply best play, played: no games.
-            val best = e.rankMoves(play.board, play.ctx, play.d1, play.d2, GameSearch.G36.code, quick.candidates[0].move)
-            assertEquals(Depth(3, MoveFilter.WIDE).code, best.candidates[best.playedIndex].plies)
-            // A clear error: played out, and the move played goes through the games.
-            val bad = e.rankMoves(play.board, play.ctx, play.d1, play.d2, GameSearch.G36.code, full.candidates.last().move)
-            assertEquals(GameSearch.G36.code, bad.candidates[bad.playedIndex].plies)
-            assertEquals(GameSearch.G36.code, bad.candidates[0].plies)
-        } finally { e.gamesOnErrorsOnly = false }
+            // The second play is farther than the gap: no games, and the analysis says 3-ply.
+            e.gamesGap = (gap - 0.001f).coerceAtLeast(0f)
+            val far = e.rankMoves(play.board, play.ctx, play.d1, play.d2, GameSearch.G36.code, quick.candidates[0].move)
+            assertEquals(Depth(3, MoveFilter.WIDE).code, far.candidates[far.playedIndex].plies)
+            // The second play is within the gap: played out, whichever play was played.
+            e.gamesGap = gap + 0.001f
+            val close = e.rankMoves(play.board, play.ctx, play.d1, play.d2, GameSearch.G36.code, quick.candidates.last().move)
+            assertEquals(GameSearch.G36.code, close.candidates[close.playedIndex].plies)
+            assertEquals(GameSearch.G36.code, close.candidates[0].plies)
+        } finally { e.gamesOnErrorsOnly = false; e.gamesGap = SearchEngine.DEFAULT_GAMES_GAP }
     }
 
     @Test

@@ -77,17 +77,13 @@ enum class ReviewView(val arrows: Boolean, val after: Boolean) {
 
 /**
  * The buttons that turn [ReviewView]: Arrows / Board (it names what a tap shows), Before / After (After greyed
- * out for a decision without a move), a Chances chip (win / gammon / backgammon chances under the plays and
- * the cube actions, everywhere), then a Save chip that saves the position to My positions ([onSave]; none when
+ * out for a decision without a move), then a Save chip that saves the position to My positions ([onSave]; none when
  * it cannot be saved).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ReviewViewChips(view: ReviewView, hasMove: Boolean, onPick: (ReviewView) -> Unit, onSave: (() -> Unit)?, modifier: Modifier = Modifier) {
     val after = view.after && hasMove
-    val chances = com.boldblot.backgammonplyground.ui.components.LocalShowChances.current
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     FlowRow(
         modifier, horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
         itemVerticalAlignment = Alignment.CenterVertically,
@@ -96,14 +92,6 @@ fun ReviewViewChips(view: ReviewView, hasMove: Boolean, onPick: (ReviewView) -> 
         AssistChip(
             onClick = { onPick(view.withAfter(!after)) }, enabled = hasMove,
             label = { Text(if (after) "Before" else "After", maxLines = 1, softWrap = false) },
-        )
-        FilterChip(
-            selected = chances,
-            onClick = {
-                val app = context.applicationContext as? com.boldblot.backgammonplyground.PlyGroundApp
-                if (app != null) scope.launch { app.settings.update { it.copy(showChances = !chances) } }
-            },
-            label = { Text("Chances", maxLines = 1, softWrap = false) },
         )
         if (onSave != null) {
             AssistChip(
@@ -245,7 +233,9 @@ object PositionShare {
     /** One row of the analysis under a shared board: a play or cube action, its equity and its error. */
     data class Line(val text: String, val equity: Float, val diff: Float, val severity: Severity, val played: Boolean, val tag: String? = null,
         /** "Win 62.3% (G 18.1% B 1.2%) · Lose 37.7% (G 12.0% B 0.3%)": drawn under the row when the picture asks for chances. */
-        val chances: String? = null)
+        val chances: String? = null,
+        /** A line of text under all the rows (a cube decision's chances), not a row: it has no equity and no highlight. */
+        val note: Boolean = false)
 
     fun text(context: Context, text: String) {
         val send = Intent(Intent.ACTION_SEND).apply {
@@ -323,23 +313,28 @@ object PositionShare {
             // The cubeless chances are the doubler's; the taker's are their mirror.
             val ch = chancesText(e.probs, swap = true)
             return listOfNotNull(
-                line("Take", take, best, playedKind == DecisionKind.TAKE).copy(chances = ch),
+                line("Take", take, best, playedKind == DecisionKind.TAKE),
                 line("Pass", pass, best, playedKind == DecisionKind.PASS),
                 beaver?.let { line("Beaver", it, best, playedKind == DecisionKind.BEAVER) },
+                ch?.let { chancesNote(it) },
             )
         }
         val best = maxOf(e.noDouble, DecisionMath.afterDouble(e, beavers))
         val doubled = playedKind == DecisionKind.DOUBLE
         val takeRow = if (doubled && playedAnswer != null) playedAnswer == DecisionKind.TAKE else e.doubleTake <= e.doublePass
         val lines = listOf(
-            line("No double", e.noDouble, best, playedKind == DecisionKind.NO_DOUBLE).copy(chances = chancesText(e.probs)),
+            line("No double", e.noDouble, best, playedKind == DecisionKind.NO_DOUBLE),
             line("Double, take", e.doubleTake, best, doubled && takeRow),
             line("Double, pass", e.doublePass, best, doubled && !takeRow),
         )
-        if (!doubled || playedAnswer == null) return lines
+        // The chances of the position are one line under all the rows, not under No double.
+        val note = chancesText(e.probs)?.let { chancesNote(it) }
+        if (!doubled || playedAnswer == null) return lines + listOfNotNull(note)
         val whole = (DecisionMath.doubleError(e, doubled = true, beavers = beavers) + DecisionMath.takeError(e, playedAnswer, beavers)) * factor
-        return lines.map { if (it.played) it.copy(severity = XgRules.severity(whole)) else it }
+        return lines.map { if (it.played) it.copy(severity = XgRules.severity(whole)) else it } + listOfNotNull(note)
     }
+
+    private fun chancesNote(text: String) = Line("Chances: $text", 0f, 0f, Severity.NONE, false, note = true)
 
     /**
      * The analysis lines of saved position [p] with two decisions marked, each with its own tag: what was played in
@@ -373,7 +368,7 @@ object PositionShare {
 
     /** [board] under [title], with the analysis [lines] and the [xgid] below it (if any), on a white card. */
     fun withAnalysis(
-        board: Bitmap, title: String, lines: List<Line>, xgid: String?, unit: ErrorUnit = ErrorUnit.EQ, playedTag: String = "played",
+        board: Bitmap, title: String, allLines: List<Line>, xgid: String?, unit: ErrorUnit = ErrorUnit.EQ, playedTag: String = "played",
         analysisLabel: String? = null, checkers: ScoreCheckers? = null, chances: Boolean = false,
     ): Bitmap {
         val w = board.width
@@ -381,13 +376,15 @@ object PositionShare {
         val text = w / 30f
         val small = text * 0.7f
         val top = pad + text * 1.45f
-        val label = analysisLabel?.takeIf { lines.isNotEmpty() }?.let(::netLabel)
+        // The chances note of a cube decision is only drawn when the picture asks for chances.
+        val shown = if (chances) allLines else allLines.filterNot { it.note }
+        val label = analysisLabel?.takeIf { shown.isNotEmpty() }?.let(::netLabel)
         // The footer: "Analysis: …" with boldblot.com at its right end (pictures with an analysis).
-        val footer = lines.isNotEmpty()
+        val footer = shown.isNotEmpty()
         // A row is a block (its highlight): the play's line, the chances line under it if any, with room above and below.
         val gap = text * 0.3f
-        fun block(l: Line) = if (chances && l.chances != null) text * 2.65f else text * 1.75f
-        val below = (if (lines.isNotEmpty()) pad + lines.sumOf { (block(it) + gap).toDouble() }.toFloat() + text * 0.4f else 0f) + (if (footer) small * 1.6f else 0f) +
+        fun block(l: Line) = if (l.note) text * 1.2f else if (chances && l.chances != null) text * 2.65f else text * 1.75f
+        val below = (if (shown.isNotEmpty()) pad + shown.sumOf { (block(it) + gap).toDouble() }.toFloat() + text * 0.4f else 0f) + (if (footer) small * 1.6f else 0f) +
             (if (xgid != null) small * 2 else 0f) + pad / 2
         val h = (top + board.height + below).toInt()
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -401,9 +398,14 @@ object PositionShare {
         drawTitle(c, title, pad, pad + text, bold, checkers)
         c.drawBitmap(board.copy(Bitmap.Config.ARGB_8888, false), 0f, top, null)
         var y = top + board.height + pad
-        for (l in lines) {
+        for (l in shown) {
             val h = block(l)
             val mid = y + h / 2 + text * 0.35f
+            if (l.note) {
+                c.drawText(l.text, pad, mid, Paint(sans).apply { textSize = small; color = grey })
+                y += h + gap
+                continue
+            }
             if (l.played) {
                 // The decision made: a tint of its error level's colour behind the play and its chances, and the level in its tag.
                 c.drawRect(pad / 2, y, w - pad / 2, y + h, Paint().apply { color = tint(Quality.color(l.severity, false).toArgb()) })

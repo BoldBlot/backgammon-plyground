@@ -31,6 +31,7 @@ import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.EngineKind
 import com.boldblot.backgammonplyground.data.SavedPosition
 import com.boldblot.backgammonplyground.data.Settings
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -194,6 +195,28 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
     /** Cards answered since the quiz opened, as they are now: asked again, they compare with the latest answer. */
     private val latest = mutableMapOf<Long, SavedPosition>()
 
+    /** Counts the cards moved on from: a slow analysis of an earlier card must not touch the card shown now. */
+    private var cardToken = 0
+
+    /**
+     * Positions whose analysis is below the standard (Settings → Quiz): analyzed again while the card is shown, so the
+     * answer rarely waits. Each position is tried once a round, so a search that falls short cannot repeat.
+     */
+    private val refreshed = mutableMapOf<Long, kotlinx.coroutines.Deferred<PositionAnalysis?>>()
+
+    private fun staleAnalysis(sp: SavedPosition, s: Settings): Boolean =
+        !detached && s.quizReanalyze && sp.id !in refreshed && sp.analysis?.let { belowStandard(sp.position, it, s) } == true
+
+    private fun refreshAnalysis(sp: SavedPosition, s: Settings) {
+        if (!staleAnalysis(sp, s)) return
+        AppLog.i("Quiz: position ${sp.id} is below the standard (${sp.analysis?.label}), analyzing it again")
+        refreshed[sp.id] = viewModelScope.async {
+            runCatching { analyzePosition(app, sp.position, s, keep = keepMoves(sp)) }
+                .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; AppLog.error("Quiz: analyzing again failed", it) }
+                .getOrNull()
+        }
+    }
+
     /** A new round: the positions in [QuizSpec.order], at most [QuizSpec.limit] of them, none asked before when [fresh]. */
     fun start() = begin(fresh = false)
 
@@ -250,6 +273,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
         val d = p.dice
         options = d?.let { MoveOptions(p.board, Player.HUMAN, it.d1, it.d2) }
         val opts = options
+        _state.value.current?.let { refreshAnalysis(it, _state.value.settings) }
         _state.update {
             it.copy(
                 board = p.board, steps = emptyList(), movable = opts?.movableFrom(emptyList()) ?: emptySet(),
@@ -375,9 +399,14 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
         val s = _state.value.settings
         _state.update { it.copy(busy = true) }
         viewModelScope.launch {
+            val t0 = android.os.SystemClock.elapsedRealtime()
+            AppLog.i("Quiz: answer to position ${sp.id}" + if (sp.analysis == null) ", analyzing it first" else ", saved analysis ${sp.analysis?.label}")
             try {
                 // A position saved without analysis (or imported) is analyzed now, and keeps it.
-                val a = sp.analysis ?: analyzePosition(app, p, s, keep = keepMoves(sp)).also { if (!detached) app.positions.setAnalysis(sp.id, it) }
+                refreshAnalysis(sp, s)
+                val fresh = refreshed[sp.id]?.await()?.also { if (!detached) app.positions.setAnalysis(sp.id, it) }
+                val a = fresh ?: sp.analysis ?: analyzePosition(app, p, s, keep = keepMoves(sp)).also { if (!detached) app.positions.setAnalysis(sp.id, it) }
+                AppLog.i("Quiz: position ${sp.id} analyzed in ${android.os.SystemClock.elapsedRealtime() - t0} ms")
                 val factor = factorOf(p)
                 val asked = cubeAnswer?.let { if (partial) withBestResponse(p, a, it.double) else it }
                 val judged = judge(sp, a, move, cube, asked, s, null)
@@ -522,11 +551,15 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
         val sp = st.current ?: return
         if (st.reanalyzing) return
         val s = st.settings
+        val token = cardToken
         _state.update { it.copy(reanalyzing = true, message = null) }
         viewModelScope.launch {
+            val t0 = android.os.SystemClock.elapsedRealtime()
+            AppLog.i("Quiz: analyze again, position ${sp.id}, ${r.engine.label} ${r.checker.label()} / ${r.cube.label(cube = true)}")
             try {
                 val p = sp.position
                 val a = analyzePosition(app, p, r.engine, r.checker, r.cube, Waiting.ANALYSIS, keep = keepMoves(sp))
+                AppLog.i("Quiz: analyze again of position ${sp.id} done in ${android.os.SystemClock.elapsedRealtime() - t0} ms" + if (token != cardToken) " (the quiz had moved on)" else "")
                 val kept = !old.deleted && old.removed == null && !detached
                 if (kept) app.positions.setAnalysis(sp.id, a)
                 // A saved answer that the new analysis calls an error: the card asks what to do with it.
@@ -535,11 +568,11 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
                     if (s.quizVerdict(cost, if (s.quizNeedsAverage) libraryAverageError(app) else null) == QuizVerdict.RIGHT) null
                     else SavedAnswerNote(answerText(p, mine), cost / factorOf(p))
                 }
-                rejudge(sp, a, old, r.engine, "Analyzed again: ${a.label}.", note)
+                rejudge(sp, a, old, r.engine, "Analyzed again: ${a.label}.", note, token)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 AppLog.error("Quiz analysis failed", e)
-                _state.update { it.copy(reanalyzing = false, message = "Analysis failed: ${e.message}") }
+                if (token == cardToken) _state.update { it.copy(reanalyzing = false, message = "Analysis failed: ${e.message}") }
             }
         }
     }
@@ -548,7 +581,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
      * The answer [old] to [sp] judged again by analysis [a] (after "Analyze again", or a change of the saved
      * answer). If right / missed changes, the position's quiz counts and this round's score change with it.
      */
-    private suspend fun rejudge(sp: SavedPosition, a: PositionAnalysis, old: QuizResult, engine: EngineKind?, message: String, note: SavedAnswerNote?) {
+    private suspend fun rejudge(sp: SavedPosition, a: PositionAnalysis, old: QuizResult, engine: EngineKind?, message: String, note: SavedAnswerNote?, token: Int) {
         val s = _state.value.settings
         val p = sp.position
         val kept = !old.deleted && old.removed == null && !detached
@@ -564,6 +597,20 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
             counts = counted?.let(::quizCountText) ?: old.counts, deleted = old.deleted, removed = old.removed,
             favourite = old.favourite, learnedByHand = old.learnedByHand, savedNote = note,
         )
+        if (token != cardToken) {
+            // The quiz moved on while this ran: the position keeps its new analysis and the round its new score, and the
+            // card in the list of answered ones (and a repeat of it) is updated, but what is on the screen stays.
+            _state.update {
+                it.copy(
+                    history = it.history.map { c -> if (c.position.id == sp.id) c.copy(position = c.position.copy(analysis = a), result = result) else c },
+                    queue = it.queue.map { q -> if (q.id == sp.id) q.copy(analysis = a, entity = counted?.entity ?: q.entity) else q },
+                    right = it.right + (if (fresh.right) 1 else 0) - (if (old.right) 1 else 0),
+                    neutral = it.neutral + (if (fresh.neutral) 1 else 0) - (if (old.neutral) 1 else 0),
+                    totalError = it.totalError - old.error / old.factor + fresh.error / fresh.factor,
+                )
+            }
+            return
+        }
         _state.update {
             it.copy(
                 reanalyzing = false, result = result, candidate = null,
@@ -593,15 +640,16 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
         val best = if (!toBest) null else a.checker?.candidates?.firstOrNull()?.let { MyAnswer(move = it.move) }
             ?: (if (p.doubled) bestCube(p, a)?.let { MyAnswer(cube = it) } else cubeAnswerChoices(p).minByOrNull { answerError(p, a, it) ?: Float.MAX_VALUE })
         if (toBest && best == null) return
+        val token = cardToken
         _state.update { it.copy(reanalyzing = true, message = null) }
         viewModelScope.launch {
             try {
                 app.positions.setAnswer(sp.id, best)
-                rejudge(sp.copy(answer = best), a, old, null, if (best == null) "Saved answer cleared." else "Saved answer: ${answerText(p, best)}.", null)
+                rejudge(sp.copy(answer = best), a, old, null, if (best == null) "Saved answer cleared." else "Saved answer: ${answerText(p, best)}.", null, token)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 AppLog.error("Quiz: the saved answer could not be changed", e)
-                _state.update { it.copy(reanalyzing = false, message = "Analysis failed: ${e.message}") }
+                if (token == cardToken) _state.update { it.copy(reanalyzing = false, message = "Analysis failed: ${e.message}") }
             }
         }
     }
@@ -613,7 +661,8 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
         val cur = st.current ?: return
         val again = r.verdict == QuizVerdict.WRONG && st.settings.quizRepeat && !r.deleted && r.removed == null
         val rest = st.queue.drop(1) + if (again) listOf(cur) else emptyList()
-        _state.update { it.copy(queue = rest, result = null, finished = rest.isEmpty(), history = it.history + QuizCard(cur, r), viewing = null) }
+        cardToken++
+        _state.update { it.copy(queue = rest, result = null, finished = rest.isEmpty(), history = it.history + QuizCard(cur, r), viewing = null, reanalyzing = false) }
         if (rest.isNotEmpty()) show()
     }
 

@@ -57,38 +57,45 @@ fun ReanalyzeDialog(
     wholeMatch: Boolean = false,
     onStart: (ReanalyzeRequest) -> Unit,
 ) {
+    val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     var r by remember { mutableStateOf(ReanalyzeRequest(settings.analysisEngine, settings.checkerDepth(match), settings.cubeDepth(match), wholeMatch = wholeMatch, cpu = cpuDefault)) }
+    // The options below the depths: this game or the match, the computer's decisions.
+    val options: @Composable () -> Unit = {
+        if (gameNumber != null || wholeMatch) {
+            Spacer(Modifier.height(if (landscape) 4.dp else 10.dp))
+            if (gameNumber != null) SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                listOf(false to "Game $gameNumber", true to "Whole match").forEachIndexed { i, (whole, label) ->
+                    SegmentedButton(
+                        selected = r.wholeMatch == whole, onClick = { r = r.copy(wholeMatch = whole) },
+                        shape = SegmentedButtonDefaults.itemShape(i, 2),
+                    ) { Text(label, maxLines = 1) }
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("The computer's decisions too", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                Switch(r.cpu, { r = r.copy(cpu = it) })
+            }
+            Text(
+                "The new analysis replaces the old one, in the review and in your statistics.",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
-        // Wider than the default, so that four depth buttons fit across.
-        modifier = Modifier.fillMaxWidth(0.94f).widthIn(max = 520.dp),
+        // Wider than the default, so that four depth buttons fit across (and two columns in landscape).
+        modifier = Modifier.fillMaxWidth(0.94f).widthIn(max = if (landscape) 760.dp else 520.dp),
         properties = DialogProperties(usePlatformDefaultWidth = false),
-        title = { Text("Analyze again") },
+        title = if (landscape) null else ({ Text("Analyze again") }),
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                if (landscape) Text("Analyze again", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
                 AnalysisLevelPicker(
                     engine = r.engine, onEngine = { r = r.copy(engine = it) },
                     checker = r.checker, cube = r.cube, onChange = { c, cube -> r = r.copy(checker = c, cube = cube) }, match = match,
+                    landscape = landscape, extra = if (landscape) options else null,
                 )
-                if (gameNumber != null || wholeMatch) {
-                    Spacer(Modifier.height(10.dp))
-                    if (gameNumber != null) SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        listOf(false to "Game $gameNumber", true to "Whole match").forEachIndexed { i, (whole, label) ->
-                            SegmentedButton(
-                                selected = r.wholeMatch == whole, onClick = { r = r.copy(wholeMatch = whole) },
-                                shape = SegmentedButtonDefaults.itemShape(i, 2),
-                            ) { Text(label, maxLines = 1) }
-                        }
-                    }
-                    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("The computer's decisions too", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                        Switch(r.cpu, { r = r.copy(cpu = it) })
-                    }
-                    Text(
-                        "The new analysis replaces the old one, in the review and in your statistics.",
-                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                if (!landscape) options()
             }
         },
         confirmButton = { TextButton(onClick = { onStart(r) }) { Text("Analyze") } },

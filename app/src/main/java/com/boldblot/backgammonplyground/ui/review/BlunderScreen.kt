@@ -138,6 +138,10 @@ fun BlunderList(
     selection: Set<Long>? = null, onLongClick: ((Long) -> Unit)? = null,
     /** The board's colours, for the checkers by the score. */
     colors: BoardColors = BoardColors.gray(),
+    mirrored: Boolean = false,
+    /** Keep and Delete under each error's description (not while selecting). */
+    onKeep: ((SavedBlunder) -> Unit)? = null,
+    onDelete: ((SavedBlunder) -> Unit)? = null,
 ) {
     if (blunders.isEmpty()) {
         Text(
@@ -155,17 +159,29 @@ fun BlunderList(
                 Modifier.fillMaxWidth().padding(vertical = 4.dp)
                     .combinedClickable(onLongClick = onLongClick?.let { { it(id) } }) { onOpen(id) },
             ) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                // The Learned template: the board (150 dp), the description, the buttons under it.
+                Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (selection != null) Checkbox(checked = id in selection, onCheckedChange = { onOpen(id) })
                     val sev = XgRules.severity(b.entity.error)
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            (d.dice?.let { "$it  " } ?: "") + describeAction(d.kind, d.board, d.player, d.move),
-                            style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
+                    BoardView(
+                        board = d.board, modifier = Modifier.width(150.dp).aspectRatio(1.38f), colors = colors, mirrored = mirrored,
+                        dice = listOfNotNull(d.dice?.let { DiceView(d.player, it.highFirst) }),
+                        cube = decisionCube(d).first, cubeOffered = decisionCube(d).second, showNumbers = false,
+                    )
+                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                (d.dice?.let { "$it  " } ?: "") + describeAction(d.kind, d.board, d.player, d.move),
+                                style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                            )
+                            ErrorPill(errText(-b.entity.error / XgRules.errorFactor(b.entity.matchLength)), sev, mono = true)
+                        }
                         BlunderContext(b, colors, MaterialTheme.typography.bodySmall, maxLines = 2)
+                        if (selection == null && (onKeep != null || onDelete != null)) Row(verticalAlignment = Alignment.CenterVertically) {
+                            onKeep?.let { IconButton(onClick = { it(b) }) { Icon(Icons.Default.Check, "Keep") } }
+                            onDelete?.let { IconButton(onClick = { it(b) }) { Icon(Icons.Default.Delete, "Delete") } }
+                        }
                     }
-                    ErrorPill(errText(-b.entity.error / XgRules.errorFactor(b.entity.matchLength)), sev, mono = true)
                 }
             }
         }
@@ -266,13 +282,7 @@ class BlunderViewModel(val app: PlyGroundApp, private val startId: Long, private
         val split = _state.value.settings.errorsSort == com.boldblot.backgammonplyground.data.ErrorsSort.SPLIT
         dropFromList(b.entity.id)
         // The app's scope: the filing may finish after the screen is closed.
-        app.appScope.launch {
-            val jacoby: suspend (Long) -> Boolean = { id -> app.repository.match(id)?.jacoby ?: true }
-            val sortable = AutoLabel.CHECKER.name in b.labels || AutoLabel.CUBE.name in b.labels
-            if (split && !sortable) app.positions.addBlunders(listOf(b), com.boldblot.backgammonplyground.data.PositionsRepository.UNCATEGORIZED, jacoby)
-            else app.positions.fileErrors(listOf(b), split, jacoby)
-            app.repository.removeBlunder(b.entity.id)
-        }
+        app.appScope.launch { keepBlunder(app, b, split) }
     }
 
     private fun dropFromList(id: Long) = _state.update {
@@ -393,7 +403,7 @@ private fun Board(st: BlunderState, d: DecisionRecord, modifier: Modifier) {
         crawfordSign = st.settings.crawfordSign,
         dmp = com.boldblot.backgammonplyground.core.Scoring.isDmp(st.current?.entity?.matchLength ?: 0, d.score, d.crawford),
         pips = listOf(board.pipCount(Player.HUMAN), board.pipCount(Player.CPU)),
-        arrows = if (st.view.arrows) decisionArrows(d, st.candidate, st.factor) else emptyList(),
+        arrows = if (st.view.arrows) decisionArrows(d, st.candidate, st.factor) else emptyList(), arrowsAfter = after,
     )
 }
 
@@ -422,22 +432,7 @@ private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKee
         )
     }
     // Keep files it into My positions as the automatic methods would (Settings → Sort into); Delete drops it.
-    // The chips sit midway between the played/best boxes and the arrows row (portrait), or between the arrows row
-    // and the edge of the screen (landscape).
-    val decide: @Composable () -> Unit = {
-        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)) {
-            val colors = com.boldblot.backgammonplyground.ui.components.negativeChipColors()
-            AssistChip(
-                onClick = onKeep, label = { Text("Keep") }, colors = colors, border = null,
-                leadingIcon = { Icon(Icons.Default.Check, null, Modifier.size(AssistChipDefaults.IconSize)) },
-            )
-            AssistChip(
-                onClick = onRemove, label = { Text("Delete") }, colors = colors, border = null,
-                leadingIcon = { Icon(Icons.Default.Delete, null, Modifier.size(AssistChipDefaults.IconSize)) },
-            )
-        }
-    }
-    if (!landscape) decide()
+    // One row with the arrows: the two chips follow the count and the next arrow (they wrap on a narrow screen).
     FlowRow(
         Modifier.fillMaxWidth(), itemVerticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
@@ -449,9 +444,17 @@ private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKee
                 Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next")
             }
         }
+        val colors = com.boldblot.backgammonplyground.ui.components.negativeChipColors()
+        AssistChip(
+            onClick = onKeep, label = { Text("Keep") }, colors = colors, border = null,
+            leadingIcon = { Icon(Icons.Default.Check, null, Modifier.size(AssistChipDefaults.IconSize)) },
+        )
+        AssistChip(
+            onClick = onRemove, label = { Text("Delete") }, colors = colors, border = null,
+            leadingIcon = { Icon(Icons.Default.Delete, null, Modifier.size(AssistChipDefaults.IconSize)) },
+        )
         if (!landscape) ReviewViewChips(st.view, d.move != null, vm::setView, onSave)
     }
-    if (landscape) decide()
 }
 
 @Composable
@@ -491,4 +494,13 @@ private fun Detail(st: BlunderState, b: SavedBlunder, vm: BlunderViewModel) {
             d.cubeEval != null -> CubeTable(d.cubeEval, d.kind, st.factor, d.beavers, colors = colors, rollerHuman = (d.player == Player.HUMAN) != d.kind.isResponse)
         }
     }
+}
+
+/** Keep: [b] goes into My positions by the automatic sorting rules (Settings → Sort into), and off the list. */
+suspend fun keepBlunder(app: PlyGroundApp, b: SavedBlunder, split: Boolean) {
+    val jacoby: suspend (Long) -> Boolean = { id -> app.repository.match(id)?.jacoby ?: true }
+    val sortable = AutoLabel.CHECKER.name in b.labels || AutoLabel.CUBE.name in b.labels
+    if (split && !sortable) app.positions.addBlunders(listOf(b), com.boldblot.backgammonplyground.data.PositionsRepository.UNCATEGORIZED, jacoby)
+    else app.positions.fileErrors(listOf(b), split, jacoby)
+    app.repository.removeBlunder(b.entity.id)
 }

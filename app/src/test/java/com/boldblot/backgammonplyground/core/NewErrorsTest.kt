@@ -34,4 +34,22 @@ class NewErrorsTest {
         assertEquals(listOf(4L, 5L), NewErrors.overflow(listOf(1L, 2L, 3L, 4L, 5L), 3))
         assertEquals(emptyList<Long>(), NewErrors.overflow(listOf(1L, 2L), 50))
     }
+
+    @Test
+    fun averageBasisCombinesTheOriginalAndTheLastAnswer() {
+        val both = AverageBasis.ORIGINAL_AND_LAST
+        assertEquals(0.1f, both.of(0.2f, 0f)!!, 1e-6f)
+        assertEquals(0.15f, both.of(0.2f, 0.1f)!!, 1e-6f)
+        // Never answered: the original alone. No game play: the last answer alone.
+        assertEquals(0.2f, both.of(0.2f, null)!!, 1e-6f)
+        assertEquals(0.3f, both.of(null, 0.3f)!!, 1e-6f)
+        assertNull(both.of(null, null))
+        // As it was before: the original only.
+        assertEquals(0.2f, AverageBasis.ORIGINAL.of(0.2f, 0f)!!, 1e-6f)
+        assertNull(AverageBasis.ORIGINAL.of(null, 0.3f))
+        // Last answer only, falling back to the original for a position never answered.
+        assertEquals(0f, AverageBasis.LAST.of(0.2f, 0f)!!, 1e-6f)
+        assertEquals(0.2f, AverageBasis.LAST.of(0.2f, null)!!, 1e-6f)
+    }
 }
+

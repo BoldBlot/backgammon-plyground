@@ -44,11 +44,14 @@ abstract class SearchEngine : AnalysisEngine {
 
     /**
      * Everything but the analysis of one position (play, whole games, the background): played-out games
-     * ([GameSearch]) only for the checker plays that the plies before them call an error of [ERROR_FLOOR] or
-     * more (a setting). A roll ranked without a move played (a hint, the computer's choice) is played out when
+     * ([GameSearch]) only for the checker plays where the plies before them leave the second play within
+     * [gamesGap] of the best (settings). A roll ranked without a move played (a hint, the computer's choice) is played out when
      * someone waits for it ([monitor]), and not when it is only ranked ahead.
      */
     @Volatile var gamesOnErrorsOnly: Boolean = false
+
+    /** With [gamesOnErrorsOnly]: the largest equity gap (normalized) between the best and the second play that is played out. */
+    @Volatile var gamesGap: Float = DEFAULT_GAMES_GAP
 
     /** Makes a running native search return at once ([requestStop]), and allows searches again ([clearStop]). */
     protected open fun requestStop() {}
@@ -102,8 +105,8 @@ abstract class SearchEngine : AnalysisEngine {
                 if (monitor == null) return ranked(board, ctx, d1, d2, plain, null)
             } else {
                 val quick = ranked(board, ctx, d1, d2, plain, played)
-                val i = quick.playedIndex
-                if (i <= 0 || quick.candidates[0].equity - quick.candidates[i].equity < ERROR_FLOOR) return quick
+                // Played out only when the second play is within [gamesGap] of the best: a close decision.
+                if (quick.candidates.size < 2 || quick.candidates[0].equity - quick.candidates[1].equity > gamesGap) return quick
             }
         }
         return ranked(board, ctx, d1, d2, code, played)
@@ -394,8 +397,8 @@ abstract class SearchEngine : AnalysisEngine {
         /** The depth code of a level's cube decisions. */
         fun levelCubePlies(level: CpuLevel): Int = if (level == CpuLevel.NEW_BEST) GameSearch.C44.code else levelPlies(level)
 
-        /** With [gamesOnErrorsOnly]: a checker play this far behind the best (normalized equity) is played out. */
-        const val ERROR_FLOOR = 0.005f
+        /** The default of [gamesGap] (it was the error floor before build 86). */
+        const val DEFAULT_GAMES_GAP = 0.005f
 
         /** Standard deviation of the noise added to each equity (weaker levels). */
         fun levelNoise(level: CpuLevel): Double = when (level) {

@@ -89,6 +89,7 @@ class PlyGroundApp : Application() {
                 engine.analysisLimitMs = it.analysisLimit * 1000L
                 engine.playLimitMs = it.playLimit * 1000L
                 engine.gamesOnErrorsOnly = it.gamesOnErrorsOnly
+                engine.gamesGap = it.gamesGap
             }
         }
     }

@@ -378,6 +378,12 @@ fun GameQuizMenuScreen(app: PlyGroundApp, matchId: Long?, onBack: () -> Unit, on
                 }
                 Text(theirView.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            Text("Quiz a friend", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+            Text(
+                "A game quiz never saves anything: no counts, last answers or trends, and My positions stay as they are. " +
+                    "So it is already a quiz for a friend: hand over the phone.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Spacer(Modifier.height(12.dp))
             val n = matching
             val asked = if (n == null) null else if (r.limit > 0) minOf(r.limit, n) else n

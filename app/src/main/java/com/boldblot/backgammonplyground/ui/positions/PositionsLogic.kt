@@ -222,11 +222,55 @@ fun contextParts(p: StudyPosition): Triple<String, List<Int>?, String> {
 fun decisionText(p: StudyPosition, move: Move?, kind: DecisionKind?): String =
     if (move != null) describeAction(DecisionKind.CHECKER, p.board, Player.HUMAN, move) else kind?.let { cubeLabel(it) } ?: ""
 
-/** My positions' average error (weighted): of the positions whose game play is known and was an error. */
-suspend fun libraryAverageError(app: PlyGroundApp): Float? =
-    com.boldblot.backgammonplyground.core.NewErrors.average(
-        app.positions.positions(null).mapNotNull { sp -> sp.played?.let { answerError(sp.position, sp.analysis, it) } },
+/**
+ * Whether [a] is below the standard of Settings → Analysis for [p] (the quiz then analyzes it again): searched by the
+ * same engine at a shallower depth, or stopped early; an analysis of another engine of ours is left alone (it was
+ * asked for), one read from another program's file counts as below unless [Settings.quizKeepForeign]. Played-out games
+ * that were skipped because the decision was clear ([Settings.gamesOnErrorsOnly]) do not make an analysis shallow.
+ */
+fun belowStandard(p: StudyPosition, a: PositionAnalysis, s: Settings): Boolean {
+    val match = p.ctx().matchLength > 0
+    val checker = p.dice != null
+    val engine: String?
+    val code: Int?
+    val imported: Boolean
+    if (checker) {
+        val c = a.checker ?: return false
+        engine = c.engine; code = c.plies; imported = c.imported
+    } else {
+        val e = a.cube ?: return false
+        engine = e.engine; code = e.plies; imported = e.imported
+    }
+    if (imported) return !s.quizKeepForeign
+    if (engine != null && engine != s.analysisEngine.label) return false
+    val standard = (if (checker) s.checkerDepth(match) else s.cubeDepth(match)).let { if (!match || s.analysisEngine != EngineKind.PURETD) it.plain else it }
+    val have = Depth.of(code ?: return true)
+    if (have.atLeast(standard)) return false
+    // Games skipped because the decision was clear: the plies before them were the standard's.
+    if (standard.search != null && have.search == null && have.plies >= standard.plies && !have.incomplete) {
+        val c = a.checker
+        val e = a.cube
+        if (checker && c != null && s.gamesOnErrorsOnly && c.candidates.size >= 2 && c.candidates[0].equity - c.candidates[1].equity > s.gamesGap) return false
+        if (!checker && e != null && kotlin.math.abs(e.noDouble - e.doubleTake) > com.boldblot.backgammonplyground.core.GameSearch.CUBE_CLEAR) return false
+    }
+    return true
+}
+
+/**
+ * My positions' average error (weighted), by the basis of Settings → My positions: the game play's error, the last
+ * quiz answer's, or both averaged per position (the analysis each has now).
+ */
+suspend fun libraryAverageError(app: PlyGroundApp): Float? {
+    val basis = app.settings.settings.first().averageBasis
+    return com.boldblot.backgammonplyground.core.NewErrors.average(
+        app.positions.positions(null).mapNotNull { sp ->
+            basis.of(
+                sp.played?.let { answerError(sp.position, sp.analysis, it) },
+                sp.lastAnswer?.let { answerError(sp.position, sp.analysis, it) },
+            )
+        },
     )
+}
 
 /** The keys (XGID, doubled) of everything in My positions, to tell which game decisions are in it. */
 suspend fun libraryKeys(app: PlyGroundApp): Set<Pair<String, Boolean>> =

@@ -475,7 +475,7 @@ class PositionsRepository(db: AppDatabase) {
             PositionRecord(
                 xgid = e.xgid, doubled = e.doubled, beavers = e.beavers, note = e.note, source = e.source, categories = cats,
                 myAnswer = e.myAnswer?.let { runCatching { AppJson.decodeFromString<MyAnswer>(it) }.getOrNull() },
-                analysis = e.analysis?.let { runCatching { AppJson.decodeFromString<PositionAnalysis>(it) }.getOrNull() },
+                analysis = e.analysis?.let { runCatching { AppJson.decodeFromString<PositionAnalysis>(it) }.getOrNull() }?.let(::exportedAnalysis),
                 labels = storedLabels(e.labels)?.let { Labels.sorted(it) } ?: emptyList(),
                 played = e.played?.let { runCatching { AppJson.decodeFromString<MyAnswer>(it) }.getOrNull() },
             )
@@ -532,6 +532,14 @@ class PositionsRepository(db: AppDatabase) {
 
         /** The analysis label of positions added from the blunder list (the game's own analysis). */
         const val GAME_ANALYSIS = "Game analysis"
+
+        /**
+         * An analysis as the exported file carries it: with the engine and level named in its label. A position saved
+         * from a game has the label "Game analysis", which does not say what searched it (the plays do).
+         */
+        fun exportedAnalysis(a: PositionAnalysis): PositionAnalysis =
+            if (a.label != GAME_ANALYSIS && a.label.isNotBlank()) a
+            else a.copy(label = a.checker?.label ?: a.cube?.label ?: a.label)
 
         /** Stored when the player took every label off ("" = never set: the labels come from the position). */
         private const val NO_LABELS = "-"

@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.9.5 — 2026-11-18 (build 86, internal test)
+
+- Quiz, Analyze again: if you moved on to the next question while it was still running, its result no longer
+  brings the previous question back and makes the next one disappear. The position keeps its new analysis, the
+  round's score is corrected, and what is on the screen stays. The quiz also writes what it analyzes and how long
+  it took to the app log (Send error report), to track down a question that stays on "Analyzing".
+- Settings → Quiz → Analysis in the quiz (new): "Analyze again what is below the standard" analyzes a position
+  again when it comes up if its analysis is shallower than the depths of Settings → Analysis (or was stopped
+  early), by the same engine, while you look at the position; the answer is judged by the new analysis. "Keep
+  analyses from other programs" (on) leaves XG and GNU analyses as they are.
+- Quiz statistics: "Hardest labels" replaces "Missed most": for each label how many positions carry it (in
+  library) and how the quiz answers to them went; tap a label to see its positions in All positions. A tap on a
+  hardest folder opens it in My positions.
+- Settings → My positions: "Average error is based on" (Original error / Original error and last answer / Last
+  answer only). The average feeds the Adaptive levels of New errors and the quiz. The default is the original
+  error and the last answer, averaged per position, so as you answer positions well the Adaptive levels come
+  down a little.
+- Settings → Analysis: "Played-out games only for close decisions" with a slider: whole games are played out only
+  where the second play is within that equity of the best (it was: only for errors). The other decisions stay at
+  3-ply and their analysis says so.
+- Chances (win, gammon, backgammon) are always shown under plays and in the cube table: the Chances button and its
+  setting are gone. In a shared picture of a cube decision the chances are one line under all the rows, not under
+  No double.
+- My positions and the quiz summary: the "Last quiz" line ends with the error of that answer in brackets, in the
+  same colour.
+- Learned: Put back and Delete sit under the description and the board is 25% bigger. New errors and New Marked
+  use the same rows: a board, the description, and Keep and Delete under it.
+- New errors and New Marked, browsing one by one: the arrows with the count and the Keep and Delete buttons share
+  one row.
+- Arrows with After: the arrows start on the slot the checker left and end on the top checker of the point.
+- Analyze Position: "Tap places" (and the hint) moved to the scrolling part, so the board can be bigger. In Your
+  decision nothing is shown under the board: the cube decision is made with chips on the board (No double /
+  Double, or Take / Pass). A new "Opposite swipe" option changes the point across the board when you swipe.
+- Analyze again: in landscape the dialog uses two columns and fits without scrolling.
+- Game quiz: the menu says that a game quiz saves nothing, so it can be handed to a friend.
+- Exporting positions: the analysis of each position is exported with its engine and level, also for positions
+  saved from a game.
+- A marked decision that is already in My positions (filed by a rule) no longer shows in New Marked.
+- Settings → Data and help → Debug: an "Analysis indicator" (off) shows a spinning wheel in the top left corner
+  for each call into the engine (the computer's decisions, analyses you wait for, background work), with the
+  number of decisions in the analysis queue inside.
+
 ## 0.9.4 — 2026-11-17 (build 85)
 
 - Review, Blunders, My positions and the quiz result: the three view chips (Arrows, Board, After) are now two

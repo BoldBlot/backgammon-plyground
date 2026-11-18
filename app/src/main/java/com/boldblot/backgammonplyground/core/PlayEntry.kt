@@ -64,6 +64,8 @@ class PlayEntry(val board: Board, val player: Int, val d1: Int, val d2: Int) {
 enum class CubeChoice(val label: String) {
     /** The player on roll's whole decision: theirs and the answer they expect. */
     NO_DOUBLE("No double"), DOUBLE_TAKE("Double, take"), DOUBLE_PASS("Double, pass"),
+    /** The double alone (the chip on the board): the answer to it is not part of the decision, the best one is assumed. */
+    DOUBLE("Double"),
     /** With a double offered: the doubled player's answer. */
     TAKE("Take"), PASS("Pass");
 
@@ -72,7 +74,7 @@ enum class CubeChoice(val label: String) {
     /** The decision kind of the player who makes it (DOUBLE for both double choices). */
     val kind: DecisionKind get() = when (this) {
         NO_DOUBLE -> DecisionKind.NO_DOUBLE
-        DOUBLE_TAKE, DOUBLE_PASS -> DecisionKind.DOUBLE
+        DOUBLE, DOUBLE_TAKE, DOUBLE_PASS -> DecisionKind.DOUBLE
         TAKE -> DecisionKind.TAKE
         PASS -> DecisionKind.PASS
     }
@@ -91,6 +93,7 @@ enum class CubeChoice(val label: String) {
     fun error(eval: CubeEval): Float = when (this) {
         TAKE, PASS -> DecisionMath.takeError(eval, kind)
         NO_DOUBLE -> DecisionMath.doubleError(eval, doubled = false)
+        DOUBLE -> DecisionMath.doubleError(eval, doubled = true)
         DOUBLE_TAKE, DOUBLE_PASS -> DecisionMath.doubleError(eval, doubled = true) + DecisionMath.takeError(eval, answer!!)
     }
 }

@@ -18,7 +18,10 @@ data class QuizTally(val answered: Int = 0, val right: Int = 0, val neutral: Int
 /** One day of the quiz: [day] as an epoch day. */
 data class QuizDay(val day: Long, val tally: QuizTally)
 
-data class QuizFolderStat(val name: String, val tally: QuizTally)
+data class QuizFolderStat(val name: String, val tally: QuizTally, val id: Long? = null)
+
+/** A label: the positions in My positions that carry it ([inLibrary]) and how the quiz answers to those went ([tally]). */
+data class QuizLabelStat(val label: String, val tally: QuizTally, val inLibrary: Int)
 
 data class QuizMissed(val positionId: Long, val missed: Int, val answered: Int)
 
@@ -39,6 +42,8 @@ data class QuizStatsReport(
     val folders: List<QuizFolderStat>,
     /** Positions missed most (at least once), most first. */
     val missed: List<QuizMissed>,
+    /** Labels with at least [QuizStats.MIN_FOLDER] answers, lowest right-rate first. */
+    val labels: List<QuizLabelStat> = emptyList(),
 )
 
 /** The quiz page's numbers from the kept answers. */
@@ -58,13 +63,17 @@ object QuizStats {
      */
     fun report(
         all: List<QuizAnswer>, folders: List<Pair<Long, String>>, since: Long, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault(),
+        /** Folder name to its id, to open it from the list. */
+        folderIds: Map<String, Long> = emptyMap(),
+        /** Every position in My positions with its labels (the frequency in the library, and the answers' labels). */
+        labels: List<Pair<Long, Set<String>>> = emptyList(),
     ): QuizStatsReport {
         val a = all.filter { it.at >= since }
         val days = a.groupBy { dayOf(it.at, zone) }.toSortedMap().map { (d, v) -> QuizDay(d, tally(v)) }
         val byFolder = folders.groupBy({ it.first }, { it.second })
         val folderStats = a.flatMap { ans -> byFolder[ans.positionId].orEmpty().map { it to ans } }
             .groupBy({ it.first }, { it.second })
-            .map { (name, v) -> QuizFolderStat(name, tally(v)) }
+            .map { (name, v) -> QuizFolderStat(name, tally(v), folderIds[name]) }
             .filter { it.tally.answered >= MIN_FOLDER }
             .sortedWith(compareBy<QuizFolderStat> { it.tally.rate ?: 1.0 }.thenByDescending { it.tally.answered })
         val missed = a.groupBy { it.positionId }
@@ -72,12 +81,21 @@ object QuizStats {
             .filter { it.missed > 0 }
             .sortedWith(compareByDescending<QuizMissed> { it.missed }.thenBy { it.answered })
             .take(MISSED_SHOWN)
+        // Quiz trend labels and one-position ID tags say nothing about what is hard.
+        fun shown(k: String) = !Labels.isTrend(k) && !Labels.isId(k)
+        val byPosition = labels.toMap()
+        val inLibrary = labels.flatMap { (_, ls) -> ls.filter(::shown) }.groupingBy { it }.eachCount()
+        val labelStats = a.flatMap { ans -> byPosition[ans.positionId].orEmpty().filter(::shown).map { it to ans } }
+            .groupBy({ it.first }, { it.second })
+            .map { (label, v) -> QuizLabelStat(label, tally(v), inLibrary[label] ?: 0) }
+            .filter { it.tally.answered >= MIN_FOLDER }
+            .sortedWith(compareBy<QuizLabelStat> { it.tally.rate ?: 1.0 }.thenByDescending { it.tally.answered })
         val (streak, best) = streaks(all.map { dayOf(it.at, zone) }.toSortedSet(), LocalDate.ofInstant(java.time.Instant.ofEpochMilli(now), zone).toEpochDay())
         return QuizStatsReport(
             total = tally(a), checker = tally(a.filter { !it.cube }), cube = tally(a.filter { it.cube }),
             match = tally(a.filter { it.match }), money = tally(a.filter { !it.match }),
             averageError = a.takeIf { it.isNotEmpty() }?.map { it.error.toDouble() }?.average(),
-            days = days, streak = streak, bestStreak = best, folders = folderStats, missed = missed,
+            days = days, streak = streak, bestStreak = best, folders = folderStats, missed = missed, labels = labelStats,
         )
     }
 

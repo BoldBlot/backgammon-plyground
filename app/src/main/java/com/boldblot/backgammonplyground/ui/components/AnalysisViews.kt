@@ -63,8 +63,6 @@ val LocalErrorUnit = staticCompositionLocalOf { ErrorUnit.EQ }
 val LocalCubeSpread = staticCompositionLocalOf { false }
 /** Settings → Display: shared pictures print the chances under each play. */
 val LocalShareChances = staticCompositionLocalOf { true }
-/** The Chances button / Settings → Display: plays and cube actions show their chances. */
-val LocalShowChances = staticCompositionLocalOf { true }
 
 /** Match scores as "2-away, 3-away" instead of the score and the match length (Settings → Display). */
 val LocalScoreAway = staticCompositionLocalOf { false }
@@ -326,7 +324,7 @@ fun CandidateList(
                     if (i == 0) Text(eq(c.equity), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
                     else ErrorPill("(${errText(diff)})", sev, mono = true)
                 }
-                if (detailed && LocalShowChances.current) {
+                if (detailed) {
                     val (me, them) = odds(c.probs)
                     FlowRow(Modifier.padding(start = 22.dp, top = 2.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OddsChip(moverColor, moverRim, me)
@@ -531,7 +529,7 @@ fun CubeTable(
         val c = colors ?: com.boldblot.backgammonplyground.ui.board.BoardColors.gray()
         val human = c.human to c.humanRim
         val cpu = c.cpu to c.cpuRim
-        if (eval.probs.size >= 5 && LocalShowChances.current) ChancesRows(eval.probs, if (rollerHuman) human else cpu, if (rollerHuman) cpu else human)
+        if (eval.probs.size >= 5) ChancesRows(eval.probs, if (rollerHuman) human else cpu, if (rollerHuman) cpu else human)
         val spread = eval.spread?.takeIf { LocalCubeSpread.current }
         val spreadShown = androidx.compose.runtime.remember(eval) { androidx.compose.runtime.mutableStateOf(false) }
         Row(verticalAlignment = Alignment.CenterVertically) {

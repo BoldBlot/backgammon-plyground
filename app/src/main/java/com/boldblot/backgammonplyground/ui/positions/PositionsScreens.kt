@@ -17,6 +17,8 @@ import com.boldblot.backgammonplyground.core.XgRules
 import com.boldblot.backgammonplyground.core.UNKNOWN_ENGINE
 import com.boldblot.backgammonplyground.ui.position.PositionIdImportDialog
 import com.boldblot.backgammonplyground.ui.components.LocalErrorUnit
+import com.boldblot.backgammonplyground.ui.components.err
+import com.boldblot.backgammonplyground.data.ErrorUnit
 import com.boldblot.backgammonplyground.ui.components.errWithUnit
 import com.boldblot.backgammonplyground.ui.review.BoardCapture
 import com.boldblot.backgammonplyground.ui.review.ReviewView
@@ -508,9 +510,13 @@ fun sharePositions(context: Context, name: String, json: String) {
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun CategoryPositionsScreen(app: PlyGroundApp, categoryId: Long?, onBack: () -> Unit, onOpen: (Long) -> Unit, onQuiz: (List<Long>, Set<String>) -> Unit) {
+fun CategoryPositionsScreen(
+    app: PlyGroundApp, categoryId: Long?, onBack: () -> Unit, onOpen: (Long) -> Unit, onQuiz: (List<Long>, Set<String>) -> Unit,
+    /** Labels the list starts filtered by (Quiz statistics → Hardest labels). */
+    initialFilter: Set<String> = emptySet(),
+) {
     var all by remember { mutableStateOf<List<SavedPosition>?>(null) }
-    var filter by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    var filter by rememberSaveable { mutableStateOf(initialFilter) }
     var name by remember { mutableStateOf("") }
     val settings by app.settings.settings.collectAsState(initial = Settings())
     val scope = rememberCoroutineScope()
@@ -640,6 +646,10 @@ internal fun PositionRow(
     onLongClick: (() -> Unit)? = null,
     /** In a quiz's results: the verdict on the last answer to it (a green check, a grey dash or a red X on the right). */
     quizAnswer: QuizVerdict? = null,
+    /** The board's width (Learned and the lists of new errors use a bigger one). */
+    boardWidth: androidx.compose.ui.unit.Dp = 120.dp,
+    /** Buttons under the description (Learned: put back, delete). */
+    actions: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val sp = p.position
@@ -647,7 +657,7 @@ internal fun PositionRow(
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (selection != null) Checkbox(checked = selection, onCheckedChange = null, modifier = Modifier.padding(end = 6.dp))
             BoardView(
-                board = sp.board, modifier = Modifier.width(120.dp).aspectRatio(1.38f), colors = boardColorsFor(settings),
+                board = sp.board, modifier = Modifier.width(boardWidth).aspectRatio(1.38f), colors = boardColorsFor(settings),
                 mirrored = settings.mirrorBoard, dice = listOfNotNull(sp.dice?.let { DiceView(Player.HUMAN, it.highFirst) }),
                 cube = sp.setup.cube, cubeOffered = sp.doubled, showNumbers = false,
             )
@@ -661,13 +671,14 @@ internal fun PositionRow(
                 LabelTags(settings.visible(p.labels), Modifier.padding(top = 2.dp))
                 p.entity.lastRight?.let {
                     Text(
-                        "Last quiz: " + (p.lastAnswer?.let { a -> "${answerText(sp, a)} · " } ?: "") + lastQuizText(p),
+                        "Last quiz: " + (p.lastAnswer?.let { a -> "${answerText(sp, a)} · " } ?: "") + lastQuizText(p) + lastAnswerErrorText(p, LocalErrorUnit.current),
                         style = MaterialTheme.typography.labelSmall, color = verdictColor(lastVerdict(p)),
                     )
                 }
                 if (p.entity.quizRight + p.entity.quizWrong + p.entity.quizNeutral > 0) {
                     Text("Quiz: ${quizCountText(p)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if (actions != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically, content = actions)
             }
             quizAnswer?.let { v ->
                 Icon(
@@ -820,7 +831,7 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit, onSett
                 cur.answer?.let { Text("★ My answer: ${answerText(sp, it)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp)) }
                 cur.entity.lastRight?.let {
                     Text(
-                        "Last quiz answer: " + (cur.lastAnswer?.let { answerWithError(sp, a, it, LocalErrorUnit.current) + " · " } ?: "") + lastQuizText(cur),
+                        "Last quiz answer: " + (cur.lastAnswer?.let { answerText(sp, it) + " · " } ?: "") + lastQuizText(cur) + lastAnswerErrorText(cur, LocalErrorUnit.current),
                         style = MaterialTheme.typography.bodyMedium, color = verdictColor(lastVerdict(cur)),
                         modifier = Modifier.padding(top = 2.dp),
                     )
@@ -1305,7 +1316,7 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
             dmp = com.boldblot.backgammonplyground.core.Scoring.isDmp(p.setup.matchLength, p.setup.score, p.setup.crawford),
             movable = if (interactive) st.movable.mapTo(LinkedHashSet()) { turn(it) } else emptySet(),
             pips = listOf(shown.pipCount(Player.HUMAN), shown.pipCount(Player.CPU)),
-            arrows = arrows, dragPlayer = side,
+            arrows = arrows, arrowsAfter = afterMove != null, dragPlayer = side,
             onTap = if (interactive) { t -> vm.tap(turn(t)) } else null, onDrag = if (interactive) { f, t -> vm.drag(turn(f), turn(t)) } else null,
             // Once answered, a tap on the dice (or where they would be) goes to the next card.
             onDiceTap = if (interactive || (r != null && !st.busy)) vm::tapDice else null,
@@ -1575,6 +1586,10 @@ private fun ContextText(
 /** The verdict on the last quiz answer to [p] (answered at least once). */
 internal fun lastVerdict(p: SavedPosition): QuizVerdict =
     if (p.entity.lastRight == true) QuizVerdict.RIGHT else if (p.entity.lastNeutral) QuizVerdict.NEUTRAL else QuizVerdict.WRONG
+
+/** " (−0.123)": what the last quiz answer to [p] loses by the analysis it has, at the end of the "Last quiz" line; nothing for a best play. */
+internal fun lastAnswerErrorText(p: SavedPosition, unit: ErrorUnit): String =
+    p.lastAnswer?.let { a -> answerError(p.position, p.analysis, a)?.div(factorOf(p.position))?.takeIf { it >= 0.0005f }?.let { " (${err(-it, unit)})" } }.orEmpty()
 
 internal fun lastQuizText(p: SavedPosition): String = when (lastVerdict(p)) {
     QuizVerdict.RIGHT -> "right"

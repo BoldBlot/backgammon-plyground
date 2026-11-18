@@ -231,6 +231,8 @@ fun BoardView(
     pips: List<Int>? = null,
     /** Arrows illustrating a move on the (pre-move) board. */
     arrows: List<MoveArrow> = emptyList(),
+    /** The [board] is the position after the move the [arrows] show: they start on the slot the checker left and end on the top checker. */
+    arrowsAfter: Boolean = false,
     onTap: ((Int) -> Unit)? = null,
     /** Tap on the human's dice. */
     onDiceTap: (() -> Unit)? = null,
@@ -359,7 +361,7 @@ fun BoardView(
         if ((!crawford && !dmp) || cubeOffered) drawCube(g, colors, cube, cubeOffered, cubeAside, measurer)
         pips?.let { drawPips(g, colors, it, measurer) }
         dice.forEach { drawDice(g, colors, it) }
-        drawArrows(g, board, splitAtHits(arrows, hitsOn(board)), postMove = false)
+        drawArrows(g, board, splitAtHits(arrows, if (arrowsAfter) { _, _ -> false } else hitsOn(board)), postMove = arrowsAfter)
         dragFrom?.let {
             if (dragPlayer == Player.HUMAN) checker(dragPos, g.radius * 1.08f, colors.human, colors.humanRim, colors.checkerStyle)
             else checker(dragPos, g.radius * 1.08f, colors.cpu, colors.cpuRim, colors.checkerStyle)

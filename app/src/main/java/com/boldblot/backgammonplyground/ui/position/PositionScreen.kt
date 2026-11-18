@@ -44,6 +44,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -116,7 +118,7 @@ fun PositionScreen(vm: PositionViewModel, onBack: () -> Unit) {
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            EditorBoard(st, vm, colors, Modifier.aspectRatio(1.38f).then(capture.modifier))
+                            EditorBoard(st, vm, colors, capture, Modifier.aspectRatio(1.38f))
                         }
                         BrushRow(st, vm, colors)
                     }
@@ -130,7 +132,7 @@ fun PositionScreen(vm: PositionViewModel, onBack: () -> Unit) {
                 }
                 Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
                     TopRow(vm, st, capture, onBack)
-                    EditorBoard(st, vm, colors, Modifier.fillMaxWidth().aspectRatio(1.38f).then(capture.modifier))
+                    EditorBoard(st, vm, colors, capture, Modifier.fillMaxWidth().aspectRatio(1.38f))
                     BrushRow(st, vm, colors)
                     Column(Modifier.weight(1f).verticalScroll(scroll)) { Controls(st, vm, colors) { resultsTop = it } }
                 }
@@ -250,7 +252,7 @@ fun PositionIdImportDialog(onDismiss: () -> Unit, read: (String) -> String?) {
 }
 
 @Composable
-private fun EditorBoard(st: PositionState, vm: PositionViewModel, colors: BoardColors, modifier: Modifier) {
+private fun EditorBoard(st: PositionState, vm: PositionViewModel, colors: BoardColors, capture: com.boldblot.backgammonplyground.ui.review.BoardCapture, modifier: Modifier) {
     val a = st.checker
     val play = st.play?.takeIf { !it.isEmpty }
     val arrows = if (a != null && a.candidates.isNotEmpty()) {
@@ -263,8 +265,10 @@ private fun EditorBoard(st: PositionState, vm: PositionViewModel, colors: BoardC
     // "Your play" while a play is being entered: the board takes moves of the player on roll, not edits.
     val entering = st.playMode && st.hasDice && st.play == null
     val board = st.shownBoard
+    // The cube decision is made on the board (chips over it, outside the shared picture); nothing is shown below it.
+    Box(modifier) {
     BoardView(
-        board = board, modifier = modifier, colors = colors, mirrored = st.settings.mirrorBoard,
+        board = board, modifier = Modifier.fillMaxSize().then(capture.modifier), colors = colors, mirrored = st.settings.mirrorBoard,
         dice = if (st.hasDice) listOf(DiceView(st.onRoll, listOf(st.dice[0]!!, st.dice[1]!!).sortedDescending())) else emptyList(),
         cube = if (st.isCrawford) com.boldblot.backgammonplyground.core.CubeState() else st.cube,
         cubeOffered = st.isOffered,
@@ -277,6 +281,8 @@ private fun EditorBoard(st: PositionState, vm: PositionViewModel, colors: BoardC
         onEditTap = if (st.playMode) null else { target, slot, barPlayer -> if (target == BAR) vm.tapBar(barPlayer, slot) else vm.tapPoint(target, slot) },
         onEditSwipe = if (st.playMode) null else { target, delta, barPlayer -> if (target == BAR) vm.swipeBar(barPlayer, delta) else vm.swipePoint(target, delta) },
     )
+    if (st.playMode && st.entry == null) CubeChips(st, vm, Modifier.align(Alignment.Center))
+    }
 }
 
 @Composable
@@ -289,11 +295,12 @@ private fun BrushRow(st: PositionState, vm: PositionViewModel, colors: BoardColo
             }
         }
     }
-    if (st.playMode) {
-        DecisionRow(st, vm)
-        return
-    }
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+}
+
+/** Set up: whose checkers a tap places, the swipe option and the hint; in the scrolling part so the board can be bigger. */
+@Composable
+private fun PlacementRow(st: PositionState, vm: PositionViewModel, colors: BoardColors) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Tap places ", style = MaterialTheme.typography.labelLarge)
         SingleChoiceSegmentedButtonRow(Modifier.weight(1f)) {
             listOf(Player.HUMAN to "Yours", Player.CPU to "Opponent's").forEachIndexed { i, (p, label) ->
@@ -305,6 +312,14 @@ private fun BrushRow(st: PositionState, vm: PositionViewModel, colors: BoardColo
             }
         }
     }
+    Row(Modifier.fillMaxWidth().toggleable(st.settings.oppositeSwipe, role = androidx.compose.ui.semantics.Role.Switch, onValueChange = vm::setOppositeSwipe), verticalAlignment = Alignment.CenterVertically) {
+        Text("Opposite swipe", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+        Switch(checked = st.settings.oppositeSwipe, onCheckedChange = null)
+    }
+    Text(
+        "Opposite swipe: a swipe changes the checkers on the point across the board, so a hand low on the screen can reach the far points.",
+        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
     val off = listOf(st.board.off(Player.HUMAN), st.board.off(Player.CPU))
     Text(
         "Tap a checker slot to set the count, tap the top checker to remove it. Drag along a point towards the " +
@@ -312,6 +327,24 @@ private fun BrushRow(st: PositionState, vm: PositionViewModel, colors: BoardColo
             "(you ${off[0]}, opponent ${off[1]}).",
         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+/** The cube decision as chips over the board: No double / Double, or Take / Pass when the cube is offered. */
+@Composable
+private fun CubeChips(st: PositionState, vm: PositionViewModel, modifier: Modifier) {
+    val choices = when {
+        st.isOffered -> listOf(com.boldblot.backgammonplyground.core.CubeChoice.TAKE, com.boldblot.backgammonplyground.core.CubeChoice.PASS)
+        st.canDouble -> listOf(com.boldblot.backgammonplyground.core.CubeChoice.NO_DOUBLE, com.boldblot.backgammonplyground.core.CubeChoice.DOUBLE)
+        else -> return
+    }
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        choices.forEach { c ->
+            FilterChip(
+                selected = st.cubeChoice == c, onClick = { vm.setCubeChoice(if (st.cubeChoice == c) null else c) }, label = { Text(c.label) },
+                colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
+            )
+        }
+    }
 }
 
 /** "Your decision": the play being entered (with Undo and Clear), or the cube decision as chips. */
@@ -354,23 +387,12 @@ private fun DecisionRow(st: PositionState, vm: PositionViewModel) {
                 style = hint, color = grey,
             )
         } else {
-            val choices = when {
-                st.isOffered -> listOf(com.boldblot.backgammonplyground.core.CubeChoice.TAKE, com.boldblot.backgammonplyground.core.CubeChoice.PASS)
-                st.canDouble -> listOf(
-                    com.boldblot.backgammonplyground.core.CubeChoice.NO_DOUBLE, com.boldblot.backgammonplyground.core.CubeChoice.DOUBLE_TAKE,
-                    com.boldblot.backgammonplyground.core.CubeChoice.DOUBLE_PASS,
-                )
-                else -> emptyList()
-            }
             Text("$who cube decision", style = MaterialTheme.typography.labelLarge)
-            if (choices.isEmpty()) {
+            val canChoose = st.isOffered || st.canDouble
+            if (!canChoose) {
                 Text("The player on roll can't double here.", style = hint, color = grey)
             } else {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    choices.forEach { c ->
-                        FilterChip(selected = st.cubeChoice == c, onClick = { vm.setCubeChoice(if (st.cubeChoice == c) null else c) }, label = { Text(c.label) })
-                    }
-                }
+                Text("Choose on the board" + if (st.isOffered) ": take or pass." else ": No double or Double.", style = hint, color = grey)
                 st.cubeEval?.let { ev -> st.cubeChoice?.let { c ->
                     val err = c.error(ev)
                     val sev = XgRules.severity(err * factor)
@@ -394,6 +416,7 @@ private fun Swatch(c: Color) {
 @Composable
 private fun Controls(st: PositionState, vm: PositionViewModel, colors: BoardColors, onResultsTop: (Int) -> Unit = {}) {
     Column(Modifier.padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (st.playMode) DecisionRow(st, vm) else PlacementRow(st, vm, colors)
         Labelled("On roll") {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 listOf(Player.HUMAN to "You", Player.CPU to "Opponent").forEachIndexed { i, (p, label) ->

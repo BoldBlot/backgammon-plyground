@@ -65,4 +65,23 @@ class QuizStatsTest {
         assertEquals(listOf(1L, 2L), r.missed.map { it.positionId })
         assertEquals(2, r.missed[0].missed)
     }
+
+    @Test fun hardest_labels_count_the_library_and_the_quiz_separately() {
+        // Position 1 and 2 carry "Race"; 3 carries "Cube". Race answers: 3 wrong, 1 right; Cube: 3 right.
+        val labels = listOf(1L to setOf("RACE", "IMPROVED", "id:AB1"), 2L to setOf("RACE"), 3L to setOf("CUBE"), 4L to setOf("RACE"))
+        val all = listOf(a(0, 1, W), a(0, 1, W), a(0, 2, W), a(0, 2, R)) + (1..3).map { a(0, 3, R) }
+        val r = QuizStats.report(all, emptyList(), 0, now = t0 + 5000, zone = zone, labels = labels)
+        assertEquals(listOf("RACE", "CUBE"), r.labels.map { it.label })
+        assertEquals(3, r.labels[0].inLibrary)
+        assertEquals(4, r.labels[0].tally.answered)
+        assertEquals(1, r.labels[1].inLibrary)
+        // Trend labels and ID tags are not listed.
+        assertEquals(false, r.labels.any { it.label == "IMPROVED" || it.label.startsWith("id:") })
+    }
+
+    @Test fun folders_carry_their_id() {
+        val all = (1..3).map { a(0, 1, W) }
+        val r = QuizStats.report(all, listOf(1L to "Hard"), 0, now = t0 + 5000, zone = zone, folderIds = mapOf("Hard" to 7L))
+        assertEquals(7L, r.folders.single().id)
+    }
 }

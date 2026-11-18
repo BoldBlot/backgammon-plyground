@@ -139,9 +139,8 @@ class MainActivity : ComponentActivity() {
             val scoreAway by androidx.compose.runtime.remember { app.settings.settings.map { it.scoreAway } }.collectAsState(initial = false)
             val cubeSpread by androidx.compose.runtime.remember { app.settings.settings.map { it.showCubeSpread } }.collectAsState(initial = false)
             val shareChances by androidx.compose.runtime.remember { app.settings.settings.map { it.shareChances } }.collectAsState(initial = true)
-            val showChances by androidx.compose.runtime.remember { app.settings.settings.map { it.showChances } }.collectAsState(initial = true)
             GammonTheme {
-                androidx.compose.runtime.CompositionLocalProvider(com.boldblot.backgammonplyground.ui.components.LocalShareChances provides shareChances, com.boldblot.backgammonplyground.ui.components.LocalShowChances provides showChances, com.boldblot.backgammonplyground.ui.components.LocalScoreAway provides scoreAway, com.boldblot.backgammonplyground.ui.components.LocalCubeSpread provides cubeSpread, com.boldblot.backgammonplyground.ui.components.LocalErrorUnit provides errorUnit, com.boldblot.backgammonplyground.ui.components.LocalCheckerStyle provides checkerStyle) {
+                androidx.compose.runtime.CompositionLocalProvider(com.boldblot.backgammonplyground.ui.components.LocalShareChances provides shareChances, com.boldblot.backgammonplyground.ui.components.LocalScoreAway provides scoreAway, com.boldblot.backgammonplyground.ui.components.LocalCubeSpread provides cubeSpread, com.boldblot.backgammonplyground.ui.components.LocalErrorUnit provides errorUnit, com.boldblot.backgammonplyground.ui.components.LocalCheckerStyle provides checkerStyle) {
                     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                         Box(Modifier.fillMaxSize().safeDrawingPadding()) { AppNav() }
                     }
@@ -249,7 +248,8 @@ class MainActivity : ComponentActivity() {
             }
             composable("stats?quiz={quiz}", arguments = listOf(navArgument("quiz") { type = NavType.BoolType; defaultValue = false })) { entry ->
                 val vm: StatsViewModel = viewModel(factory = factory { StatsViewModel(app) })
-                StatsScreen(vm, onBack = { nav.popBackStack() }, quizFirst = entry.arguments?.getBoolean("quiz") ?: false, onOpenPosition = { p -> nav.navigate("positions/item/$p") })
+                StatsScreen(vm, onBack = { nav.popBackStack() }, quizFirst = entry.arguments?.getBoolean("quiz") ?: false, onOpenFolder = { id -> nav.navigate("positions/category/$id") },
+                    onOpenLabel = { label -> nav.navigate("positions/category/$ALL_POSITIONS?filter=${android.net.Uri.encode(label)}") })
             }
             composable("history") {
                 HistoryScreen(
@@ -293,10 +293,14 @@ class MainActivity : ComponentActivity() {
             composable("errors/marked") {
                 NewErrorsScreen(app, onOpen = { id -> nav.navigate("blunder/$id?marked=true") }, onBack = { nav.popBackStack() }, marked = true)
             }
-            composable("positions/category/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
+            composable(
+                "positions/category/{id}?filter={filter}",
+                arguments = listOf(navArgument("id") { type = NavType.LongType }, navArgument("filter") { type = NavType.StringType; defaultValue = "" }),
+            ) { entry ->
                 val id = entry.arguments?.getLong("id")?.takeIf { it != ALL_POSITIONS }
                 CategoryPositionsScreen(
                     app, id, onBack = { nav.popBackStack() },
+                    initialFilter = com.boldblot.backgammonplyground.core.Labels.decode(entry.arguments?.getString("filter").orEmpty()),
                     onOpen = { p -> nav.navigate("positions/item/$p") },
                     onQuiz = { ids, filter -> nav.navigate("quizmenu?ids=${ids.joinToString(",")}&filter=${android.net.Uri.encode(filter.joinToString("\n"))}") },
                 )
@@ -376,6 +380,11 @@ class MainActivity : ComponentActivity() {
         }
         // The search someone is waiting for: what it is doing, and past its limit the offer to stop.
         com.boldblot.backgammonplyground.ui.components.SearchOverlay(app.engine, onSettings = { nav.navigate("settings/ANALYSIS") })
+        val indicator by androidx.compose.runtime.remember { app.settings.settings.map { it.analysisIndicator } }.collectAsState(initial = false)
+        if (indicator) {
+            val queued = gameVm.analysisProgress.collectAsState().value.values.sumOf { it.left }
+            com.boldblot.backgammonplyground.ui.components.EngineIndicator(app.engine, queued)
+        }
         // Back from a screen opened over the game (review, settings) goes straight back, like the
         // screen's arrow, without the back gesture's preview: the game's end-of-game summary is a
         // dialog window, and drawing it in the preview of a cancelled gesture could lose it.

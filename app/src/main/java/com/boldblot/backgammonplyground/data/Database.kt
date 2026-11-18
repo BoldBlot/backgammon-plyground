@@ -158,7 +158,7 @@ data class QuizAnswerEntity(
 )
 
 /** A position and a folder it is in, for the quiz statistics. */
-data class FolderLink(val positionId: Long, val name: String)
+data class FolderLink(val positionId: Long, val name: String, val categoryId: Long = 0)
 
 /** A position's place in a category (a position can be in several). */
 @Entity(tableName = "position_categories", primaryKeys = ["positionId", "categoryId"], indices = [Index("categoryId")])
@@ -356,7 +356,7 @@ interface PositionDao {
     @Query("SELECT * FROM quiz_answers ORDER BY at")
     suspend fun quizAnswers(): List<QuizAnswerEntity>
 
-    @Query("SELECT pc.positionId AS positionId, c.name AS name FROM position_categories pc JOIN categories c ON c.id = pc.categoryId")
+    @Query("SELECT pc.positionId AS positionId, c.name AS name, pc.categoryId AS categoryId FROM position_categories pc JOIN categories c ON c.id = pc.categoryId")
     suspend fun folderLinks(): List<FolderLink>
 
     @Query("SELECT * FROM positions WHERE learnedAt IS NULL ORDER BY savedAt DESC")

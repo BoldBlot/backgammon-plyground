@@ -57,10 +57,9 @@ private fun tallyText(t: QuizTally) = if (t.answered == 0) "–" else "${pct(t.r
 /** The quiz's statistics: how the answers kept so far went (not game quizzes or Quiz a friend). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun QuizStatsBody(app: PlyGroundApp, onOpen: (Long) -> Unit, modifier: Modifier = Modifier) {
+fun QuizStatsBody(app: PlyGroundApp, onOpenFolder: (Long) -> Unit, onOpenLabel: (String) -> Unit, modifier: Modifier = Modifier) {
     var period by remember { mutableStateOf(Period.MONTH) }
     var report by remember { mutableStateOf<QuizStatsReport?>(null) }
-    var titles by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
     var empty by remember { mutableStateOf(false) }
     LaunchedEffect(period) {
         val all = app.positions.quizAnswers().map {
@@ -68,9 +67,10 @@ fun QuizStatsBody(app: PlyGroundApp, onOpen: (Long) -> Unit, modifier: Modifier 
         }
         empty = all.isEmpty()
         val since = if (period.days == 0) 0L else System.currentTimeMillis() - period.days * 86_400_000L
-        val folders = app.positions.folderLinks().map { it.positionId to it.name }
-        val r = QuizStats.report(all, folders, since)
-        titles = r.missed.mapNotNull { m -> app.positions.savedPosition(m.positionId)?.let { m.positionId to (it.entity.source.ifBlank { "Position ${m.positionId}" } + " · " + (if (it.position.dice == null) "cube" else "roll ${it.position.dice}")) } }.toMap()
+        val links = app.positions.folderLinks()
+        val folders = links.map { it.positionId to it.name }
+        val labels = app.positions.positions(null).map { it.id to it.labels }
+        val r = QuizStats.report(all, folders, since, folderIds = links.associate { it.name to it.categoryId }, labels = labels)
         report = r
     }
     run {
@@ -121,15 +121,27 @@ fun QuizStatsBody(app: PlyGroundApp, onOpen: (Long) -> Unit, modifier: Modifier 
             if (r.folders.isNotEmpty()) {
                 Text("Hardest folders", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
                 Text("Lowest right-rate first; folders with at least ${QuizStats.MIN_FOLDER} answers.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                r.folders.take(8).forEach { f -> Row2(f.name, tallyText(f.tally)) }
+                r.folders.take(8).forEach { f ->
+                    Row(Modifier.fillMaxWidth().clickable(enabled = f.id != null) { f.id?.let(onOpenFolder) }.padding(vertical = 4.dp)) {
+                        Text(f.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        Text(tallyText(f.tally), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    }
+                }
             }
-            if (r.missed.isNotEmpty()) {
-                Text("Missed most", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
-                r.missed.forEach { m ->
-                    val name = titles[m.positionId]
-                    if (name != null) Row(Modifier.fillMaxWidth().clickable { onOpen(m.positionId) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(name, Modifier.weight(1f), maxLines = 1)
-                        Text("missed ${m.missed} of ${m.answered}", style = MaterialTheme.typography.bodyMedium)
+            if (r.labels.isNotEmpty()) {
+                Text("Hardest labels", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))
+                Text(
+                    "Lowest right-rate first; labels with at least ${QuizStats.MIN_FOLDER} answers. In library: how many positions carry the label. " +
+                        "Quiz: how the answers to them went. Tap a label to see its positions.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                r.labels.take(10).forEach { l ->
+                    Row(Modifier.fillMaxWidth().clickable { onOpenLabel(l.label) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(com.boldblot.backgammonplyground.core.Labels.title(l.label), style = MaterialTheme.typography.bodyMedium)
+                            Text("in library: ${l.inLibrary}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text("quiz: ${tallyText(l.tally)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                     }
                 }
             }

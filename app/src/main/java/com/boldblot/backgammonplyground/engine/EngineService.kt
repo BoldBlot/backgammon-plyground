@@ -16,6 +16,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -27,6 +28,12 @@ import java.util.concurrent.Executors
 
 /** Who waits for a search: the limits differ (Settings → Analysis). */
 enum class Waiting { ANALYSIS, PLAY }
+
+/** What a call into the engine is for, for the analysis indicator (Settings → Data and Help → Debug). */
+enum class ActivityKind { PLAY, ANALYSIS, BACKGROUND }
+
+/** One call into the engine that has not returned: running, or waiting its turn on the engine thread. */
+data class EngineActivity(val id: Long, val kind: ActivityKind)
 
 /**
  * A search someone waits for, as the screen shows it: what it is doing, [done] of [total] steps (0 of 0: not
@@ -81,6 +88,19 @@ class EngineService(private val context: Context) {
     @Volatile var playLimitMs: Long = 5_000
     /** [SearchEngine.gamesOnErrorsOnly] for everything but the analysis of one position (Settings → Analysis). */
     @Volatile var gamesOnErrorsOnly: Boolean = true
+    @Volatile var gamesGap: Float = SearchEngine.DEFAULT_GAMES_GAP
+
+    private val _activity = MutableStateFlow<List<EngineActivity>>(emptyList())
+
+    /** Every call into the engine now (the computer's decisions, analyses someone waits for, background work). */
+    val activity: StateFlow<List<EngineActivity>> = _activity
+    private var activityId = 0L
+
+    private suspend fun <T> tracked(kind: ActivityKind, block: suspend () -> T): T {
+        val a = synchronized(this) { EngineActivity(++activityId, kind) }
+        _activity.update { it + a }
+        try { return block() } finally { _activity.update { it - a } }
+    }
 
     private val _progress = MutableStateFlow<SearchProgress?>(null)
     /** The watched search running now ([run] with a [Waiting]), for the progress bar and the notice. */
@@ -176,7 +196,12 @@ class EngineService(private val context: Context) {
      * (someone waits for the result) the search is watched: it shows in [progress], can be stopped
      * ([stopSearch]) and stops when the caller is cancelled.
      */
-    suspend fun <T> run(kind: EngineKind? = null, waiting: Waiting? = null, block: SearchEngine.() -> T): T {
+    suspend fun <T> run(kind: EngineKind? = null, waiting: Waiting? = null, block: SearchEngine.() -> T): T =
+        tracked(when (waiting) { Waiting.PLAY -> ActivityKind.PLAY; Waiting.ANALYSIS -> ActivityKind.ANALYSIS; null -> ActivityKind.BACKGROUND }) {
+            runTracked(kind, waiting, block)
+        }
+
+    private suspend fun <T> runTracked(kind: EngineKind?, waiting: Waiting?, block: SearchEngine.() -> T): T {
         start()
         return withContext(dispatcher) {
             val threads = gameThreads.coerceIn(1, cores)
@@ -185,6 +210,7 @@ class EngineService(private val context: Context) {
             val e = get(kind ?: analysisKind)
             // The analysis of one position always plays its games out.
             e.gamesOnErrorsOnly = gamesOnErrorsOnly && waiting != Waiting.ANALYSIS
+            e.gamesGap = gamesGap
             (e as? PureTdEngine)?.let { it.gameThreads = threads; it.workerInit = { Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT) } }
             if (waiting == null) return@withContext e.block()
             val mon = SearchMonitor()
@@ -221,7 +247,9 @@ class EngineService(private val context: Context) {
      * Runs [block] in the background analysis slot ([twoSlots] only): the second PureTD, on its own
      * thread. Its search threads start from that thread, so they share its priority.
      */
-    suspend fun <T> runBackground(block: SearchEngine.() -> T): T {
+    suspend fun <T> runBackground(block: SearchEngine.() -> T): T = tracked(ActivityKind.BACKGROUND) { runBackgroundTracked(block) }
+
+    private suspend fun <T> runBackgroundTracked(block: SearchEngine.() -> T): T {
         start()
         return withContext(backgroundDispatcher) {
             Process.setThreadPriority(if (backgroundLow) Process.THREAD_PRIORITY_BACKGROUND else Process.THREAD_PRIORITY_DEFAULT)
@@ -231,6 +259,7 @@ class EngineService(private val context: Context) {
             PureTdNative.nativeSetThreads(b.handle, threads)
             b.engine.cubefulCheckers = cubefulCheckers
             b.engine.gamesOnErrorsOnly = gamesOnErrorsOnly
+            b.engine.gamesGap = gamesGap
             b.engine.gameThreads = threads
             val priority = if (backgroundLow) Process.THREAD_PRIORITY_BACKGROUND else Process.THREAD_PRIORITY_DEFAULT
             b.engine.workerInit = { Process.setThreadPriority(priority) }

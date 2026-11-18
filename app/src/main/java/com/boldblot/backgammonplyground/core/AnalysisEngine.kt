@@ -164,6 +164,22 @@ data class Depth(val plies: Int, val filter: MoveFilter = MoveFilter.ALL, val se
     /** The depth without its played-out games: what a money game or another engine searches instead. */
     val plain: Depth get() = if (search == null) this else Depth(search.plies, MoveFilter.WIDE, incomplete = incomplete)
 
+    /**
+     * Whether this search is at least as thorough as [other] (for the same kind of decision): played-out games
+     * beat plies; then more plies, a wider filter, more games. A search stopped early is below one that finished.
+     */
+    fun atLeast(other: Depth): Boolean {
+        if (incomplete && !other.incomplete) return false
+        val a = strength()
+        val b = other.strength()
+        for (i in a.indices) if (a[i] != b[i]) return a[i] > b[i]
+        return true
+    }
+
+    private fun strength(): List<Float> = listOf(
+        if ((search?.games ?: 0) > 0) 1f else 0f, plies.toFloat(), (if (search != null) MoveFilter.WIDE.within else filter.within).coerceAtMost(1f), (search?.games ?: 0).toFloat(),
+    )
+
     companion object {
         const val MAX_SEARCH_PLIES = 4
         /** Added to a code when the search was stopped early. */

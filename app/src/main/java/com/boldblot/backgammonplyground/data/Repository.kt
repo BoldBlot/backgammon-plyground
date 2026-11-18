@@ -489,7 +489,7 @@ class Repository(private val db: AppDatabase) {
     suspend fun blunders(sort: BlunderSort, filter: Set<String> = emptySet(), marked: Boolean = false): List<SavedBlunder> {
         val list = dao.blunders(marked).mapNotNull { e ->
             runCatching { SavedBlunder(e, AppJson.decodeFromString<DecisionRecord>(e.record)) }.getOrNull()
-        }.filter { filter.isEmpty() || Labels.matches(it.labels, filter) }
+        }.filter { filter.isEmpty() || Labels.matches(it.labels, filter) }.let { if (marked) notInLibrary(it) else it }
         return when (sort) {
             BlunderSort.NEWEST -> list
             BlunderSort.BIGGEST -> list.sortedByDescending { it.entity.error }
@@ -522,7 +522,21 @@ class Repository(private val db: AppDatabase) {
     suspend fun blunderCount(): Int = dao.blunderCount()
 
     /** How many marked positions wait in New Marked. */
-    suspend fun markedCount(): Int = dao.blunderCount(marked = true)
+    suspend fun markedCount(): Int = notInLibrary(
+        dao.blunders(marked = true).mapNotNull { e -> runCatching { SavedBlunder(e, AppJson.decodeFromString<DecisionRecord>(e.record)) }.getOrNull() },
+    ).size
+
+    /** The marked decisions whose position is not in My positions yet: one a rule or a folder filed there has no business in New Marked. */
+    private suspend fun notInLibrary(marked: List<SavedBlunder>): List<SavedBlunder> {
+        if (marked.isEmpty()) return marked
+        val keys = db.positions().all().mapTo(HashSet()) { it.xgid to it.doubled }
+        val jacoby = HashMap<Long, Boolean>()
+        return marked.filter { b ->
+            val j = jacoby.getOrPut(b.entity.matchId) { dao.match(b.entity.matchId)?.jacoby ?: false }
+            val p = com.boldblot.backgammonplyground.core.StudyPosition.of(b.decision, b.entity.matchLength, j)
+            p == null || (p.xgid to p.doubled) !in keys
+        }
+    }
 
     /** Puts back a removed blunder (undo). */
     suspend fun restoreBlunder(e: BlunderEntity) {

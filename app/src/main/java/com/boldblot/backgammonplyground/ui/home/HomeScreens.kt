@@ -157,6 +157,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import com.boldblot.backgammonplyground.ui.review.BlunderList
+import com.boldblot.backgammonplyground.ui.review.keepBlunder
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
@@ -884,6 +885,9 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
                 BlunderList(
                     list, filtered = filter.isNotEmpty(), selection = sel,
                     colors = settings?.let { com.boldblot.backgammonplyground.ui.board.boardColorsFor(it) } ?: com.boldblot.backgammonplyground.ui.board.BoardColors.gray(),
+                    mirrored = settings?.mirrorBoard ?: false,
+                    onKeep = { b -> scope.launch { keepBlunder(app, b, settings?.errorsSort == ErrorsSort.SPLIT); reload() } },
+                    onDelete = { b -> scope.launch { app.repository.removeBlunder(b.entity.id); reload() } },
                     onLongClick = { id -> selected = (sel ?: emptySet()).let { if (id in it) it - id else it + id } },
                     onOpen = { id -> if (sel != null) selected = if (id in sel) sel - id else sel + id else onOpen(id) },
                 )
@@ -1274,6 +1278,15 @@ private fun QuizSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) 
         "Learned is a bin for the positions the quiz has taught you: you can still put them back. It keeps the newest ${s.learnedKeep}; " +
             "older ones are deleted. Off: learned positions are deleted at once.",
     )
+    Header("Analysis in the quiz")
+    Toggle("Analyze again what is below the standard", s.quizReanalyze) { v -> update { it.copy(quizReanalyze = v) } }
+    Note(
+        "When a position comes up, its analysis is made again if it is shallower than the depths of Settings → Analysis " +
+            "(or was stopped early), by the same engine. Another engine you chose for a position is left alone. The " +
+            "new analysis replaces the saved one and the answer is judged by it.",
+    )
+    Toggle("Keep analyses from other programs", s.quizKeepForeign, enabled = s.quizReanalyze) { v -> update { it.copy(quizKeepForeign = v) } }
+    Note("On: an analysis read from an XG or GNU file is never replaced. Off: it counts as below the standard.")
     Header("Quick quiz")
     Chips("Button beside My positions", listOf(false, true), s.quickQuizRight, { if (it) "Right" else "Left" }) { v -> update { it.copy(quickQuizRight = v) } }
     Note("The ⚡ button on the main screen starts the quick quiz: all positions, 10, random, or what you saved with \"Save as quick quiz\" in the quiz menu.")
@@ -1317,7 +1330,7 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
         )
         ErrorsMode.AUTOMATIC -> Note("Errors of at least the minimum go straight to My positions, sorted as set below.")
         ErrorsMode.ADAPTIVE -> {
-            val average by produceState<Float?>(null, s.errorsMode) { value = libraryAverageError(app) }
+            val average by produceState<Float?>(null, s.errorsMode, s.averageBasis) { value = libraryAverageError(app) }
             Text(
                 "Share of the library's average: ${Math.round(s.adaptiveRatio * 100)}%",
                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp),
@@ -1352,6 +1365,14 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
         )
     }
     Note("Your autofilters (below) take the errors they match in both cases.")
+    Text("Average error is based on", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+    Chips("Average error", com.boldblot.backgammonplyground.core.AverageBasis.entries, s.averageBasis, { it.label }) { v -> update { it.copy(averageBasis = v) } }
+    Note(
+        "The average error in My positions feeds the Adaptive levels (New errors and the quiz). Original error: what " +
+            "was played in the game. Original error and last answer: the two averaged per position, so a position " +
+            "you now answer well weighs less. Last answer only: the quiz answer. A position without a last answer " +
+            "(or without a game play) counts the one it has.",
+    )
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Automatic labels")
     Note(
@@ -1589,10 +1610,21 @@ private fun AnalysisSettings(s: Settings, update: (f: (Settings) -> Settings) ->
     Text("Cube decision depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
     CubeDepthPicker(s.cubeDepth(true), games) { d -> update { it.copy(matchCube = d.code) } }
     if (games) Note(GAME_SEARCH_NOTE)
-    Toggle("Played-out games only for errors", s.gamesOnErrorsOnly) { v -> update { it.copy(gamesOnErrorsOnly = v) } }
+    Toggle("Played-out games only for close decisions", s.gamesOnErrorsOnly) { v -> update { it.copy(gamesOnErrorsOnly = v) } }
+    if (s.gamesOnErrorsOnly) {
+        Text(
+            "Only if the second play is within ${"%.3f".format(java.util.Locale.US, s.gamesGap)}",
+            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp),
+        )
+        Slider(
+            value = s.gamesGap, valueRange = 0.005f..0.1f, steps = 18,
+            onValueChange = { v -> update { it.copy(gamesGap = (Math.round(v * 200) / 200f).coerceIn(0.005f, 0.1f)) } },
+        )
+    }
     Note(
         "When whole games are analyzed (during play, in the background, Analyze again), games are played out only " +
-            "for the checker plays that the plies before them call an error. Off: for every decision, which takes " +
+            "for the checker plays where the plies before them leave the second play within this equity of the best. " +
+            "The other decisions stay at 3-ply, and their analysis says so. Off: for every decision, which takes " +
             "far longer. An analysis of one position always plays them out.",
     )
     Toggle("± beside cube decisions from played-out games", s.showCubeSpread) { v -> update { it.copy(showCubeSpread = v) } }
@@ -1776,8 +1808,6 @@ private fun DisplaySettings(s: Settings, update: (f: (Settings) -> Settings) -> 
     Note("How much equity a play or cube action loses, everywhere in the app: in equity (Eq) or in thousandths of it (mEq, as some programs show).")
     Toggle("Chances in shared pictures", s.shareChances) { v -> update { it.copy(shareChances = v) } }
     Note("A shared board with its top plays or cube actions prints win, gammon and backgammon chances for both sides under each row. Off: equities only.")
-    Toggle("Chances under plays and cube actions", s.showChances) { v -> update { it.copy(showChances = v) } }
-    Note("Each play in a list and the cube table show win, gammon and backgammon chances for both sides. Reviews, Blunders, My positions and the quiz also have a Chances button to turn them on or off.")
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Header("Board")
     BoardSettings(s) { f -> update(f) }
@@ -1847,6 +1877,14 @@ private fun DataSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) 
         "Opens your email app with a message to ${AppLog.SUPPORT_EMAIL}, with your settings and the app's log attached " +
             "(recent game events, engine problems and crashes, kept only on this phone). " +
             "Nothing is sent until you send the email.",
+    )
+    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+    Header("Debug")
+    Toggle("Analysis indicator", s.analysisIndicator) { v -> update { it.copy(analysisIndicator = v) } }
+    Note(
+        "A small spinning wheel in the top left corner for each call into the engine that is running or waiting: the " +
+            "computer's decisions (one colour), analyses you wait for, and background work. The number inside is how " +
+            "many decisions wait in the analysis queue.",
     )
 }
 

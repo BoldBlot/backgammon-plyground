@@ -57,9 +57,31 @@ fun AnalysisLevelPicker(
     checker: Depth, cube: Depth, onChange: (Depth, Depth) -> Unit,
     modifier: Modifier = Modifier,
     match: Boolean = false,
+    /** Landscape: two columns (the engine and the checker play, the cube and [extra]) and no long notes, to fit without scrolling. */
+    landscape: Boolean = false,
+    extra: (@Composable () -> Unit)? = null,
 ) {
     val small = MaterialTheme.typography.bodySmall
     val games = match && engine == EngineKind.PURETD
+    if (landscape) {
+        Row(modifier, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Engine", style = small)
+                EngineChips(engine, { e ->
+                    onEngine(e)
+                    if (e != EngineKind.PURETD && (checker.search != null || cube.search != null)) onChange(checker.plain, Depth(cube.plies))
+                })
+                Text("Checker play depth", style = small, modifier = Modifier.padding(top = 4.dp))
+                CheckerDepthPicker(checker, games, compact = true) { onChange(it, cube) }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Cube depth", style = small)
+                CubeDepthPicker(cube, games) { onChange(checker, it) }
+                extra?.invoke()
+            }
+        }
+        return
+    }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text("Engine", style = small)
         EngineChips(engine, { e ->
@@ -77,7 +99,7 @@ fun AnalysisLevelPicker(
 
 /** Checker play depth: plies and pruning, and with [games] the searches by played-out games. */
 @Composable
-fun CheckerDepthPicker(depth: Depth, games: Boolean, onChange: (Depth) -> Unit) {
+fun CheckerDepthPicker(depth: Depth, games: Boolean, compact: Boolean = false, onChange: (Depth) -> Unit) {
     val filter = if (depth.filter == MoveFilter.ALL) MoveFilter.ALL else MoveFilter.WIDE
     PlyChips(if (depth.search == null) depth.plies else 0, { onChange(Depth(it, filter)) })
     if (games) {
@@ -91,7 +113,7 @@ fun CheckerDepthPicker(depth: Depth, games: Boolean, onChange: (Depth) -> Unit) 
     if (depth.search == null && depth.plies > 1) {
         Text("Pruning", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
         EqualChips(PRUNING, filter, { if (it == MoveFilter.ALL) "Off" else "On" }, { onChange(depth.copy(filter = it)) })
-        Text(PRUNING_NOTE, style = MaterialTheme.typography.labelSmall)
+        if (!compact) Text(PRUNING_NOTE, style = MaterialTheme.typography.labelSmall)
     }
 }
 

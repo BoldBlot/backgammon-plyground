@@ -234,15 +234,26 @@ data class Settings(
     val playLimit: Int = 5,
     /**
      * Analyses of whole games (during play, in the background, Analyze again): played-out games only for the
-     * checker plays the search before them calls an error (true), or for every decision.
+     * checker plays the search before them leaves with a close second play (true; from build 86 the toggle's
+     * meaning, its key is the old one), or for every decision.
      */
     val gamesOnErrorsOnly: Boolean = true,
+    /** The largest equity gap between the best and the second play that [gamesOnErrorsOnly] still plays out. */
+    val gamesGap: Float = 0.005f,
+    /** The quiz analyzes a position again, when it comes up, if its analysis is below the standard of Settings → Analysis (build 86). */
+    val quizReanalyze: Boolean = false,
+    /** Analyze Position: a swipe on the board changes the checkers on the opposite point of the board (build 86). */
+    val oppositeSwipe: Boolean = false,
+    /** Debug: a spinner in the top left corner for each call into the engine, with the analysis queue (build 86). */
+    val analysisIndicator: Boolean = false,
+    /** With [quizReanalyze]: analyses read from other programs' files (XG, GNU) stay as they are. */
+    val quizKeepForeign: Boolean = true,
+    /** What My positions' average error counts per position (build 86); it feeds the Adaptive levels. */
+    val averageBasis: com.boldblot.backgammonplyground.core.AverageBasis = com.boldblot.backgammonplyground.core.AverageBasis.ORIGINAL_AND_LAST,
     /** A small ± beside cube decisions that came from played-out games: tap for their standard error. */
     val showCubeSpread: Boolean = false,
     /** Shared pictures with an analysis print win / gammon / backgammon chances under each play (build 84). */
     val shareChances: Boolean = true,
-    /** Plays and cube actions show win / gammon / backgammon chances, in every view (the Chances button; build 85). */
-    val showChances: Boolean = true,
     val blunderSort: BlunderSort = BlunderSort.BIGGEST,
     /** The order of a My positions folder: newest saved, or the biggest error made in the game (positions without one last). */
     val positionsSort: PositionsSort = PositionsSort.NEWEST,
@@ -513,9 +524,14 @@ class SettingsStore(private val context: Context) {
         val analysisLimit = intPreferencesKey("analysis_limit_seconds")
         val playLimit = intPreferencesKey("play_limit_seconds")
         val gamesOnErrorsOnly = booleanPreferencesKey("games_on_errors_only")
+        val gamesGap = floatPreferencesKey("games_gap")
+        val quizReanalyze = booleanPreferencesKey("quiz_reanalyze")
+        val oppositeSwipe = booleanPreferencesKey("opposite_swipe")
+        val analysisIndicator = booleanPreferencesKey("analysis_indicator")
+        val quizKeepForeign = booleanPreferencesKey("quiz_keep_foreign")
+        val averageBasis = stringPreferencesKey("average_basis")
         val showCubeSpread = booleanPreferencesKey("show_cube_spread")
         val shareChances = booleanPreferencesKey("share_chances")
-        val showChances = booleanPreferencesKey("show_chances")
         val errorRate = floatPreferencesKey("mistake_errors")
         val blunderRate = floatPreferencesKey("mistake_blunders")
         val mistakeCheckerPlies = intPreferencesKey("mistake_checker_plies")
@@ -641,9 +657,14 @@ class SettingsStore(private val context: Context) {
             analysisLimit = (p[Keys.analysisLimit] ?: d.analysisLimit).coerceIn(1, 3600),
             playLimit = (p[Keys.playLimit] ?: d.playLimit).coerceIn(1, 3600),
             gamesOnErrorsOnly = p[Keys.gamesOnErrorsOnly] ?: d.gamesOnErrorsOnly,
+            gamesGap = p[Keys.gamesGap] ?: d.gamesGap,
+            quizReanalyze = p[Keys.quizReanalyze] ?: d.quizReanalyze,
+            oppositeSwipe = p[Keys.oppositeSwipe] ?: d.oppositeSwipe,
+            analysisIndicator = p[Keys.analysisIndicator] ?: d.analysisIndicator,
+            quizKeepForeign = p[Keys.quizKeepForeign] ?: d.quizKeepForeign,
+            averageBasis = p.enum(Keys.averageBasis, d.averageBasis),
             showCubeSpread = p[Keys.showCubeSpread] ?: d.showCubeSpread,
             shareChances = p[Keys.shareChances] ?: d.shareChances,
-            showChances = p[Keys.showChances] ?: d.showChances,
             welcomeSeen = p[Keys.welcomeSeen] ?: d.welcomeSeen,
             blunderSort = p.enum(Keys.blunderSort, d.blunderSort),
             positionsSort = p.enum(Keys.positionsSort, d.positionsSort),
@@ -765,9 +786,14 @@ class SettingsStore(private val context: Context) {
             p[Keys.analysisLimit] = s.analysisLimit
             p[Keys.playLimit] = s.playLimit
             p[Keys.gamesOnErrorsOnly] = s.gamesOnErrorsOnly
+            p[Keys.gamesGap] = s.gamesGap
+            p[Keys.quizReanalyze] = s.quizReanalyze
+            p[Keys.oppositeSwipe] = s.oppositeSwipe
+            p[Keys.analysisIndicator] = s.analysisIndicator
+            p[Keys.quizKeepForeign] = s.quizKeepForeign
+            p[Keys.averageBasis] = s.averageBasis.name
             p[Keys.showCubeSpread] = s.showCubeSpread
             p[Keys.shareChances] = s.shareChances
-            p[Keys.showChances] = s.showChances
             p[Keys.blunderSort] = s.blunderSort.name
             p[Keys.positionsSort] = s.positionsSort.name
             p[Keys.autoFinish] = s.autoFinishSpeed.name

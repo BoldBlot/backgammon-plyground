@@ -93,15 +93,14 @@ fun LearnedScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Unit)
                 if (l.isEmpty()) Text("Nothing learned yet.", Modifier.padding(horizontal = 16.dp))
             }
             items(l, key = { it.id }) { p ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) { PositionRow(p, s) { onOpen(p.id) } }
-                    IconButton(onClick = { putBack = listOf(p.id) }) {
-                        Icon(Icons.AutoMirrored.Filled.Undo, "Put back in My positions")
-                    }
-                    IconButton(onClick = { scope.launch { app.positions.remove(p.id); refresh++ } }) {
-                        Icon(Icons.Default.Delete, "Delete")
-                    }
-                }
+                // The buttons sit under the description, which leaves the board 25% wider than before (150 dp, not 120).
+                PositionRow(
+                    p, s, boardWidth = 150.dp,
+                    actions = {
+                        IconButton(onClick = { putBack = listOf(p.id) }) { Icon(Icons.AutoMirrored.Filled.Undo, "Put back in My positions") }
+                        IconButton(onClick = { scope.launch { app.positions.remove(p.id); refresh++ } }) { Icon(Icons.Default.Delete, "Delete") }
+                    },
+                ) { onOpen(p.id) }
             }
         }
     }

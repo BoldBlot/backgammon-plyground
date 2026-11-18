@@ -90,7 +90,7 @@ private val dateFmt = SimpleDateFormat("d MMM", Locale.getDefault())
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StatsScreen(vm: StatsViewModel, onBack: () -> Unit, quizFirst: Boolean = false, onOpenPosition: (Long) -> Unit = {}) {
+fun StatsScreen(vm: StatsViewModel, onBack: () -> Unit, quizFirst: Boolean = false, onOpenFolder: (Long) -> Unit = {}, onOpenLabel: (String) -> Unit = {}) {
     val st by vm.state.collectAsState()
     // The Quiz chip (top right) switches to the quiz statistics and then reads Games.
     var quiz by rememberSaveable { mutableStateOf(quizFirst) }
@@ -107,7 +107,7 @@ fun StatsScreen(vm: StatsViewModel, onBack: () -> Unit, quizFirst: Boolean = fal
         },
     ) { padding ->
         if (quiz) {
-            com.boldblot.backgammonplyground.ui.positions.QuizStatsBody(app, onOpenPosition, Modifier.padding(padding))
+            com.boldblot.backgammonplyground.ui.positions.QuizStatsBody(app, onOpenFolder, onOpenLabel, Modifier.padding(padding))
             return@Scaffold
         }
         Column(Modifier.padding(padding).fillMaxSize()) {

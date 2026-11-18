@@ -25,6 +25,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.unit.sp
+import com.boldblot.backgammonplyground.engine.ActivityKind
 import com.boldblot.backgammonplyground.engine.EngineService
 import com.boldblot.backgammonplyground.engine.SearchProgress
 import com.boldblot.backgammonplyground.engine.Waiting
@@ -80,6 +85,39 @@ fun SearchOverlay(engine: EngineService, onSettings: () -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Debug (Settings → Data and help): in the top left corner a spinning wheel for each call into the engine that has not
+ * returned, the computer's decisions in the tertiary colour, analyses someone waits for in the primary, background work
+ * in the secondary. The first background wheel carries the number of decisions waiting in the analysis queue.
+ */
+@Composable
+fun EngineIndicator(engine: EngineService, queued: Int) {
+    val jobs by engine.activity.collectAsState()
+    if (jobs.isEmpty() && queued == 0) return
+    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        var numbered = false
+        jobs.forEach { j ->
+            val colour = when (j.kind) {
+                ActivityKind.PLAY -> MaterialTheme.colorScheme.tertiary
+                ActivityKind.ANALYSIS -> MaterialTheme.colorScheme.primary
+                ActivityKind.BACKGROUND -> MaterialTheme.colorScheme.secondary
+            }
+            Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(Modifier.size(22.dp), color = colour, strokeWidth = 2.dp)
+                if (j.kind == ActivityKind.BACKGROUND && !numbered && queued > 0) {
+                    numbered = true
+                    Text("$queued", fontSize = 8.sp, color = colour, maxLines = 1)
+                }
+            }
+        }
+        // Queued decisions with no engine call running right now (between two of them).
+        if (!numbered && queued > 0) Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(Modifier.size(22.dp), color = MaterialTheme.colorScheme.secondary, strokeWidth = 2.dp)
+            Text("$queued", fontSize = 8.sp, color = MaterialTheme.colorScheme.secondary, maxLines = 1)
         }
     }
 }
