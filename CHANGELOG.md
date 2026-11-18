@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.7 — 2026-11-18 (build 88, internal test)
+
+- New errors, New Marked and Learned: the board is as tall as the row only in landscape. In portrait it is back
+  to its former size (120 dp). The buttons stay at the right under the description.
+- New errors and New Marked in landscape: Biggest / Newest and the filter moved into the top bar (a sort icon
+  with a menu and the filter button, before Clear), so the list gets the height back. Portrait is unchanged.
+
 ## 0.9.6 — 2026-11-18 (build 87, internal test)
 
 - Played-out games only for close decisions: the check of the gap now happens inside the games search, after its

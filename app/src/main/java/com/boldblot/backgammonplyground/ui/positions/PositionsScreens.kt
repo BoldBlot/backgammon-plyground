@@ -653,7 +653,8 @@ internal fun PositionRow(
     actions: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    val tall = actions != null
+    // With buttons (Learned) in landscape the board is as tall as the row; in portrait it keeps its size.
+    val tall = actions != null && LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val sp = p.position
     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).combinedClickable(onLongClick = onLongClick, onClick = onClick)) {
         Row(Modifier.padding(8.dp).then(if (tall) Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min) else Modifier), verticalAlignment = Alignment.CenterVertically) {

@@ -58,6 +58,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Bolt
@@ -825,6 +827,11 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
     val filter = settings?.let { it.visible(it.blunderFilter) } ?: emptySet()
     val shown = errors?.filter { filter.isEmpty() || Labels.matches(it.labels, filter) }
     val scope = rememberCoroutineScope()
+    // Landscape: the sort and filter sit in the top bar (a row under it costs too much height).
+    val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    var sortMenu by remember { mutableStateOf(false) }
+    val setFilter: (Set<String>) -> Unit = { f -> scope.launch { app.settings.update { s -> s.copy(blunderFilter = f) } } }
+    val filterKeys = settings?.labelKeys.orEmpty().filterNot { Labels.isMine(it) || Labels.isTrend(it) }
     suspend fun reload() { errors = app.repository.blunders(sort, marked = marked) }
     LaunchedEffect(sort) { reload() }
     Scaffold(
@@ -844,6 +851,21 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
                 title = { Text((if (marked) "New Marked" else "New errors") + (shown?.let { " (${it.size})" } ?: "")) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
+                    if (landscape && !errors.isNullOrEmpty()) {
+                        Box {
+                            IconButton(onClick = { sortMenu = true }) { Icon(Icons.Default.SwapVert, "Sort order") }
+                            DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                                BlunderSort.entries.forEach { o ->
+                                    DropdownMenuItem(
+                                        text = { Text(o.label) },
+                                        leadingIcon = { if (sort == o) Icon(Icons.Default.Check, null) },
+                                        onClick = { sortMenu = false; scope.launch { app.settings.update { s -> s.copy(blunderSort = o) } } },
+                                    )
+                                }
+                            }
+                        }
+                        LabelFilterButton(filterKeys, filter, setFilter, compact = true, count = { f -> errors.orEmpty().count { Labels.matches(it.labels, f) } }, total = errors.orEmpty().size)
+                    }
                     // Clears what the list shows (with a filter on, only the errors that pass it).
                     TextButton(
                         onClick = { if (filter.isEmpty() && !marked) clear = ClearKind.BLUNDERS else clearShown = true },
@@ -867,7 +889,7 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
-            if (!errors.isNullOrEmpty()) {
+            if (!errors.isNullOrEmpty() && !landscape) {
                 Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     BlunderSort.entries.forEach { o ->
                         FilterChip(
@@ -875,9 +897,7 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
                             onClick = { scope.launch { app.settings.update { s -> s.copy(blunderSort = o) } } },
                         )
                     }
-                    LabelFilterButton(settings?.labelKeys.orEmpty().filterNot { Labels.isMine(it) || Labels.isTrend(it) }, filter, { f ->
-                        scope.launch { app.settings.update { s -> s.copy(blunderFilter = f) } }
-                    }, count = { f -> errors.orEmpty().count { Labels.matches(it.labels, f) } }, total = errors.orEmpty().size)
+                    LabelFilterButton(filterKeys, filter, setFilter, count = { f -> errors.orEmpty().count { Labels.matches(it.labels, f) } }, total = errors.orEmpty().size)
                 }
             }
             shown?.let { list ->

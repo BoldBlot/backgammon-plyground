@@ -169,6 +169,7 @@ fun BlunderList(
         )
         return
     }
+    val tall = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     LazyColumn(modifier.fillMaxSize().padding(horizontal = 12.dp)) {
         items(blunders, key = { it.entity.id }) { b ->
             val d = b.decision
@@ -178,11 +179,14 @@ fun BlunderList(
                     .combinedClickable(onLongClick = onLongClick?.let { { it(id) } }) { onOpen(id) },
             ) {
                 // The Learned template: the board as tall as the row, the description, the buttons under it at the right.
-                Row(Modifier.padding(8.dp).height(androidx.compose.foundation.layout.IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                // The board is as tall as the row in landscape only; in portrait it keeps its 120 dp.
+                Row(Modifier.padding(8.dp).then(if (tall) Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min) else Modifier), verticalAlignment = Alignment.CenterVertically) {
                     if (selection != null) Checkbox(checked = id in selection, onCheckedChange = { onOpen(id) })
                     val sev = XgRules.severity(b.entity.error)
                     BoardView(
-                        board = d.board, modifier = Modifier.fillMaxHeight().aspectRatio(1.38f, matchHeightConstraintsFirst = true).widthIn(max = 190.dp),
+                        board = d.board,
+                        modifier = if (tall) Modifier.fillMaxHeight().aspectRatio(1.38f, matchHeightConstraintsFirst = true).widthIn(max = 190.dp)
+                        else Modifier.width(120.dp).aspectRatio(1.38f),
                         colors = colors, mirrored = mirrored,
                         dice = listOfNotNull(d.dice?.let { DiceView(d.player, it.highFirst) }),
                         cube = decisionCube(d).first, cubeOffered = decisionCube(d).second, showNumbers = false,
