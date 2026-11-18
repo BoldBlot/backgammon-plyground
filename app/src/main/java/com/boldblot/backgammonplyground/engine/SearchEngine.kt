@@ -57,6 +57,9 @@ abstract class SearchEngine : AnalysisEngine {
     protected open fun requestStop() {}
     protected open fun clearStop() {}
 
+    /** Makes the search running on this engine return at once with what it has (a search nobody watches: the background analysis). */
+    fun stopNow() = requestStop()
+
     /**
      * Equity for [ctx].onRoll of each of [posts] (positions after its play, none of them a finished game) by
      * [search]'s played-out games on common dice, and the games played; null when the engine has no such
@@ -99,18 +102,30 @@ abstract class SearchEngine : AnalysisEngine {
         val code = codeFor(plies, ctx, cube = false)
         if (monitor?.stop != true) clearStop()
         val games = Depth.of(code).search?.takeIf { it.games > 0 }
-        if (games != null && gamesOnErrorsOnly && cacheKey != keyOf(board, ctx, d1, d2, code)) {
-            val plain = Depth.of(code).plain.code
-            if (played == null) {
-                if (monitor == null) return ranked(board, ctx, d1, d2, plain, null)
-            } else {
-                val quick = ranked(board, ctx, d1, d2, plain, played)
-                // Played out only when the second play is within [gamesGap] of the best: a close decision.
-                if (quick.candidates.size < 2 || quick.candidates[0].equity - quick.candidates[1].equity > gamesGap) return quick
-            }
-        }
-        return ranked(board, ctx, d1, d2, code, played)
+        if (games == null || !gamesOnErrorsOnly || cacheKey == keyOf(board, ctx, d1, d2, code)) return ranked(board, ctx, d1, d2, code, played)
+        val plain = Depth.of(code).plain.code
+        // A roll ranked ahead, or the computer's choice: nobody waits for games.
+        if (played == null) return if (monitor == null) ranked(board, ctx, d1, d2, plain, null) else ranked(board, ctx, d1, d2, code, played)
+        // The same decision again, settled before by its plies: no games, as before (unless the gap asked for has grown).
+        val settled = cached?.takeIf { cachedSettled && cacheKey == keyOf(board, ctx, d1, d2, plain) }
+        if (settled != null && gapOf(settled) > gamesGap) return ranked(board, ctx, d1, d2, plain, played)
+        // Played out only when the second play is within [gamesGap] of the best: the games search looks at the gap after
+        // its first stage (the plies, which the plain search would do too), and stops there for a clear decision.
+        gate = gamesGap
+        try { return ranked(board, ctx, d1, d2, code, played) } finally { gate = null }
     }
+
+    /** The equity between the best two plays of [r] (the searched ones come first, best first); infinite with one play. */
+    private fun gapOf(r: RankResult): Float = if (r.candidates.size < 2) Float.POSITIVE_INFINITY else r.candidates[0].equity - r.candidates[1].equity
+
+    /** With [gamesOnErrorsOnly]: the gap the games search in progress checks after its plies; null = play them out. */
+    private var gate: Float? = null
+
+    /** Set by [rank]: the last games search stopped after its plies, the decision being clear. */
+    private var gatedOut = false
+
+    /** [cached] is such a ranking, kept under the key of its plain depth. */
+    private var cachedSettled = false
 
     private fun keyOf(board: Board, ctx: CubeContext, d1: Int, d2: Int, plies: Int): Any =
         listOf(board, ctx, minOf(d1, d2), maxOf(d1, d2), Depth.of(plies), rankingMode)
@@ -144,10 +159,15 @@ abstract class SearchEngine : AnalysisEngine {
                 return RankResult(list, list.indexOf(moved)).also { cached = it; cachedPlies = plies }
             }
         }
+        gatedOut = false
         return rank(board, ctx, d1, d2, plies, played).also {
             // A stopped search is not kept: asked again, it runs again.
-            if (it.candidates.any { c -> c.plies >= Depth.INCOMPLETE }) { cacheKey = null; cached = null }
-            else { cacheKey = key; cached = it; cachedPlies = plies }
+            if (it.candidates.any { c -> c.plies >= Depth.INCOMPLETE }) { cacheKey = null; cached = null; cachedSettled = false }
+            else if (gatedOut) {
+                // Settled by its plies: kept as the plain search of the roll, which is what it is.
+                val plain = Depth.of(plies).plain.code
+                cacheKey = keyOf(board, ctx, d1, d2, plain); cached = it; cachedPlies = plain; cachedSettled = true
+            } else { cacheKey = key; cached = it; cachedPlies = plies; cachedSettled = false }
         }
     }
 
@@ -230,6 +250,12 @@ abstract class SearchEngine : AnalysisEngine {
                     val evals = deeper(board, ctx, keep.map { posts[it] }, st.first, "${st.first}-ply on ${plays(keep.size)}")
                     if (evals == null) { stopped = true; break }
                     keep.forEachIndexed { j, i -> probs[i] = evals[j].probs; eq[i] = evals[j].equity; depth[i] = code }
+                    // A clear decision (the second play is farther than the gap): no games. The plays keep the plies' depth.
+                    val g = gate
+                    if (n == 0 && g != null && !final) {
+                        val top = keep.map { eq[it] }.sortedDescending()
+                        if (top.size >= 2 && top[0] - top[1] > g) { gatedOut = true; alive = keep; last = emptyList(); break }
+                    }
                 } else {
                     // A play that ends the game needs no games: its value is exact, and it is the best there is.
                     val live = keep.filter { posts[it].off(mover) < 15 }

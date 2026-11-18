@@ -296,7 +296,7 @@ fun CandidateList(
             val isPlayed = i == highlightIndex
             // The played row is tinted with its severity's colour and outlined.
             val bg = when {
-                i == selectedIndex -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                i == selectedIndex -> MaterialTheme.colorScheme.primary.copy(alpha = if (dark()) 0.55f else 0.38f)
                 isPlayed -> severityFill(sev).copy(alpha = if (dark()) 0.22f else 0.45f)
                 else -> Color.Transparent
             }
@@ -305,6 +305,7 @@ fun CandidateList(
                     .fillMaxWidth()
                     .background(bg, RoundedCornerShape(8.dp))
                     .let { if (isPlayed) it.border(1.5.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(8.dp)) else it }
+                    .let { if (i == selectedIndex) it.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp)) else it }
                     .let { if (onSelect != null) it.clickable { onSelect(i, c) } else it }
                     .padding(horizontal = 8.dp, vertical = 6.dp),
             ) {

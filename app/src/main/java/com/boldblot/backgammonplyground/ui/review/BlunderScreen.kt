@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
@@ -112,10 +113,27 @@ import java.util.Date
  * player's [colors] by the score.
  */
 @Composable
-private fun BlunderContext(b: SavedBlunder, colors: BoardColors, style: androidx.compose.ui.text.TextStyle, maxLines: Int = Int.MAX_VALUE) {
+private fun BlunderContext(b: SavedBlunder, colors: BoardColors, style: androidx.compose.ui.text.TextStyle, maxLines: Int = Int.MAX_VALUE, threeLines: Boolean = false) {
     val e = b.entity
     val d = b.decision
     val level = Opponent.name(e.cpuLevel)
+    if (threeLines) {
+        // The lists: match and opponent; score and cube; date.
+        val grey = MaterialTheme.colorScheme.onSurfaceVariant
+        val isMatch = e.matchLength != 0
+        Column {
+            Text(
+                (if (e.opponent) "Opponent's · " else "") + (if (isMatch) "${e.matchLength}-pt match" else "Money") + " vs $level",
+                style = style, color = grey, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            ScoreText(
+                "", d.score.takeIf { isMatch }, (if (isMatch && d.crawford) "Crawford · " else "") + "cube ${d.cube.value}", colors,
+                style = style, color = grey, maxLines = 1, matchLength = e.matchLength,
+            )
+            Text(DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(e.playedAt)), style = style, color = grey, maxLines = 1)
+        }
+        return
+    }
     val what = (if (e.opponent) "Opponent's · " else "") + if (e.matchLength == 0) "Money" else "${e.matchLength}-pt match"
     val match = e.matchLength != 0
     val cube = if (d.cube.value > 1) " · cube ${d.cube.value}" else ""
@@ -159,12 +177,13 @@ fun BlunderList(
                 Modifier.fillMaxWidth().padding(vertical = 4.dp)
                     .combinedClickable(onLongClick = onLongClick?.let { { it(id) } }) { onOpen(id) },
             ) {
-                // The Learned template: the board (150 dp), the description, the buttons under it.
-                Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                // The Learned template: the board as tall as the row, the description, the buttons under it at the right.
+                Row(Modifier.padding(8.dp).height(androidx.compose.foundation.layout.IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
                     if (selection != null) Checkbox(checked = id in selection, onCheckedChange = { onOpen(id) })
                     val sev = XgRules.severity(b.entity.error)
                     BoardView(
-                        board = d.board, modifier = Modifier.width(150.dp).aspectRatio(1.38f), colors = colors, mirrored = mirrored,
+                        board = d.board, modifier = Modifier.fillMaxHeight().aspectRatio(1.38f, matchHeightConstraintsFirst = true).widthIn(max = 190.dp),
+                        colors = colors, mirrored = mirrored,
                         dice = listOfNotNull(d.dice?.let { DiceView(d.player, it.highFirst) }),
                         cube = decisionCube(d).first, cubeOffered = decisionCube(d).second, showNumbers = false,
                     )
@@ -176,8 +195,8 @@ fun BlunderList(
                             )
                             ErrorPill(errText(-b.entity.error / XgRules.errorFactor(b.entity.matchLength)), sev, mono = true)
                         }
-                        BlunderContext(b, colors, MaterialTheme.typography.bodySmall, maxLines = 2)
-                        if (selection == null && (onKeep != null || onDelete != null)) Row(verticalAlignment = Alignment.CenterVertically) {
+                        BlunderContext(b, colors, MaterialTheme.typography.bodySmall, threeLines = true)
+                        if (selection == null && (onKeep != null || onDelete != null)) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                             onKeep?.let { IconButton(onClick = { it(b) }) { Icon(Icons.Default.Check, "Keep") } }
                             onDelete?.let { IconButton(onClick = { it(b) }) { Icon(Icons.Default.Delete, "Delete") } }
                         }

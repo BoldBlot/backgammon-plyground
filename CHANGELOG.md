@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.9.6 — 2026-11-18 (build 87, internal test)
+
+- Played-out games only for close decisions: the check of the gap now happens inside the games search, after its
+  3-ply stage, so a decision that is not close stops there and a close one goes on into the games without
+  repeating the 3-ply stage (build 86 did it twice, which made a close decision 30-40% slower than playing every
+  decision out). The slider now goes down to 0.001, in steps of 0.001.
+- Stop: the Stop of the end-of-game summary and of the "search is taking too long" notice now also interrupt the
+  analysis of a game that is running in the background (what it had is kept, marked incomplete, or dropped when
+  the summary's Stop dropped the decision). Before, they only reached the searches someone waits for.
+- The app log says more about each background analysis: depth, how many plays went to the games, the gap between
+  the best two plays and the settings behind it.
+- Game quiz: its answers are now kept in the quiz statistics like any quiz's (right rate, answers per day,
+  streak, average error, checker and cube, match and money). A "Quiz a friend" switch in its menu turns that
+  off. These positions are not in My positions, so they carry no counts, folders or labels.
+- New errors, New Marked and Learned: the buttons are aligned to the right and the board is as tall as the row
+  (it grows wider with it). New errors and New Marked show three lines under the play: match length and
+  opponent; score and cube; date.
+- Analyze Position: Opposite swipe works in the reverse direction (a swipe that adds checkers removes them on the
+  point across the board). The selected play in a list of plays has a much brighter fill and a border (in the
+  reviews and the quiz too).
+
 ## 0.9.5 — 2026-11-18 (build 86, internal test)
 
 - Quiz, Analyze again: if you moved on to the next question while it was still running, its result no longer

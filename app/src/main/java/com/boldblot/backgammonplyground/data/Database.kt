@@ -141,7 +141,7 @@ data class CategoryEntity(
     @ColumnInfo(defaultValue = "0") val autoAdd: Boolean = false,
 )
 
-/** One quiz answer, kept for the quiz statistics (schema 10). Game quizzes and Quiz a friend leave none. */
+/** One quiz answer, kept for the quiz statistics (schema 10). Quiz a friend leaves none; a game quiz's answers carry the negative id of their card. */
 @Entity(tableName = "quiz_answers", indices = [Index("at"), Index("positionId")])
 data class QuizAnswerEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

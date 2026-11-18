@@ -54,7 +54,7 @@ private fun pct(r: Double?) = if (r == null) "–" else "${fmt(r * 100, 0)}%"
 
 private fun tallyText(t: QuizTally) = if (t.answered == 0) "–" else "${pct(t.rate)} of ${t.answered}"
 
-/** The quiz's statistics: how the answers kept so far went (not game quizzes or Quiz a friend). */
+/** The quiz's statistics: how the answers kept so far went (not Quiz a friend). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun QuizStatsBody(app: PlyGroundApp, onOpenFolder: (Long) -> Unit, onOpenLabel: (String) -> Unit, modifier: Modifier = Modifier) {
@@ -81,7 +81,7 @@ fun QuizStatsBody(app: PlyGroundApp, onOpenFolder: (Long) -> Unit, onOpenLabel: 
                 return@Column
             }
             if (empty) {
-                Text("No answers kept yet. Quiz your positions and they show up here (game quizzes and Quiz a friend are not counted).")
+                Text("No answers kept yet. Quiz your positions and they show up here (Quiz a friend is not counted).")
                 return@Column
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

@@ -137,7 +137,7 @@ data class QuizState(
     val viewing: Int? = null,
     /** Doubled, with the follow-up question: the take or pass given, waiting for "was the double right?". */
     val firstCube: DecisionKind? = null,
-    /** Quiz a friend: nothing is written to the positions. */
+    /** Quiz a friend: nothing is written to the positions, and no answer is kept for the statistics. */
     val friend: Boolean = false,
     /** A game quiz ([gameTitle]: its match): the cards are a match's decisions, not in My positions; nothing is saved. */
     val detached: Boolean = false,
@@ -248,7 +248,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
         _state.update {
             QuizState(
                 loading = false, settings = it.settings, queue = list, total = list.size, finished = list.isEmpty(),
-                friend = spec.friend && !detached, detached = detached, gameTitle = gameTitle, theirs = theirs, theirView = game?.theirView ?: TheirView.COLOUR,
+                friend = if (detached) game?.friend == true else spec.friend, detached = detached, gameTitle = gameTitle, theirs = theirs, theirView = game?.theirView ?: TheirView.COLOUR,
             )
         }
         show()
@@ -429,6 +429,9 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
                 }
                 counted?.let { latest[sp.id] = it }
                 if (counted != null) app.positions.recordAnswer(sp.id, result.verdict, result.error / factor, cube = p.dice == null, match = p.setup.matchLength > 0)
+                // A game quiz's answers count in the statistics like any quiz's (its positions are not in My positions, so
+                // they carry no counts, folders or labels), unless it is a quiz for a friend.
+                else if (detached && game?.friend != true) app.positions.recordAnswer(sp.id, result.verdict, result.error / factor, cube = p.dice == null, match = p.setup.matchLength > 0)
                 val favourite = !detached && app.positions.isFavourite(sp.id)
                 // A neutral answer leaves the balance alone, so it never moves a position to Learned.
                 val deleted = counted != null && !result.neutral && s.quizAutoDelete && counted.quizBalance >= s.quizDeleteAt && !favourite

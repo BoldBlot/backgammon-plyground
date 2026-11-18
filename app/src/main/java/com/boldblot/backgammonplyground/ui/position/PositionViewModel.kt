@@ -211,9 +211,9 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
      * A drag along point [target] (human orientation): adds ([delta] > 0) or removes checkers of the
      * side already there, or of the brush player on an empty point.
      */
-    fun swipePoint(swiped: Int, delta: Int) = edit("point $swiped") { st ->
-        // Opposite swipe (Analyze Position's option): the point across the board changes, not the one swiped.
-        val target = if (st.settings.oppositeSwipe) 23 - swiped else swiped
+    fun swipePoint(swiped: Int, swipe: Int) = edit("point $swiped") { st ->
+        // Opposite swipe (Analyze Position's option): the point across the board changes, in the reverse direction.
+        val (target, delta) = com.boldblot.backgammonplyground.core.OppositeSwipe.of(swiped, swipe, st.settings.oppositeSwipe)
         val mine = st.board.count(Player.HUMAN, target)
         val theirs = st.board.count(Player.CPU, 23 - target)
         val p = when { mine > 0 -> Player.HUMAN; theirs > 0 -> Player.CPU; else -> st.brush }

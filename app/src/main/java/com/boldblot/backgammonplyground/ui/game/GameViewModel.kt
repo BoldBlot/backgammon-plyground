@@ -1396,6 +1396,18 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
         return PendingDecision(m.id, m.gameNumber, i, m.game.decisions[i], m.rules.length, m.rules.jacoby, m.opponentKey, saved = false)
     }
 
+    /** What a background analysis searched, for the log: the engine and depth, and how many plays went to the games. */
+    private fun analysisSummary(d: DecisionRecord): String {
+        val c = d.checker
+        if (c != null) {
+            val top = c.candidates.maxOfOrNull { it.plies } ?: c.plies
+            return "${c.label}, ${c.candidates.count { it.plies == top }} of ${c.legalMoves} plays at the top depth, gap to the second ${
+                c.candidates.sortedByDescending { it.equity }.let { l -> if (l.size > 1) "%.4f".format(java.util.Locale.US, l[0].equity - l[1].equity) else "-" }
+            }, gap setting ${settings.gamesGap}, only close: ${settings.gamesOnErrorsOnly}"
+        }
+        return d.cubeEval?.label ?: "no analysis"
+    }
+
     private suspend fun analyze(p: PendingDecision) {
         val s = settings
         val started = android.os.SystemClock.elapsedRealtime()
@@ -1406,7 +1418,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             (if (engineService.twoSlots) engineService.runBackground(work) else engineService.run(block = work)).also {
                 val ms = (android.os.SystemClock.elapsedRealtime() - started).toDouble()
                 analysisMillis = if (analysisMillis == 0.0) ms else analysisMillis * 0.8 + ms * 0.2
-                AppLog.i("Analyzed ${p.decision.kind} in ${ms.toLong()} ms (game ${p.gameNumber}, decision ${p.index})")
+                AppLog.i("Analyzed ${p.decision.kind} in ${ms.toLong()} ms (game ${p.gameNumber}, decision ${p.index}): ${analysisSummary(it)}")
             }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
@@ -1478,6 +1490,8 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
      * in PR or statistics; Analyze again in the review finishes them).
      */
     fun stopAnalysis(matchId: Long) {
+        // The search running now returns at once; what it finds is not kept (the decision is no longer waiting).
+        engineService.stopBackground()
         viewModelScope.launch {
             pendingGames.removeAll { it.matchId == matchId }
             analysisDropped(matchId)

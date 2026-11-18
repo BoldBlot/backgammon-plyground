@@ -82,12 +82,16 @@ enum class TheirView(val label: String, val note: String) {
 }
 
 /** A game quiz: the decisions of saved match [matchId] that [rules] pick, the opponent's shown as [theirView]. */
-data class GameQuizSpec(val matchId: Long, val rules: GameQuizRules = GameQuizRules(), val theirView: TheirView = TheirView.COLOUR) {
+data class GameQuizSpec(
+    val matchId: Long, val rules: GameQuizRules = GameQuizRules(), val theirView: TheirView = TheirView.COLOUR,
+    /** Quiz a friend: the answers are judged and counted for the round, and kept nowhere (not in the statistics). */
+    val friend: Boolean = false,
+) {
     /** For the quiz route, and (without the match) [com.boldblot.backgammonplyground.data.Settings.gameQuiz]. */
     fun encode(): String = with(rules) {
         listOf(
             matchId, stops.joinToString(",") { it.name }, closeLevel.name, closeCustom, wrongLevel.name, wrongCustom, side.name,
-            if (cube) 1 else 0, limit, priority.name, order.name, theirView.name,
+            if (cube) 1 else 0, limit, priority.name, order.name, theirView.name, if (friend) 1 else 0,
         ).joinToString(";") { Uri.encode(it.toString()) }
     }
 
@@ -107,6 +111,7 @@ data class GameQuizSpec(val matchId: Long, val rules: GameQuizRules = GameQuizRu
                     priority = pick(9, GameQuizPriority.entries, d.priority), order = pick(10, GameQuizOrder.entries, d.order),
                 ),
                 theirView = pick(11, TheirView.entries, TheirView.COLOUR),
+                friend = p.getOrNull(12) == "1",
             )
         }
     }
@@ -157,6 +162,7 @@ fun GameQuizMenuScreen(app: PlyGroundApp, matchId: Long?, onBack: () -> Unit, on
     var matches by remember { mutableStateOf<List<MatchEntity>?>(null) }
     var rules by remember { mutableStateOf<GameQuizRules?>(null) }
     var theirView by remember { mutableStateOf(TheirView.COLOUR) }
+    var friend by remember { mutableStateOf(false) }
     // The opponent's decisions the match has no analysis for, and the review of them under way (done / total).
     var cpuTodo by remember { mutableStateOf(0) }
     var reviewed by remember { mutableStateOf(0) }
@@ -238,8 +244,8 @@ fun GameQuizMenuScreen(app: PlyGroundApp, matchId: Long?, onBack: () -> Unit, on
                 actions = {
                     Button(
                         onClick = {
-                            val spec = GameQuizSpec(chosen ?: return@Button, r ?: return@Button, theirView)
-                            scope.launch { app.settings.update { it.copy(gameQuiz = spec.copy(matchId = 0).encode()) } }
+                            val spec = GameQuizSpec(chosen ?: return@Button, r ?: return@Button, theirView, friend)
+                            scope.launch { app.settings.update { it.copy(gameQuiz = spec.copy(matchId = 0, friend = false).encode()) } }
                             onStart(spec)
                         },
                         enabled = chosen != null && (matching ?: 0) > 0, modifier = Modifier.padding(end = 8.dp),
@@ -378,12 +384,16 @@ fun GameQuizMenuScreen(app: PlyGroundApp, matchId: Long?, onBack: () -> Unit, on
                 }
                 Text(theirView.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text("Quiz a friend", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
-            Text(
-                "A game quiz never saves anything: no counts, last answers or trends, and My positions stay as they are. " +
-                    "So it is already a quiz for a friend: hand over the phone.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(Modifier.fillMaxWidth().clickable { friend = !friend }.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Quiz a friend", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Off: the answers are kept in the quiz statistics. On: nothing is saved.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = friend, onCheckedChange = { friend = it })
+            }
             Spacer(Modifier.height(12.dp))
             val n = matching
             val asked = if (n == null) null else if (r.limit > 0) minOf(r.limit, n) else n

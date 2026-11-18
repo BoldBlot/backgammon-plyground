@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -652,12 +653,17 @@ internal fun PositionRow(
     actions: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
+    val tall = actions != null
     val sp = p.position
     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).combinedClickable(onLongClick = onLongClick, onClick = onClick)) {
-        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(8.dp).then(if (tall) Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min) else Modifier), verticalAlignment = Alignment.CenterVertically) {
             if (selection != null) Checkbox(checked = selection, onCheckedChange = null, modifier = Modifier.padding(end = 6.dp))
             BoardView(
-                board = sp.board, modifier = Modifier.width(boardWidth).aspectRatio(1.38f), colors = boardColorsFor(settings),
+                board = sp.board,
+                // A list with buttons (Learned): the board is as tall as the row, as wide as that makes it (up to a limit).
+                modifier = if (tall) Modifier.fillMaxHeight().aspectRatio(1.38f, matchHeightConstraintsFirst = true).widthIn(max = 190.dp)
+                else Modifier.width(boardWidth).aspectRatio(1.38f),
+                colors = boardColorsFor(settings),
                 mirrored = settings.mirrorBoard, dice = listOfNotNull(sp.dice?.let { DiceView(Player.HUMAN, it.highFirst) }),
                 cube = sp.setup.cube, cubeOffered = sp.doubled, showNumbers = false,
             )
@@ -678,7 +684,7 @@ internal fun PositionRow(
                 if (p.entity.quizRight + p.entity.quizWrong + p.entity.quizNeutral > 0) {
                     Text("Quiz: ${quizCountText(p)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (actions != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically, content = actions)
+                if (actions != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically, content = actions)
             }
             quizAnswer?.let { v ->
                 Icon(
@@ -1156,7 +1162,7 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit = {
         }
         if (r == SnackbarResult.ActionPerformed) vm.undoDelete(d)
     }
-    val name = if (st.detached) "Game quiz" else if (st.friend) "Quiz a friend" else "Quiz"
+    val name = if (st.detached) (if (st.friend) "Game quiz · friend" else "Game quiz") else if (st.friend) "Quiz a friend" else "Quiz"
     val title = if (st.finished || st.total == 0) name else "$name · ${st.answered + if (st.result == null) 1 else 0}"
     // In landscape the title goes into the side panel, so the board has the whole height and sits in the middle.
     val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -1172,7 +1178,7 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit = {
         text = {
             Text(
                 "${st.queue.size - if (st.result != null) 1 else 0} of ${st.total} positions are left. " +
-                    if (st.detached || st.friend) "Nothing is saved in this quiz." else "The answers so far are kept.",
+                    if (st.friend) "Nothing is saved in this quiz." else if (st.detached) "The answers count in the statistics; the positions are not changed." else "The answers so far are kept.",
             )
         },
         confirmButton = { TextButton(onClick = { leaving = false; onBack() }) { Text("Leave") } },
@@ -1222,7 +1228,7 @@ private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit, on
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Done", style = MaterialTheme.typography.titleLarge)
-        if (st.detached) Text("Game quiz${st.gameTitle?.let { ": $it" } ?: ""}. Nothing was saved.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (st.detached) Text("Game quiz${st.gameTitle?.let { ": $it" } ?: ""}. " + if (st.friend) "Nothing was saved." else "The answers are in the statistics.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         else if (st.friend) Text("Quiz a friend: nothing was saved.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
             "${st.total} position${if (st.total == 1) "" else "s"}, ${st.answered} answer${if (st.answered == 1) "" else "s"}" +

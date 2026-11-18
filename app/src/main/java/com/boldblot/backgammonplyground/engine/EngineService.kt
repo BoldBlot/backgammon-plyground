@@ -109,7 +109,21 @@ class EngineService(private val context: Context) {
     private var searchId = 0L
 
     /** Stops the watched search: it returns what it has ([com.boldblot.backgammonplyground.core.Depth.incomplete]). */
-    fun stopSearch() { watched?.requestStop() }
+    fun stopSearch() { watched?.requestStop(); stopBackground() }
+
+    /** The engines running a search nobody watches (the background analysis of games). */
+    private val unwatched = java.util.Collections.synchronizedList(mutableListOf<SearchEngine>())
+
+    /**
+     * Makes the searches nobody watches return at once with what they have (marked incomplete): the background analysis
+     * of a game that is dropped, or the Stop of the dialog that says a search takes too long.
+     */
+    fun stopBackground() { synchronized(unwatched) { unwatched.toList() }.forEach { it.stopNow() } }
+
+    private fun <T> unwatchedRun(e: SearchEngine, block: SearchEngine.() -> T): T {
+        unwatched += e
+        try { return e.block() } finally { unwatched -= e }
+    }
 
     /** The background analysis has its own slot (only PureTD can have a second copy). */
     val twoSlots: Boolean get() = analysisKind == EngineKind.PURETD
@@ -212,7 +226,7 @@ class EngineService(private val context: Context) {
             e.gamesOnErrorsOnly = gamesOnErrorsOnly && waiting != Waiting.ANALYSIS
             e.gamesGap = gamesGap
             (e as? PureTdEngine)?.let { it.gameThreads = threads; it.workerInit = { Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT) } }
-            if (waiting == null) return@withContext e.block()
+            if (waiting == null) return@withContext unwatchedRun(e, block)
             val mon = SearchMonitor()
             val id = ++searchId
             val started = android.os.SystemClock.elapsedRealtime()
@@ -263,7 +277,7 @@ class EngineService(private val context: Context) {
             b.engine.gameThreads = threads
             val priority = if (backgroundLow) Process.THREAD_PRIORITY_BACKGROUND else Process.THREAD_PRIORITY_DEFAULT
             b.engine.workerInit = { Process.setThreadPriority(priority) }
-            b.engine.block()
+            unwatchedRun(b.engine, block)
         }
     }
 

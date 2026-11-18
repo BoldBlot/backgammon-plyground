@@ -63,4 +63,14 @@ class TapPlaysTest {
         assertTrue(plays.isNotEmpty())
         plays.forEach { assertEquals(done + listOf(Step(7, 4), Step(7, 4)), it.steps) }
     }
+
+    @Test
+    fun oppositeSwipeActsAcrossTheBoardInTheReverseDirection() {
+        // Off: the point swiped, the swipe as it is.
+        assertEquals(5 to 1, OppositeSwipe.of(5, 1, opposite = false))
+        // On: the point across (the points of a column add up to 23), and the swipe reversed.
+        assertEquals(18 to -1, OppositeSwipe.of(5, 1, opposite = true))
+        assertEquals(0 to 1, OppositeSwipe.of(23, -1, opposite = true))
+    }
 }
+

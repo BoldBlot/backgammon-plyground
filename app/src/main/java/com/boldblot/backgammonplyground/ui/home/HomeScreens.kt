@@ -1617,8 +1617,8 @@ private fun AnalysisSettings(s: Settings, update: (f: (Settings) -> Settings) ->
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp),
         )
         Slider(
-            value = s.gamesGap, valueRange = 0.005f..0.1f, steps = 18,
-            onValueChange = { v -> update { it.copy(gamesGap = (Math.round(v * 200) / 200f).coerceIn(0.005f, 0.1f)) } },
+            value = s.gamesGap, valueRange = 0.001f..0.1f, steps = 98,
+            onValueChange = { v -> update { it.copy(gamesGap = (Math.round(v * 1000) / 1000f).coerceIn(0.001f, 0.1f)) } },
         )
     }
     Note(
