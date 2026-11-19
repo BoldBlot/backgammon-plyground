@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.10 — 2026-11-19 (build 91, internal test)
+
+- Played-out games only for close decisions: a decision the rule settles as clear (no games played) is now labelled
+  with the depth it got (3-ply), in the analysis and the log, not the played-out depth that was asked for.
+- Settings → Quiz → Analysis in the quiz → Own quiz standard (off by default): checker and cube depths for money
+  and match play for the quiz alone. With Analyze again what is below the standard, the quiz analyzes again the
+  positions below them, at them; a quiz position without analysis is analyzed at them too. Games, Analyze
+  Position and My positions keep Settings → Analysis. Nothing else changes until you turn it on.
+
 ## 0.9.9 — 2026-11-19 (build 90)
 
 - My positions, the lists (folders, All positions, No folder, New errors, New Marked, Learned) made alike:

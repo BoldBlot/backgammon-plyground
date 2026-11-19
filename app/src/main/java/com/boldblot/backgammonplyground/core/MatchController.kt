@@ -129,7 +129,10 @@ class MatchController(
         val all = r.candidates
         // What the analysis records: the depth for this kind of game, or what a stopped search reached.
         @Suppress("NAME_SHADOWING")
-        val plies = all.firstOrNull()?.plies?.takeIf { it >= Depth.INCOMPLETE } ?: Depth.resolve(plies, ctx.matchLength > 0)
+        val plies = all.firstOrNull()?.plies?.takeIf { it >= Depth.INCOMPLETE } ?: Depth.resolve(plies, ctx.matchLength > 0).let { want ->
+            // Played-out games asked for but none played (a clear decision, "only for close decisions"): the plies it had.
+            if (Depth.of(want).search != null && all.isNotEmpty() && all.none { Depth.of(it.plies).search != null }) Depth.of(want).plain.code else want
+        }
         if (all.isEmpty()) {
             return CheckerAnalysis(emptyList(), -1, 0f, 0f, 0f, legalMoves = 0, plies = plies, engine = engine.name.ifEmpty { null })
         }

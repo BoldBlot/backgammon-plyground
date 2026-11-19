@@ -228,6 +228,15 @@ data class Settings(
      */
     val matchChecker: Int = -1,
     val matchCube: Int = -1,
+    /**
+     * The quiz's own standard (Settings → Quiz → Analysis in the quiz): off = the depths above. On: [Depth] codes for
+     * money and match play, -1 = as above. The quiz analyzes at them, and judges what is below the standard by them.
+     */
+    val quizOwnDepths: Boolean = false,
+    val quizChecker: Int = -1,
+    val quizCube: Int = -1,
+    val quizMatchChecker: Int = -1,
+    val quizMatchCube: Int = -1,
     /** Seconds after which a one-position analysis offers to stop (the search goes on until told). */
     val analysisLimit: Int = 15,
     /** The same for the searches of play: the computer's decisions, Intuition training, autofinish. */
@@ -464,6 +473,12 @@ data class Settings(
     fun checkerDepth(match: Boolean): Depth = if (match && matchChecker >= 0) Depth.of(matchChecker) else checkerDepth
     fun cubeDepth(match: Boolean): Depth = if (match && matchCube >= 0) Depth.of(matchCube) else cubeDepth
 
+    /** The quiz's depths ([quizOwnDepths]), for a match ([match]) or a money game. */
+    fun quizCheckerDepth(match: Boolean): Depth =
+        (if (match) quizMatchChecker else quizChecker).takeIf { quizOwnDepths && it >= 0 }?.let { Depth.of(it) } ?: checkerDepth(match)
+    fun quizCubeDepth(match: Boolean): Depth =
+        (if (match) quizMatchCube else quizCube).takeIf { quizOwnDepths && it >= 0 }?.let { Depth.of(it) } ?: cubeDepth(match)
+
     /** Both kinds of game in one number ([Depth.dual]): the engine takes the half that fits the position. */
     val checkerCode: Int get() = Depth.dual(checkerDepth.code, checkerDepth(true).code)
     val cubeCode: Int get() = Depth.dual(cubeDepth.code, cubeDepth(true).code)
@@ -526,6 +541,11 @@ class SettingsStore(private val context: Context) {
         val cubePlies = intPreferencesKey("cube_plies")
         val matchChecker = intPreferencesKey("match_checker_depth")
         val matchCube = intPreferencesKey("match_cube_depth")
+        val quizOwnDepths = booleanPreferencesKey("quiz_own_depths")
+        val quizChecker = intPreferencesKey("quiz_checker_depth")
+        val quizCube = intPreferencesKey("quiz_cube_depth")
+        val quizMatchChecker = intPreferencesKey("quiz_match_checker_depth")
+        val quizMatchCube = intPreferencesKey("quiz_match_cube_depth")
         val analysisLimit = intPreferencesKey("analysis_limit_seconds")
         val playLimit = intPreferencesKey("play_limit_seconds")
         val gamesOnErrorsOnly = booleanPreferencesKey("games_on_errors_only")
@@ -662,6 +682,11 @@ class SettingsStore(private val context: Context) {
             cubePlies = (p[Keys.cubePlies] ?: d.cubePlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
             matchChecker = p[Keys.matchChecker] ?: d.matchChecker,
             matchCube = p[Keys.matchCube] ?: d.matchCube,
+            quizOwnDepths = p[Keys.quizOwnDepths] ?: d.quizOwnDepths,
+            quizChecker = p[Keys.quizChecker] ?: d.quizChecker,
+            quizCube = p[Keys.quizCube] ?: d.quizCube,
+            quizMatchChecker = p[Keys.quizMatchChecker] ?: d.quizMatchChecker,
+            quizMatchCube = p[Keys.quizMatchCube] ?: d.quizMatchCube,
             analysisLimit = (p[Keys.analysisLimit] ?: d.analysisLimit).coerceIn(1, 3600),
             playLimit = (p[Keys.playLimit] ?: d.playLimit).coerceIn(1, 3600),
             gamesOnErrorsOnly = p[Keys.gamesOnErrorsOnly] ?: d.gamesOnErrorsOnly,
@@ -794,6 +819,11 @@ class SettingsStore(private val context: Context) {
             p[Keys.cubePlies] = s.cubePlies
             p[Keys.matchChecker] = s.matchChecker
             p[Keys.matchCube] = s.matchCube
+            p[Keys.quizOwnDepths] = s.quizOwnDepths
+            p[Keys.quizChecker] = s.quizChecker
+            p[Keys.quizCube] = s.quizCube
+            p[Keys.quizMatchChecker] = s.quizMatchChecker
+            p[Keys.quizMatchCube] = s.quizMatchCube
             p[Keys.analysisLimit] = s.analysisLimit
             p[Keys.playLimit] = s.playLimit
             p[Keys.gamesOnErrorsOnly] = s.gamesOnErrorsOnly

@@ -53,6 +53,24 @@ class BelowStandardTest {
     }
 
     @Test
+    fun theQuizCanHaveItsOwnStandard() {
+        // An 11-point match position analyzed at 3-ply (games analyzed at 3-ply), every decision played out in the rule.
+        val match = StudyPosition.parse("XGID=-b----E-C---eE---c-e----B-:0:0:1:21:0:0:0:11:10")
+        val plain = analysis(Depth(3, MoveFilter.WIDE).code)
+        val s = settings.copy(gamesOnErrorsOnly = false)
+        assertEquals(false, belowStandard(match, plain, s))
+        // The quiz's own match depth asks for the played-out games: 3-ply is below it.
+        val own = s.copy(quizOwnDepths = true, quizMatchChecker = com.boldblot.backgammonplyground.core.GameSearch.G36.code)
+        assertTrue(belowStandard(match, plain, own))
+        assertEquals(com.boldblot.backgammonplyground.core.GameSearch.G36.code, own.quizCheckerDepth(true).code)
+        // Money games keep the analysis depths when the quiz sets none for them; the analysis settings are untouched.
+        assertEquals(false, belowStandard(p, plain, own))
+        assertEquals(s.checkerDepth(true), own.checkerDepth(true))
+        // Switched off, the quiz follows Settings → Analysis again.
+        assertEquals(false, belowStandard(match, plain, own.copy(quizOwnDepths = false)))
+    }
+
+    @Test
     fun exportedAnalysisNamesTheLevelOfAGameAnalysis() {
         val game = analysis(Depth(3, MoveFilter.WIDE).code).copy(label = PositionsRepository.GAME_ANALYSIS)
         assertEquals("PureTD 3-ply, pruned", PositionsRepository.exportedAnalysis(game).label)

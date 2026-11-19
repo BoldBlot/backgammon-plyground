@@ -41,6 +41,12 @@ fun quizCountText(p: SavedPosition): String {
     return "${p.entity.quizRight} right, ${p.entity.quizWrong} missed$neutral · balance ${if (b > 0) "+$b" else "$b"}"
 }
 
+/** Analyzes [p] for the quiz: at the quiz's depths (Settings → Quiz → Analysis in the quiz), with the analysis engine. */
+suspend fun analyzeForQuiz(app: PlyGroundApp, p: StudyPosition, s: Settings, keep: List<Move> = emptyList()): PositionAnalysis {
+    val match = p.ctx().matchLength > 0
+    return analyzePosition(app, p, s.analysisEngine, s.quizCheckerDepth(match), s.quizCubeDepth(match), null, keep)
+}
+
 /** Analyzes [p] at the analysis depths in Settings, with the analysis engine; [keep]: see the other [analyzePosition]. */
 suspend fun analyzePosition(app: PlyGroundApp, p: StudyPosition, s: Settings, waiting: Waiting? = null, keep: List<Move> = emptyList()): PositionAnalysis {
     val match = p.ctx().matchLength > 0
@@ -243,7 +249,7 @@ fun belowStandard(p: StudyPosition, a: PositionAnalysis, s: Settings): Boolean {
     }
     if (imported) return !s.quizKeepForeign
     if (engine != null && engine != s.analysisEngine.label) return false
-    val standard = (if (checker) s.checkerDepth(match) else s.cubeDepth(match)).let { if (!match || s.analysisEngine != EngineKind.PURETD) it.plain else it }
+    val standard = (if (checker) s.quizCheckerDepth(match) else s.quizCubeDepth(match)).let { if (!match || s.analysisEngine != EngineKind.PURETD) it.plain else it }
     val have = Depth.of(code ?: return true)
     if (have.atLeast(standard)) return false
     // Games skipped because the decision was clear: the plies before them were the standard's.

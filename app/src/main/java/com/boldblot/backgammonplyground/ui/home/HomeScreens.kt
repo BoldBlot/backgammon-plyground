@@ -1276,10 +1276,29 @@ private fun QuizSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) 
     Header("Analysis in the quiz")
     Toggle("Analyze again what is below the standard", s.quizReanalyze) { v -> update { it.copy(quizReanalyze = v) } }
     Note(
-        "When a position comes up, its analysis is made again if it is shallower than the depths of Settings → Analysis " +
+        "When a position comes up, its analysis is made again if it is shallower than the quiz standard below " +
             "(or was stopped early), by the same engine. Another engine you chose for a position is left alone. The " +
             "new analysis replaces the saved one and the answer is judged by it.",
     )
+    Toggle("Own quiz standard", s.quizOwnDepths) { v -> update { it.copy(quizOwnDepths = v) } }
+    Note(
+        "Off: the quiz standard is the depths of Settings → Analysis. On: the depths below, for the quiz only (a position " +
+            "without analysis is analyzed at them too); games, Analyze Position and My positions keep Settings → Analysis.",
+    )
+    if (s.quizOwnDepths) {
+        Text("Money games", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+        Text("Checker play depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+        CheckerDepthPicker(s.quizCheckerDepth(false), false) { d -> update { it.copy(quizChecker = d.code) } }
+        Text("Cube decision depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+        CubeDepthPicker(s.quizCubeDepth(false), false) { d -> update { it.copy(quizCube = d.code) } }
+        Text("Match play", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp))
+        val games = s.analysisEngine == EngineKind.PURETD
+        Text("Checker play depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+        CheckerDepthPicker(s.quizCheckerDepth(true), games) { d -> update { it.copy(quizMatchChecker = d.code) } }
+        Text("Cube decision depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+        CubeDepthPicker(s.quizCubeDepth(true), games) { d -> update { it.copy(quizMatchCube = d.code) } }
+        if (games) Note(GAME_SEARCH_NOTE)
+    }
     Toggle("Keep analyses from other programs", s.quizKeepForeign, enabled = s.quizReanalyze) { v -> update { it.copy(quizKeepForeign = v) } }
     Note("On: an analysis read from an XG or GNU file is never replaced. Off: it counts as below the standard.")
     Header("Quick quiz")

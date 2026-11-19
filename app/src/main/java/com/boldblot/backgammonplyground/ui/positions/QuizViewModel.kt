@@ -211,7 +211,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
         if (!staleAnalysis(sp, s)) return
         AppLog.i("Quiz: position ${sp.id} is below the standard (${sp.analysis?.label}), analyzing it again")
         refreshed[sp.id] = viewModelScope.async {
-            runCatching { analyzePosition(app, sp.position, s, keep = keepMoves(sp)) }
+            runCatching { analyzeForQuiz(app, sp.position, s, keep = keepMoves(sp)) }
                 .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; AppLog.error("Quiz: analyzing again failed", it) }
                 .getOrNull()
         }
@@ -405,7 +405,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
                 // A position saved without analysis (or imported) is analyzed now, and keeps it.
                 refreshAnalysis(sp, s)
                 val fresh = refreshed[sp.id]?.await()?.also { if (!detached) app.positions.setAnalysis(sp.id, it) }
-                val a = fresh ?: sp.analysis ?: analyzePosition(app, p, s, keep = keepMoves(sp)).also { if (!detached) app.positions.setAnalysis(sp.id, it) }
+                val a = fresh ?: sp.analysis ?: analyzeForQuiz(app, p, s, keep = keepMoves(sp)).also { if (!detached) app.positions.setAnalysis(sp.id, it) }
                 AppLog.i("Quiz: position ${sp.id} analyzed in ${android.os.SystemClock.elapsedRealtime() - t0} ms")
                 val factor = factorOf(p)
                 val asked = cubeAnswer?.let { if (partial) withBestResponse(p, a, it.double) else it }

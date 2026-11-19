@@ -157,6 +157,14 @@ class GameSearchTest {
             e.gamesGap = (gap - 0.001f).coerceAtLeast(0f)
             val far = e.rankMoves(play.board, play.ctx, play.d1, play.d2, GameSearch.G36.code, quick.candidates[0].move)
             assertEquals(Depth(3, MoveFilter.WIDE).code, far.candidates[far.playedIndex].plies)
+            // The analysis a game records says so too: 3-ply, not the games asked for.
+            val mc = com.boldblot.backgammonplyground.core.MatchController(
+                e, com.boldblot.backgammonplyground.core.DiceSource.secure(),
+                com.boldblot.backgammonplyground.core.AnalysisSettings(plies = GameSearch.G36.code, cubePlies = Depth(3).code),
+            )
+            e.rankMoves(cube.board, cube.ctx, 1, 2, Depth(1).code, null)
+            val rec = mc.analyzeChecker(play.board, play.ctx, play.s.dice!!, quick.candidates[0].move, GameSearch.G36.code)
+            assertEquals(Depth(3, MoveFilter.WIDE).code, rec.plies)
             // The second play is within the gap: played out, whichever play was played.
             e.gamesGap = gap + 0.001f
             val close = e.rankMoves(play.board, play.ctx, play.d1, play.d2, GameSearch.G36.code, quick.candidates.last().move)
