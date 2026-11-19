@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.8 — 2026-11-19 (build 89, internal test)
+
+- My positions: the lists (a folder, All positions, No folder, New errors, New Marked, Learned) share one layout.
+  Portrait: the top bar holds only the back arrow and the name; the options (sort order, filter) are a row under
+  it; the actions are white buttons at the bottom (a folder: Quiz; New errors and New Marked: Add to library and
+  Clear; Learned: Put all back and Delete all, which were in the ⋮ menu). Landscape: a side column with the
+  options first and the actions under them, on the side set in Settings → Board for the side column. Selecting
+  (a long press) still turns the top bar into the selection bar.
+
 ## 0.9.7 — 2026-11-18 (build 88, internal test)
 
 - New errors, New Marked and Learned: the board is as tall as the row only in landscape. In portrait it is back

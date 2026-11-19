@@ -53,36 +53,26 @@ fun LearnedScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Unit)
     val settings by app.settings.settings.collectAsState(initial = null)
     var refresh by remember { mutableIntStateOf(0) }
     var list by remember { mutableStateOf<List<SavedPosition>?>(null) }
-    var menu by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
     // Positions to put back, waiting for the answer about their counters.
     var putBack by remember { mutableStateOf<List<Long>?>(null) }
     LaunchedEffect(refresh) { list = app.positions.learned() }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Title("Learned" + (list?.let { " (${it.size})" } ?: "")) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-                actions = {
-                    IconButton(onClick = { menu = true }, enabled = !list.isNullOrEmpty()) { Icon(Icons.Default.MoreVert, "More") }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("Put all back") }, onClick = {
-                            menu = false
-                            putBack = list.orEmpty().map { it.id }
-                        })
-                        DropdownMenuItem(text = { Text("Delete all") }, onClick = { menu = false; confirmClear = true })
-                    }
-                },
-            )
+    FolderScaffold(
+        title = "Learned" + (list?.let { " (${it.size})" } ?: ""), onBack = onBack, railRight = settings?.railRight ?: false,
+        actions = if (list.isNullOrEmpty()) null else {
+            {
+                FolderAction("Put all back", Icons.AutoMirrored.Filled.Undo) { putBack = list.orEmpty().map { it.id } }
+                FolderAction("Delete all", Icons.Default.Delete) { confirmClear = true }
+            }
         },
-    ) { padding ->
+    ) { area ->
         val l = list
         val s = settings
         if (l == null || s == null) {
-            CircularProgressIndicator(Modifier.padding(padding).padding(24.dp))
-            return@Scaffold
+            CircularProgressIndicator(area.padding(24.dp))
+            return@FolderScaffold
         }
-        LazyColumn(Modifier.padding(padding).fillMaxSize()) {
+        LazyColumn(area) {
             item {
                 Text(
                     "Positions you learned in the quiz (Settings → Quiz → Move to Learned). They are out of the quiz " +

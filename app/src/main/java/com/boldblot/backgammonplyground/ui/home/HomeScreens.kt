@@ -827,79 +827,48 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
     val filter = settings?.let { it.visible(it.blunderFilter) } ?: emptySet()
     val shown = errors?.filter { filter.isEmpty() || Labels.matches(it.labels, filter) }
     val scope = rememberCoroutineScope()
-    // Landscape: the sort and filter sit in the top bar (a row under it costs too much height).
-    val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-    var sortMenu by remember { mutableStateOf(false) }
     val setFilter: (Set<String>) -> Unit = { f -> scope.launch { app.settings.update { s -> s.copy(blunderFilter = f) } } }
     val filterKeys = settings?.labelKeys.orEmpty().filterNot { Labels.isMine(it) || Labels.isTrend(it) }
     suspend fun reload() { errors = app.repository.blunders(sort, marked = marked) }
     LaunchedEffect(sort) { reload() }
-    Scaffold(
-        topBar = {
-            val sel = selected
-            if (sel != null) TopAppBar(
-                title = { Text("${sel.size} selected") },
-                navigationIcon = { IconButton(onClick = { selected = null }) { Icon(Icons.Default.Close, "Stop selecting") } },
-                actions = {
-                    val all = shown.orEmpty().map { it.entity.id }.toSet()
-                    TextButton(onClick = { selected = if (sel == all) emptySet() else all }) {
-                        Text(if (sel == all && all.isNotEmpty()) "None" else "All")
-                    }
-                    IconButton(onClick = { deleting = true }, enabled = sel.isNotEmpty()) { Icon(Icons.Default.Delete, "Delete") }
-                },
-            ) else TopAppBar(
-                title = { Text((if (marked) "New Marked" else "New errors") + (shown?.let { " (${it.size})" } ?: "")) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-                actions = {
-                    if (landscape && !errors.isNullOrEmpty()) {
-                        Box {
-                            IconButton(onClick = { sortMenu = true }) { Icon(Icons.Default.SwapVert, "Sort order") }
-                            DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                                BlunderSort.entries.forEach { o ->
-                                    DropdownMenuItem(
-                                        text = { Text(o.label) },
-                                        leadingIcon = { if (sort == o) Icon(Icons.Default.Check, null) },
-                                        onClick = { sortMenu = false; scope.launch { app.settings.update { s -> s.copy(blunderSort = o) } } },
-                                    )
-                                }
-                            }
+    val sel0 = selected
+    com.boldblot.backgammonplyground.ui.positions.FolderScaffold(
+        title = (if (marked) "New Marked" else "New errors") + (shown?.let { " (${it.size})" } ?: ""),
+        onBack = onBack, railRight = settings?.railRight ?: false,
+        selectionBar = sel0?.let { sel ->
+            {
+                TopAppBar(
+                    title = { Text("${sel.size} selected") },
+                    navigationIcon = { IconButton(onClick = { selected = null }) { Icon(Icons.Default.Close, "Stop selecting") } },
+                    actions = {
+                        val all = shown.orEmpty().map { it.entity.id }.toSet()
+                        TextButton(onClick = { selected = if (sel == all) emptySet() else all }) {
+                            Text(if (sel == all && all.isNotEmpty()) "None" else "All")
                         }
-                        LabelFilterButton(filterKeys, filter, setFilter, compact = true, count = { f -> errors.orEmpty().count { Labels.matches(it.labels, f) } }, total = errors.orEmpty().size)
-                    }
-                    // Clears what the list shows (with a filter on, only the errors that pass it).
-                    TextButton(
-                        onClick = { if (filter.isEmpty() && !marked) clear = ClearKind.BLUNDERS else clearShown = true },
-                        enabled = !shown.isNullOrEmpty(),
-                    ) {
-                        Icon(Icons.Default.DeleteSweep, null)
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (filter.isEmpty() && !marked) ClearKind.BLUNDERS.button else "Clear ${shown?.size ?: 0}")
-                    }
-                },
-            )
-        },
-        bottomBar = {
-            if (selected == null && !shown.isNullOrEmpty()) {
-                Button(onClick = { adding = true }, modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp)) {
-                    Icon(Icons.Default.LibraryAdd, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Add ${shown.size} to library")
-                }
+                        IconButton(onClick = { deleting = true }, enabled = sel.isNotEmpty()) { Icon(Icons.Default.Delete, "Delete") }
+                    },
+                )
             }
         },
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            if (!errors.isNullOrEmpty() && !landscape) {
-                Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    BlunderSort.entries.forEach { o ->
-                        FilterChip(
-                            selected = sort == o, label = { Text(o.label) },
-                            onClick = { scope.launch { app.settings.update { s -> s.copy(blunderSort = o) } } },
-                        )
-                    }
-                    LabelFilterButton(filterKeys, filter, setFilter, count = { f -> errors.orEmpty().count { Labels.matches(it.labels, f) } }, total = errors.orEmpty().size)
+        options = if (errors.isNullOrEmpty()) null else {
+            {
+                com.boldblot.backgammonplyground.ui.positions.SortChip(BlunderSort.entries, sort, { it.label }) { o ->
+                    scope.launch { app.settings.update { s -> s.copy(blunderSort = o) } }
                 }
+                LabelFilterButton(filterKeys, filter, setFilter, count = { f -> errors.orEmpty().count { Labels.matches(it.labels, f) } }, total = errors.orEmpty().size)
             }
+        },
+        actions = if (shown.isNullOrEmpty()) null else {
+            {
+                com.boldblot.backgammonplyground.ui.positions.FolderAction("Add ${shown.size} to library", Icons.Default.LibraryAdd) { adding = true }
+                // Clears what the list shows (with a filter on, only the errors that pass it).
+                com.boldblot.backgammonplyground.ui.positions.FolderAction(
+                    if (filter.isEmpty() && !marked) ClearKind.BLUNDERS.button else "Clear ${shown.size}", Icons.Default.DeleteSweep,
+                ) { if (filter.isEmpty() && !marked) clear = ClearKind.BLUNDERS else clearShown = true }
+            }
+        },
+    ) { area ->
+        Box(area) {
             shown?.let { list ->
                 val sel = selected
                 BlunderList(

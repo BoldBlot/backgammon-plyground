@@ -537,7 +537,6 @@ fun CategoryPositionsScreen(
         }
         all = app.positions.positions(categoryId)
     }
-    var sortMenu by remember { mutableStateOf(false) }
     val list = all?.filter { passesFilter(it, filter, settings) }?.let { l ->
         // Newest is the stored order; Biggest puts the largest error made in the game first, positions without one last
         // (newest first); the balance orders go by quiz answers right minus missed, positions never answered last.
@@ -546,65 +545,55 @@ fun CategoryPositionsScreen(
             answered = { it.entity.quizRight + it.entity.quizWrong + it.entity.quizNeutral > 0 },
         )
     }
-    Scaffold(
-        topBar = {
-            val sel = selected
-            if (sel != null) TopAppBar(
-                title = { Text("${sel.size} selected") },
-                navigationIcon = { IconButton(onClick = { selected = null }) { Icon(Icons.Default.Close, "Stop selecting") } },
-                actions = {
-                    val shown = list.orEmpty().map { it.id }.toSet()
-                    TextButton(onClick = { selected = if (sel.containsAll(shown) && shown.isNotEmpty()) emptySet() else shown }) {
-                        Text(if (sel.containsAll(shown) && shown.isNotEmpty()) "None" else "All")
-                    }
-                    if (folder != null) {
-                        IconButton(onClick = {
-                            val ids = sel
-                            selected = null
-                            scope.launch {
-                                app.positions.removeFromFolder(ids, folder)
-                                reload++
-                                Toast.makeText(context, "Removed ${ids.size} from \u201c$name\u201d.", Toast.LENGTH_SHORT).show()
-                            }
-                        }, enabled = sel.isNotEmpty()) { Icon(Icons.Default.FolderOff, "Remove from this folder") }
-                    }
-                    IconButton(onClick = { deleting = true }, enabled = sel.isNotEmpty()) { Icon(Icons.Default.Delete, "Delete from My positions") }
-                },
-            ) else TopAppBar(
-                title = { Title(name) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-                actions = {
-                    val shown = all
-                    if (!shown.isNullOrEmpty()) Box {
-                        IconButton(onClick = { sortMenu = true }) { Icon(Icons.Default.SwapVert, "Sort order") }
-                        DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                            com.boldblot.backgammonplyground.data.PositionsSort.entries.forEach { o ->
-                                DropdownMenuItem(
-                                    text = { Text(o.label) },
-                                    leadingIcon = { if (settings.positionsSort == o) Icon(Icons.Default.Check, null) },
-                                    onClick = { sortMenu = false; scope.launch { app.settings.update { it.copy(positionsSort = o) } } },
-                                )
-                            }
+    val sel0 = selected
+    FolderScaffold(
+        title = name, onBack = onBack, railRight = settings.railRight,
+        selectionBar = sel0?.let { sel ->
+            {
+                TopAppBar(
+                    title = { Text("${sel.size} selected") },
+                    navigationIcon = { IconButton(onClick = { selected = null }) { Icon(Icons.Default.Close, "Stop selecting") } },
+                    actions = {
+                        val shown = list.orEmpty().map { it.id }.toSet()
+                        TextButton(onClick = { selected = if (sel.containsAll(shown) && shown.isNotEmpty()) emptySet() else shown }) {
+                            Text(if (sel.containsAll(shown) && shown.isNotEmpty()) "None" else "All")
                         }
-                    }
-                    if (!shown.isNullOrEmpty()) LabelFilterButton(
-                        settings.labelKeys, filter, { filter = it }, compact = true, quiz = true,
-                        count = { f -> shown.count { passesFilter(it, f, settings) } }, total = shown.size, ids = true,
-                    )
-                    if (!shown.isNullOrEmpty()) androidx.compose.material3.AssistChip(
-                        onClick = { onQuiz(listOfNotNull(categoryId), filter) }, label = { Text("Quiz") },
-                        colors = com.boldblot.backgammonplyground.ui.components.negativeChipColors(), border = null,
-                        modifier = Modifier.padding(end = 8.dp),
-                    )
-                },
-            )
+                        if (folder != null) {
+                            IconButton(onClick = {
+                                val ids = sel
+                                selected = null
+                                scope.launch {
+                                    app.positions.removeFromFolder(ids, folder)
+                                    reload++
+                                    Toast.makeText(context, "Removed ${ids.size} from \u201c$name\u201d.", Toast.LENGTH_SHORT).show()
+                                }
+                            }, enabled = sel.isNotEmpty()) { Icon(Icons.Default.FolderOff, "Remove from this folder") }
+                        }
+                        IconButton(onClick = { deleting = true }, enabled = sel.isNotEmpty()) { Icon(Icons.Default.Delete, "Delete from My positions") }
+                    },
+                )
+            }
         },
-    ) { padding ->
+        options = all.takeUnless { it.isNullOrEmpty() }?.let { shown ->
+            {
+                SortChip(com.boldblot.backgammonplyground.data.PositionsSort.entries, settings.positionsSort, { it.label }) { o ->
+                    scope.launch { app.settings.update { it.copy(positionsSort = o) } }
+                }
+                LabelFilterButton(
+                    settings.labelKeys, filter, { filter = it }, quiz = true,
+                    count = { f -> shown.count { passesFilter(it, f, settings) } }, total = shown.size, ids = true,
+                )
+            }
+        },
+        actions = if (all.isNullOrEmpty()) null else {
+            { FolderAction("Quiz", Icons.Default.School) { onQuiz(listOfNotNull(categoryId), filter) } }
+        },
+    ) { area ->
         val l = list
         when {
-            l == null -> Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            l.isEmpty() -> Text(if (all.isNullOrEmpty()) "No positions here yet." else "No positions pass the filter.", Modifier.padding(padding).padding(24.dp))
-            else -> LazyColumn(Modifier.padding(padding).fillMaxSize().padding(horizontal = 12.dp)) {
+            l == null -> Box(area, contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            l.isEmpty() -> Text(if (all.isNullOrEmpty()) "No positions here yet." else "No positions pass the filter.", area.padding(24.dp))
+            else -> LazyColumn(area.padding(horizontal = 12.dp)) {
                 items(l, key = { it.id }) { p ->
                     val sel = selected
                     fun toggle() { selected = sel?.let { if (p.id in it) it - p.id else it + p.id } }
