@@ -517,15 +517,19 @@ fun CategoryPositionsScreen(
     initialFilter: Set<String> = emptySet(),
 ) {
     var all by remember { mutableStateOf<List<SavedPosition>?>(null) }
-    var filter by rememberSaveable { mutableStateOf(initialFilter) }
+    // The filter is one for all folders, kept between visits (Settings.positionsFilter); Hardest labels opens with its own.
+    LaunchedEffect(Unit) { if (initialFilter.isNotEmpty()) app.settings.update { it.copy(positionsFilter = initialFilter) } }
     var name by remember { mutableStateOf("") }
     val settings by app.settings.settings.collectAsState(initial = Settings())
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     // Selecting positions (a long press starts it): null = not selecting.
     var selected by remember { mutableStateOf<Set<Long>?>(null) }
-    var deleting by remember { mutableStateOf(false) }
+    // Positions to delete, waiting for the confirmation (Delete all of the list, or the selection).
+    var deleteIds by remember { mutableStateOf<List<Long>?>(null) }
     var reload by remember { mutableIntStateOf(0) }
+    val snackbar = remember { androidx.compose.material3.SnackbarHostState() }
+    val filter = settings.positionsFilter
     BackHandler(enabled = selected != null) { selected = null }
     // A real folder (not All positions or No folder) can let positions go.
     val folder = categoryId?.takeIf { it != UNCATEGORIZED }
@@ -545,76 +549,80 @@ fun CategoryPositionsScreen(
             answered = { it.entity.quizRight + it.entity.quizWrong + it.entity.quizNeutral > 0 },
         )
     }
-    val sel0 = selected
     FolderScaffold(
-        title = name, onBack = onBack, railRight = settings.railRight,
-        selectionBar = sel0?.let { sel ->
-            {
-                TopAppBar(
-                    title = { Text("${sel.size} selected") },
-                    navigationIcon = { IconButton(onClick = { selected = null }) { Icon(Icons.Default.Close, "Stop selecting") } },
-                    actions = {
-                        val shown = list.orEmpty().map { it.id }.toSet()
-                        TextButton(onClick = { selected = if (sel.containsAll(shown) && shown.isNotEmpty()) emptySet() else shown }) {
-                            Text(if (sel.containsAll(shown) && shown.isNotEmpty()) "None" else "All")
-                        }
-                        if (folder != null) {
-                            IconButton(onClick = {
-                                val ids = sel
-                                selected = null
-                                scope.launch {
-                                    app.positions.removeFromFolder(ids, folder)
-                                    reload++
-                                    Toast.makeText(context, "Removed ${ids.size} from \u201c$name\u201d.", Toast.LENGTH_SHORT).show()
-                                }
-                            }, enabled = sel.isNotEmpty()) { Icon(Icons.Default.FolderOff, "Remove from this folder") }
-                        }
-                        IconButton(onClick = { deleting = true }, enabled = sel.isNotEmpty()) { Icon(Icons.Default.Delete, "Delete from My positions") }
-                    },
-                )
-            }
-        },
+        title = name + (list?.let { " (${it.size})" } ?: ""), onBack = onBack, railRight = settings.railRight, snackbar = snackbar,
         options = all.takeUnless { it.isNullOrEmpty() }?.let { shown ->
             {
                 SortChip(com.boldblot.backgammonplyground.data.PositionsSort.entries, settings.positionsSort, { it.label }) { o ->
                     scope.launch { app.settings.update { it.copy(positionsSort = o) } }
                 }
                 LabelFilterButton(
-                    settings.labelKeys, filter, { filter = it }, quiz = true,
+                    settings.labelKeys, filter, { f -> scope.launch { app.settings.update { it.copy(positionsFilter = f) } } }, quiz = true,
                     count = { f -> shown.count { passesFilter(it, f, settings) } }, total = shown.size, ids = true,
                 )
             }
         },
-        actions = if (all.isNullOrEmpty()) null else {
-            { FolderAction("Quiz", Icons.Default.School) { onQuiz(listOfNotNull(categoryId), filter) } }
+        actions = selected?.let { sel ->
+            {
+                val shown = list.orEmpty().map { it.id }.toSet()
+                val allOn = sel.containsAll(shown) && shown.isNotEmpty()
+                SelectionActions(sel.size, allOn, onAll = { selected = if (allOn) emptySet() else shown }, onDone = { selected = null }) {
+                    if (folder != null) FolderAction("Remove from folder", Icons.Default.FolderOff, enabled = sel.isNotEmpty()) {
+                        val ids = sel
+                        selected = null
+                        scope.launch {
+                            app.positions.removeFromFolder(ids, folder)
+                            reload++
+                            Toast.makeText(context, "Removed ${ids.size} from \u201c$name\u201d.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    FolderAction("Delete", Icons.Default.Delete, enabled = sel.isNotEmpty()) { deleteIds = sel.toList() }
+                }
+            }
+        } ?: if (list.isNullOrEmpty()) null else {
+            {
+                FolderAction("Quiz", Icons.Default.School) { onQuiz(listOfNotNull(categoryId), filter) }
+                // Delete all deletes what the list shows: the folder's positions that pass the filter.
+                FolderAction(if (filter.isEmpty()) "Delete all" else "Delete ${list.size}", Icons.Default.Delete) { deleteIds = list.map { it.id } }
+            }
         },
     ) { area ->
         val l = list
         when {
-            l == null -> Box(area, contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            l.isEmpty() -> Text(if (all.isNullOrEmpty()) "No positions here yet." else "No positions pass the filter.", area.padding(24.dp))
-            else -> LazyColumn(area.padding(horizontal = 12.dp)) {
+            l == null -> ListLoading(area)
+            l.isEmpty() -> EmptyListText("No positions here yet.", filtered = !all.isNullOrEmpty(), modifier = area)
+            else -> LazyColumn(area) {
                 items(l, key = { it.id }) { p ->
                     val sel = selected
                     fun toggle() { selected = sel?.let { if (p.id in it) it - p.id else it + p.id } }
                     PositionRow(
                         p, settings, selection = sel?.let { p.id in it },
                         onLongClick = { if (sel == null) selected = setOf(p.id) else toggle() },
-                    ) { if (sel != null) toggle() else onOpen(p.id) }
+                        actions = {
+                            RowAction(Icons.Default.Delete, "Delete") {
+                                scope.launch {
+                                    val d = app.positions.removeForUndo(p.id)
+                                    reload++
+                                    if (d != null) offerUndo(scope, snackbar, "Position deleted.") { app.positions.restore(d); reload++ }
+                                }
+                            }
+                        },
+                    ) {
+                        if (sel != null) toggle() else { BrowseList.ids = l.map { it.id }; onOpen(p.id) }
+                    }
                 }
             }
         }
     }
-    if (deleting) {
-        val n = selected?.size ?: 0
+    deleteIds?.let { ids ->
+        val n = ids.size
         AlertDialog(
-            onDismissRequest = { deleting = false },
+            onDismissRequest = { deleteIds = null },
             title = { Text("Delete $n position${if (n == 1) "" else "s"}?") },
             text = { Text("They leave My positions and all their folders. This cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = {
-                    val ids = selected.orEmpty()
-                    deleting = false
+                    deleteIds = null
                     selected = null
                     scope.launch {
                         ids.forEach { app.positions.remove(it) }
@@ -622,12 +630,16 @@ fun CategoryPositionsScreen(
                     }
                 }) { Text("Delete") }
             },
-            dismissButton = { TextButton(onClick = { deleting = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { deleteIds = null }) { Text("Cancel") } },
         )
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+/**
+ * A saved position in a list (the template of every list of My positions, see [ListRow]): the play and its error,
+ * the match and the opponent, the score and the cube, the date saved; then the note, my answer, the labels and the
+ * quiz lines.
+ */
 @Composable
 internal fun PositionRow(
     p: SavedPosition, settings: Settings,
@@ -636,53 +648,76 @@ internal fun PositionRow(
     onLongClick: (() -> Unit)? = null,
     /** In a quiz's results: the verdict on the last answer to it (a green check, a grey dash or a red X on the right). */
     quizAnswer: QuizVerdict? = null,
-    /** The board's width (Learned and the lists of new errors use a bigger one). */
-    boardWidth: androidx.compose.ui.unit.Dp = 120.dp,
-    /** Buttons under the description (Learned: put back, delete). */
+    /** Small buttons in the bottom right corner (Learned: put back, delete; a folder: delete). */
     actions: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    // With buttons (Learned) in landscape the board is as tall as the row; in portrait it keeps its size.
-    val tall = actions != null && LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val sp = p.position
-    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).combinedClickable(onLongClick = onLongClick, onClick = onClick)) {
-        Row(Modifier.padding(8.dp).then(if (tall) Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min) else Modifier), verticalAlignment = Alignment.CenterVertically) {
-            if (selection != null) Checkbox(checked = selection, onCheckedChange = null, modifier = Modifier.padding(end = 6.dp))
+    val s = sp.setup
+    val unit = LocalErrorUnit.current
+    val colors = boardColorsFor(settings)
+    val grey = MaterialTheme.colorScheme.onSurfaceVariant
+    val small = MaterialTheme.typography.bodySmall
+    val played = p.played
+    val error = played?.let { answerError(sp, p.analysis, it) }
+    val title = (sp.dice?.let { "$it  " } ?: "") + when {
+        played != null -> answerText(sp, played)
+        sp.dice != null -> "To play"
+        sp.doubled -> "You are doubled"
+        else -> "Cube decision"
+    }
+    ListRow(
+        selected = selection, onClick = onClick, onLongClick = onLongClick,
+        board = { m ->
             BoardView(
-                board = sp.board,
-                // A list with buttons (Learned): the board is as tall as the row, as wide as that makes it (up to a limit).
-                modifier = if (tall) Modifier.fillMaxHeight().aspectRatio(1.38f, matchHeightConstraintsFirst = true).widthIn(max = 190.dp)
-                else Modifier.width(boardWidth).aspectRatio(1.38f),
-                colors = boardColorsFor(settings),
+                board = sp.board, modifier = m, colors = colors,
                 mirrored = settings.mirrorBoard, dice = listOfNotNull(sp.dice?.let { DiceView(Player.HUMAN, it.highFirst) }),
-                cube = sp.setup.cube, cubeOffered = sp.doubled, showNumbers = false,
+                cube = s.cube, cubeOffered = sp.doubled, showNumbers = false,
             )
-            Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                ContextText(sp, boardColorsFor(settings), style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                if (p.entity.note.isNotBlank()) {
-                    Text(p.entity.note, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                p.played?.let { Text("Played: ${answerWithError(sp, p.analysis, it, LocalErrorUnit.current)}", style = MaterialTheme.typography.labelSmall) }
-                p.answer?.let { Text("My answer: ${answerText(sp, it)}", style = MaterialTheme.typography.labelSmall) }
-                LabelTags(settings.visible(p.labels), Modifier.padding(top = 2.dp))
-                p.entity.lastRight?.let {
-                    Text(
-                        "Last quiz: " + (p.lastAnswer?.let { a -> "${answerText(sp, a)} · " } ?: "") + lastQuizText(p) + lastAnswerErrorText(p, LocalErrorUnit.current),
-                        style = MaterialTheme.typography.labelSmall, color = verdictColor(lastVerdict(p)),
-                    )
-                }
-                if (p.entity.quizRight + p.entity.quizWrong + p.entity.quizNeutral > 0) {
-                    Text("Quiz: ${quizCountText(p)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (actions != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically, content = actions)
-            }
-            quizAnswer?.let { v ->
+        },
+        title = title,
+        pill = error?.takeIf { it >= 0.0005f * factorOf(sp) }?.let { e ->
+            { com.boldblot.backgammonplyground.ui.components.ErrorPill(err(-e / factorOf(sp), unit), XgRules.severity(e), mono = true) }
+        },
+        trailing = quizAnswer?.let { v ->
+            {
                 Icon(
                     when (v) { QuizVerdict.RIGHT -> Icons.Default.Check; QuizVerdict.NEUTRAL -> Icons.Default.Remove; QuizVerdict.WRONG -> Icons.Default.Close },
                     when (v) { QuizVerdict.RIGHT -> "Right"; QuizVerdict.NEUTRAL -> "Neutral"; QuizVerdict.WRONG -> "Missed" },
                     Modifier.padding(start = 6.dp).size(28.dp), tint = verdictColor(v),
                 )
             }
+        },
+        actions = actions,
+    ) {
+        val match = s.matchLength != 0
+        Text(
+            if (match) "${s.matchLength}-pt match" else "Money",
+            style = small, color = grey, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+        val cube = when {
+            s.cube.value == 1 -> "cube 1"
+            s.cube.owner == Player.HUMAN -> "you own the cube at ${s.cube.value}"
+            else -> "the opponent owns the cube at ${s.cube.value}"
+        }
+        com.boldblot.backgammonplyground.ui.components.ScoreText(
+            "", s.score.toList().takeIf { match }, (if (match && s.crawford) "Crawford · " else "") + cube, colors,
+            style = small, color = grey, maxLines = 1, matchLength = s.matchLength,
+        )
+        if (p.entity.savedAt > 0) Text(java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(p.entity.savedAt)), style = small, color = grey, maxLines = 1)
+        if (p.entity.note.isNotBlank()) {
+            Text(p.entity.note, style = small, maxLines = 2, overflow = TextOverflow.Ellipsis, color = grey)
+        }
+        p.answer?.let { Text("My answer: ${answerText(sp, it)}", style = MaterialTheme.typography.labelSmall) }
+        LabelTags(settings.visible(p.labels), Modifier.padding(top = 2.dp))
+        p.entity.lastRight?.let {
+            Text(
+                "Last quiz: " + (p.lastAnswer?.let { a -> "${answerText(sp, a)} · " } ?: "") + lastQuizText(p) + lastAnswerErrorText(p, unit),
+                style = MaterialTheme.typography.labelSmall, color = verdictColor(lastVerdict(p)),
+            )
+        }
+        if (p.entity.quizRight + p.entity.quizWrong + p.entity.quizNeutral > 0) {
+            Text("Quiz: ${quizCountText(p)}", style = MaterialTheme.typography.labelSmall, color = grey)
         }
     }
 }
@@ -691,7 +726,11 @@ internal fun PositionRow(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit, onSettings: () -> Unit = {}) {
+fun PositionDetailScreen(
+    app: PlyGroundApp, id: Long, onBack: () -> Unit, onSettings: () -> Unit = {},
+    /** Opens another position of the list this one was opened from ([BrowseList]) in its place. */
+    onStep: ((Long) -> Unit)? = null,
+) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val settings by app.settings.settings.collectAsState(initial = Settings())
@@ -747,9 +786,18 @@ fun PositionDetailScreen(app: PlyGroundApp, id: Long, onBack: () -> Unit, onSett
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Title("Position") },
+                title = {
+                    // Opened from a list: "3 of 40" and Previous / Next through the list as filtered and sorted.
+                    val at = BrowseList.ids.indexOf(id)
+                    Title(if (at >= 0 && onStep != null) "${at + 1} of ${BrowseList.ids.size}" else "Position")
+                },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
+                    val at = BrowseList.ids.indexOf(id)
+                    if (at >= 0 && onStep != null) {
+                        IconButton(onClick = { onStep(BrowseList.ids[at - 1]) }, enabled = at > 0) { Icon(Icons.AutoMirrored.Filled.NavigateBefore, "Previous") }
+                        IconButton(onClick = { onStep(BrowseList.ids[at + 1]) }, enabled = at < BrowseList.ids.size - 1) { Icon(Icons.AutoMirrored.Filled.NavigateNext, "Next") }
+                    }
                     // Share: the XGID, the board, or the board with the top 5 / the cube actions.
                     Box {
                         IconButton(onClick = { sharing = true }, enabled = p != null) { Icon(Icons.Default.Share, "Share") }

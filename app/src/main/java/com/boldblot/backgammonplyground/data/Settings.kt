@@ -387,6 +387,11 @@ data class Settings(
     val myLabels: List<String> = emptyList(),
     /** The blunder list's filter (label keys). */
     val blunderFilter: Set<String> = emptySet(),
+    /** The filter of the folders of My positions (one for all of them) and of Learned, kept between visits. */
+    val positionsFilter: Set<String> = emptySet(),
+    val learnedFilter: Set<String> = emptySet(),
+    /** Learned's order. */
+    val learnedSort: PositionsSort = PositionsSort.NEWEST,
     /** Checker blunders and Cube blunders were made in My positions (once; no longer made). */
     val builtInFolders: Boolean = false,
     /** The 0.7.4 folder changes were made ([com.boldblot.backgammonplyground.data.Positions.migrateFolders074]). */
@@ -616,6 +621,9 @@ class SettingsStore(private val context: Context) {
         val labelsOff = stringPreferencesKey("labels_off")
         val myLabels = stringPreferencesKey("my_labels")
         val blunderFilter = stringPreferencesKey("blunder_filter")
+        val positionsFilter = stringPreferencesKey("positions_filter")
+        val learnedFilter = stringPreferencesKey("learned_filter")
+        val learnedSort = stringPreferencesKey("learned_sort")
         val builtInFolders = booleanPreferencesKey("built_in_folders")
         val folders074 = booleanPreferencesKey("folders_074")
     }
@@ -747,6 +755,9 @@ class SettingsStore(private val context: Context) {
             labelsOff = lines(p[Keys.labelsOff]).toSet(),
             myLabels = lines(p[Keys.myLabels]),
             blunderFilter = lines(p[Keys.blunderFilter]).toSet(),
+            positionsFilter = lines(p[Keys.positionsFilter]).toSet(),
+            learnedFilter = lines(p[Keys.learnedFilter]).toSet(),
+            learnedSort = p.enum(Keys.learnedSort, d.learnedSort),
             builtInFolders = p[Keys.builtInFolders] ?: d.builtInFolders,
             folders074 = p[Keys.folders074] ?: d.folders074,
         )
@@ -870,6 +881,9 @@ class SettingsStore(private val context: Context) {
             p[Keys.labelsOff] = s.labelsOff.joinToString("\n")
             p[Keys.myLabels] = s.myLabels.joinToString("\n")
             p[Keys.blunderFilter] = s.blunderFilter.joinToString("\n")
+            p[Keys.positionsFilter] = s.positionsFilter.joinToString("\n")
+            p[Keys.learnedFilter] = s.learnedFilter.joinToString("\n")
+            p[Keys.learnedSort] = s.learnedSort.name
             p[Keys.builtInFolders] = s.builtInFolders
             p[Keys.folders074] = s.folders074
         }

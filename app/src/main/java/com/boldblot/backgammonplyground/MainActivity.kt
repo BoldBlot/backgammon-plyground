@@ -306,7 +306,10 @@ class MainActivity : ComponentActivity() {
                 )
             }
             composable("positions/item/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
-                PositionDetailScreen(app, entry.arguments?.getLong("id") ?: 0L, onBack = { nav.popBackStack() }, onSettings = { nav.navigate("settings/POSITIONS") })
+                PositionDetailScreen(
+                    app, entry.arguments?.getLong("id") ?: 0L, onBack = { nav.popBackStack() }, onSettings = { nav.navigate("settings/POSITIONS") },
+                    onStep = { p -> nav.navigate("positions/item/$p") { popUpTo("positions/item/{id}") { inclusive = true } } },
+                )
             }
             // The quiz menu (folders, labels, how many, order), opened with [ids] ticked and the folder's [filter].
             composable(
@@ -340,7 +343,7 @@ class MainActivity : ComponentActivity() {
             composable("positions/quiz/{spec}") { entry ->
                 val key = entry.arguments?.getString("spec").orEmpty()
                 val vm: QuizViewModel = viewModel(key = "quiz-$key", factory = factory { QuizViewModel(app, QuizSpec.decode(key)) })
-                QuizScreen(vm, onBack = { nav.popBackStack() }, onOpen = { p -> nav.navigate("positions/item/$p") }, onSettings = { nav.navigate("settings") })
+                QuizScreen(vm, onBack = { nav.popBackStack() }, onOpen = { p -> com.boldblot.backgammonplyground.ui.positions.BrowseList.ids = emptyList(); nav.navigate("positions/item/$p") }, onSettings = { nav.navigate("settings") })
             }
             composable("settings") {
                 SettingsScreen(

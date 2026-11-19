@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.9 — 2026-11-19 (build 90, internal test)
+
+- My positions, the lists (folders, All positions, No folder, New errors, New Marked, Learned) made alike:
+  - One row: the board (the same size everywhere: 120 dp wide in portrait, 160 dp in landscape), the play with its
+    error, three lines (match; score and cube; date), then the note, labels and quiz lines. In New errors the
+    player who decides is at the bottom with the dice, as in My positions.
+  - The row's buttons sit in its bottom right corner at a fixed size. Folder rows get a Delete button. Deleting one
+    row asks nothing and offers Undo for a few seconds.
+  - Every title shows the count. A folder has Quiz and Delete all (what the list shows, with the filter).
+  - Learned has the sort order and the filter; its explanation is behind the help button.
+  - The filter is kept between visits (one for all folders, one for Learned), like New errors'.
+  - Selecting (a long press, now in Learned too) keeps the layout: the bottom bar or the side column shows how many
+    are selected, All / None, the list's actions for the selection (Add to library, Put back, Remove from folder,
+    Delete) and Done.
+  - A position opened from a folder or Learned has Previous / Next through the list as filtered and sorted.
+  - The same empty-list line and loading spinner everywhere; Learned has the same margins as the others.
+
 ## 0.9.8 — 2026-11-19 (build 89, internal test)
 
 - My positions: the lists (a folder, All positions, No folder, New errors, New Marked, Learned) share one layout.

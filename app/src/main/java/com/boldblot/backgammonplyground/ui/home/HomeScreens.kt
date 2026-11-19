@@ -820,7 +820,10 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
     var clear by remember { mutableStateOf<ClearKind?>(null) }
     var clearShown by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
-    var adding by remember { mutableStateOf(false) }
+    // What Add to library files: the list shown, or the selection.
+    var adding by remember { mutableStateOf<List<SavedBlunder>?>(null) }
+    val snackbar = remember { androidx.compose.material3.SnackbarHostState() }
+    androidx.activity.compose.BackHandler(enabled = selected != null) { selected = null }
     val settings by app.settings.settings.collectAsState(initial = null)
     val sort = settings?.blunderSort ?: BlunderSort.BIGGEST
     // The filter (labels turned off in Settings are left out) and what passes it.
@@ -831,25 +834,9 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
     val filterKeys = settings?.labelKeys.orEmpty().filterNot { Labels.isMine(it) || Labels.isTrend(it) }
     suspend fun reload() { errors = app.repository.blunders(sort, marked = marked) }
     LaunchedEffect(sort) { reload() }
-    val sel0 = selected
     com.boldblot.backgammonplyground.ui.positions.FolderScaffold(
         title = (if (marked) "New Marked" else "New errors") + (shown?.let { " (${it.size})" } ?: ""),
-        onBack = onBack, railRight = settings?.railRight ?: false,
-        selectionBar = sel0?.let { sel ->
-            {
-                TopAppBar(
-                    title = { Text("${sel.size} selected") },
-                    navigationIcon = { IconButton(onClick = { selected = null }) { Icon(Icons.Default.Close, "Stop selecting") } },
-                    actions = {
-                        val all = shown.orEmpty().map { it.entity.id }.toSet()
-                        TextButton(onClick = { selected = if (sel == all) emptySet() else all }) {
-                            Text(if (sel == all && all.isNotEmpty()) "None" else "All")
-                        }
-                        IconButton(onClick = { deleting = true }, enabled = sel.isNotEmpty()) { Icon(Icons.Default.Delete, "Delete") }
-                    },
-                )
-            }
-        },
+        onBack = onBack, railRight = settings?.railRight ?: false, snackbar = snackbar,
         options = if (errors.isNullOrEmpty()) null else {
             {
                 com.boldblot.backgammonplyground.ui.positions.SortChip(BlunderSort.entries, sort, { it.label }) { o ->
@@ -858,9 +845,20 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
                 LabelFilterButton(filterKeys, filter, setFilter, count = { f -> errors.orEmpty().count { Labels.matches(it.labels, f) } }, total = errors.orEmpty().size)
             }
         },
-        actions = if (shown.isNullOrEmpty()) null else {
+        actions = selected?.let { sel ->
             {
-                com.boldblot.backgammonplyground.ui.positions.FolderAction("Add ${shown.size} to library", Icons.Default.LibraryAdd) { adding = true }
+                val all = shown.orEmpty().map { it.entity.id }.toSet()
+                val allOn = sel.containsAll(all) && all.isNotEmpty()
+                com.boldblot.backgammonplyground.ui.positions.SelectionActions(sel.size, allOn, onAll = { selected = if (allOn) emptySet() else all }, onDone = { selected = null }) {
+                    com.boldblot.backgammonplyground.ui.positions.FolderAction("Add to library", Icons.Default.LibraryAdd, enabled = sel.isNotEmpty()) {
+                        adding = shown.orEmpty().filter { it.entity.id in sel }
+                    }
+                    com.boldblot.backgammonplyground.ui.positions.FolderAction("Delete", Icons.Default.Delete, enabled = sel.isNotEmpty()) { deleting = true }
+                }
+            }
+        } ?: if (shown.isNullOrEmpty()) null else {
+            {
+                com.boldblot.backgammonplyground.ui.positions.FolderAction("Add ${shown.size} to library", Icons.Default.LibraryAdd) { adding = shown }
                 // Clears what the list shows (with a filter on, only the errors that pass it).
                 com.boldblot.backgammonplyground.ui.positions.FolderAction(
                     if (filter.isEmpty() && !marked) ClearKind.BLUNDERS.button else "Clear ${shown.size}", Icons.Default.DeleteSweep,
@@ -868,19 +866,27 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
             }
         },
     ) { area ->
-        Box(area) {
-            shown?.let { list ->
-                val sel = selected
-                BlunderList(
-                    list, filtered = filter.isNotEmpty(), selection = sel,
-                    colors = settings?.let { com.boldblot.backgammonplyground.ui.board.boardColorsFor(it) } ?: com.boldblot.backgammonplyground.ui.board.BoardColors.gray(),
-                    mirrored = settings?.mirrorBoard ?: false,
-                    onKeep = { b -> scope.launch { keepBlunder(app, b, settings?.errorsSort == ErrorsSort.SPLIT); reload() } },
-                    onDelete = { b -> scope.launch { app.repository.removeBlunder(b.entity.id); reload() } },
-                    onLongClick = { id -> selected = (sel ?: emptySet()).let { if (id in it) it - id else it + id } },
-                    onOpen = { id -> if (sel != null) selected = if (id in sel) sel - id else sel + id else onOpen(id) },
-                )
-            }
+        val list = shown
+        if (list == null) com.boldblot.backgammonplyground.ui.positions.ListLoading(area)
+        else {
+            val sel = selected
+            BlunderList(
+                list, filtered = filter.isNotEmpty(), selection = sel, modifier = area, marked = marked,
+                colors = settings?.let { com.boldblot.backgammonplyground.ui.board.boardColorsFor(it) } ?: com.boldblot.backgammonplyground.ui.board.BoardColors.gray(),
+                mirrored = settings?.mirrorBoard ?: false,
+                onKeep = { b -> scope.launch { keepBlunder(app, b, settings?.errorsSort == ErrorsSort.SPLIT); reload() } },
+                onDelete = { b ->
+                    scope.launch {
+                        app.repository.removeBlunder(b.entity.id)
+                        reload()
+                        com.boldblot.backgammonplyground.ui.positions.offerUndo(scope, snackbar, if (marked) "Position deleted." else "Error deleted.") {
+                            app.repository.restoreBlunder(b.entity); reload()
+                        }
+                    }
+                },
+                onLongClick = { id -> selected = (sel ?: emptySet()).let { if (id in it) it - id else it + id } },
+                onOpen = { id -> if (sel != null) selected = if (id in sel) sel - id else sel + id else onOpen(id) },
+            )
         }
     }
     if (clearShown || deleting) {
@@ -919,7 +925,7 @@ fun NewErrorsScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Uni
             }
         }
     }
-    if (adding) AddErrorsDialog(app, shown.orEmpty(), onDismiss = { adding = false }) { scope.launch { reload() } }
+    adding?.let { add -> AddErrorsDialog(app, add, onDismiss = { adding = null }) { selected = null; scope.launch { reload() } } }
 }
 
 @Composable

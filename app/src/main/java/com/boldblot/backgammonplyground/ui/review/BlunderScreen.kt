@@ -149,7 +149,6 @@ private fun BlunderContext(b: SavedBlunder, colors: BoardColors, style: androidx
  * New errors as a list; a tap opens one. With [selection] (ids, null = not selecting) each row has a
  * check box and a tap selects; a long press starts selecting ([onLongClick]).
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BlunderList(
     blunders: List<SavedBlunder>, onOpen: (Long) -> Unit, modifier: Modifier = Modifier, filtered: Boolean = false,
@@ -157,55 +156,45 @@ fun BlunderList(
     /** The board's colours, for the checkers by the score. */
     colors: BoardColors = BoardColors.gray(),
     mirrored: Boolean = false,
-    /** Keep and Delete under each error's description (not while selecting). */
+    /** New Marked (for the empty list's line). */
+    marked: Boolean = false,
+    /** Keep and Delete in each row's bottom right corner (not while selecting). */
     onKeep: ((SavedBlunder) -> Unit)? = null,
     onDelete: ((SavedBlunder) -> Unit)? = null,
 ) {
     if (blunders.isEmpty()) {
-        Text(
-            if (filtered) "No errors pass the filter." else "No new errors. The mistakes you make (Settings → My positions → New errors says which) " +
-                "wait here until you add them to My positions or delete them.",
-            modifier.padding(24.dp),
-        )
+        com.boldblot.backgammonplyground.ui.positions.EmptyListText(if (marked) "No marked positions." else "No new errors.", filtered, modifier)
         return
     }
-    val tall = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-    LazyColumn(modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+    LazyColumn(modifier) {
         items(blunders, key = { it.entity.id }) { b ->
             val d = b.decision
             val id = b.entity.id
-            Card(
-                Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                    .combinedClickable(onLongClick = onLongClick?.let { { it(id) } }) { onOpen(id) },
-            ) {
-                // The Learned template: the board as tall as the row, the description, the buttons under it at the right.
-                // The board is as tall as the row in landscape only; in portrait it keeps its 120 dp.
-                Row(Modifier.padding(8.dp).then(if (tall) Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min) else Modifier), verticalAlignment = Alignment.CenterVertically) {
-                    if (selection != null) Checkbox(checked = id in selection, onCheckedChange = { onOpen(id) })
-                    val sev = XgRules.severity(b.entity.error)
-                    BoardView(
-                        board = d.board,
-                        modifier = if (tall) Modifier.fillMaxHeight().aspectRatio(1.38f, matchHeightConstraintsFirst = true).widthIn(max = 190.dp)
-                        else Modifier.width(120.dp).aspectRatio(1.38f),
-                        colors = colors, mirrored = mirrored,
+            // As in My positions: the player who decides at the bottom, with the dice.
+            val sp = com.boldblot.backgammonplyground.core.StudyPosition.of(d, b.entity.matchLength, true)
+            com.boldblot.backgammonplyground.ui.positions.ListRow(
+                selected = selection?.let { id in it }, onClick = { onOpen(id) }, onLongClick = onLongClick?.let { { it(id) } },
+                board = { m ->
+                    if (sp != null) BoardView(
+                        board = sp.board, modifier = m, colors = colors, mirrored = mirrored,
+                        dice = listOfNotNull(sp.dice?.let { DiceView(Player.HUMAN, it.highFirst) }),
+                        cube = sp.setup.cube, cubeOffered = sp.doubled, showNumbers = false,
+                    ) else BoardView(
+                        board = d.board, modifier = m, colors = colors, mirrored = mirrored,
                         dice = listOfNotNull(d.dice?.let { DiceView(d.player, it.highFirst) }),
                         cube = decisionCube(d).first, cubeOffered = decisionCube(d).second, showNumbers = false,
                     )
-                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                (d.dice?.let { "$it  " } ?: "") + describeAction(d.kind, d.board, d.player, d.move),
-                                style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-                            )
-                            ErrorPill(errText(-b.entity.error / XgRules.errorFactor(b.entity.matchLength)), sev, mono = true)
-                        }
-                        BlunderContext(b, colors, MaterialTheme.typography.bodySmall, threeLines = true)
-                        if (selection == null && (onKeep != null || onDelete != null)) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                            onKeep?.let { IconButton(onClick = { it(b) }) { Icon(Icons.Default.Check, "Keep") } }
-                            onDelete?.let { IconButton(onClick = { it(b) }) { Icon(Icons.Default.Delete, "Delete") } }
-                        }
+                },
+                title = (d.dice?.let { "$it  " } ?: "") + describeAction(d.kind, d.board, d.player, d.move),
+                pill = { ErrorPill(errText(-b.entity.error / XgRules.errorFactor(b.entity.matchLength)), XgRules.severity(b.entity.error), mono = true) },
+                actions = if (onKeep == null && onDelete == null) null else {
+                    {
+                        onKeep?.let { com.boldblot.backgammonplyground.ui.positions.RowAction(Icons.Default.Check, "Keep") { it(b) } }
+                        onDelete?.let { com.boldblot.backgammonplyground.ui.positions.RowAction(Icons.Default.Delete, "Delete") { it(b) } }
                     }
-                }
+                },
+            ) {
+                BlunderContext(b, colors, MaterialTheme.typography.bodySmall, threeLines = true)
             }
         }
     }

@@ -1,5 +1,13 @@
 package com.boldblot.backgammonplyground.ui.positions
 
+import com.boldblot.backgammonplyground.ui.components.LabelFilterButton
+
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
+
+import androidx.compose.runtime.saveable.rememberSaveable
+
+import androidx.activity.compose.BackHandler
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -52,66 +60,115 @@ fun LearnedScreen(app: PlyGroundApp, onOpen: (Long) -> Unit, onBack: () -> Unit)
     val scope = rememberCoroutineScope()
     val settings by app.settings.settings.collectAsState(initial = null)
     var refresh by remember { mutableIntStateOf(0) }
-    var list by remember { mutableStateOf<List<SavedPosition>?>(null) }
-    var confirmClear by remember { mutableStateOf(false) }
+    var all by remember { mutableStateOf<List<SavedPosition>?>(null) }
+    // Positions to delete, waiting for the confirmation.
+    var deleteIds by remember { mutableStateOf<List<Long>?>(null) }
     // Positions to put back, waiting for the answer about their counters.
     var putBack by remember { mutableStateOf<List<Long>?>(null) }
-    LaunchedEffect(refresh) { list = app.positions.learned() }
+    var selected by remember { mutableStateOf<Set<Long>?>(null) }
+    var help by rememberSaveable { mutableStateOf(false) }
+    val snackbar = remember { androidx.compose.material3.SnackbarHostState() }
+    BackHandler(enabled = selected != null) { selected = null }
+    LaunchedEffect(refresh) { all = app.positions.learned() }
+    val s = settings
+    val filter = s?.learnedFilter.orEmpty()
+    // The list as filtered (Settings.learnedFilter) and sorted (Settings.learnedSort), as in the folders.
+    val list = if (s == null) null else all?.filter { passesFilter(it, filter, s) }?.let { l ->
+        s.learnedSort.sort(
+            l, error = { sp -> sp.played?.let { answerError(sp.position, sp.analysis, it) } }, balance = { it.quizBalance },
+            answered = { it.entity.quizRight + it.entity.quizWrong + it.entity.quizNeutral > 0 },
+        )
+    }
     FolderScaffold(
-        title = "Learned" + (list?.let { " (${it.size})" } ?: ""), onBack = onBack, railRight = settings?.railRight ?: false,
-        actions = if (list.isNullOrEmpty()) null else {
+        title = "Learned" + (list?.let { " (${it.size})" } ?: ""), onBack = onBack, railRight = s?.railRight ?: false, snackbar = snackbar,
+        topActions = { IconButton(onClick = { help = !help }) { Icon(Icons.AutoMirrored.Filled.HelpOutline, "Help") } },
+        options = if (s == null || all.isNullOrEmpty()) null else {
             {
-                FolderAction("Put all back", Icons.AutoMirrored.Filled.Undo) { putBack = list.orEmpty().map { it.id } }
-                FolderAction("Delete all", Icons.Default.Delete) { confirmClear = true }
+                SortChip(com.boldblot.backgammonplyground.data.PositionsSort.entries, s.learnedSort, { it.label }) { o ->
+                    scope.launch { app.settings.update { it.copy(learnedSort = o) } }
+                }
+                LabelFilterButton(
+                    s.labelKeys, filter, { f -> scope.launch { app.settings.update { it.copy(learnedFilter = f) } } }, quiz = true,
+                    count = { f -> all.orEmpty().count { passesFilter(it, f, s) } }, total = all.orEmpty().size, ids = true,
+                )
+            }
+        },
+        actions = selected?.let { sel ->
+            {
+                val shown = list.orEmpty().map { it.id }.toSet()
+                val allOn = sel.containsAll(shown) && shown.isNotEmpty()
+                SelectionActions(sel.size, allOn, onAll = { selected = if (allOn) emptySet() else shown }, onDone = { selected = null }) {
+                    FolderAction("Put back", Icons.AutoMirrored.Filled.Undo, enabled = sel.isNotEmpty()) { putBack = sel.toList() }
+                    FolderAction("Delete", Icons.Default.Delete, enabled = sel.isNotEmpty()) { deleteIds = sel.toList() }
+                }
+            }
+        } ?: if (list.isNullOrEmpty()) null else {
+            {
+                // What the list shows: everything, or what passes the filter.
+                FolderAction(if (filter.isEmpty()) "Put all back" else "Put ${list.size} back", Icons.AutoMirrored.Filled.Undo) { putBack = list.map { it.id } }
+                FolderAction(if (filter.isEmpty()) "Delete all" else "Delete ${list.size}", Icons.Default.Delete) { deleteIds = list.map { it.id } }
             }
         },
     ) { area ->
         val l = list
-        val s = settings
-        if (l == null || s == null) {
-            CircularProgressIndicator(area.padding(24.dp))
-            return@FolderScaffold
-        }
-        LazyColumn(area) {
-            item {
-                Text(
-                    "Positions you learned in the quiz (Settings → Quiz → Move to Learned). They are out of the quiz " +
-                        "and the folders; put one back to have it asked again. The newest ${s.learnedKeep} are kept, older ones are deleted.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(16.dp),
-                )
-                if (l.isEmpty()) Text("Nothing learned yet.", Modifier.padding(horizontal = 16.dp))
-            }
-            items(l, key = { it.id }) { p ->
-                // The buttons sit under the description, which leaves the board 25% wider than before (150 dp, not 120).
-                PositionRow(
-                    p, s,
-                    actions = {
-                        IconButton(onClick = { putBack = listOf(p.id) }) { Icon(Icons.AutoMirrored.Filled.Undo, "Put back in My positions") }
-                        IconButton(onClick = { scope.launch { app.positions.remove(p.id); refresh++ } }) { Icon(Icons.Default.Delete, "Delete") }
-                    },
-                ) { onOpen(p.id) }
+        when {
+            l == null || s == null -> ListLoading(area)
+            else -> LazyColumn(area) {
+                if (help) item {
+                    Text(
+                        "Positions you learned in the quiz (Settings → Quiz → Move to Learned). They are out of the quiz " +
+                            "and the folders; put one back to have it asked again. The newest ${s.learnedKeep} are kept, older ones are deleted.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+                if (l.isEmpty()) item { EmptyListText("Nothing learned yet.", filtered = !all.isNullOrEmpty()) }
+                items(l, key = { it.id }) { p ->
+                    val sel = selected
+                    fun toggle() { selected = sel?.let { if (p.id in it) it - p.id else it + p.id } }
+                    PositionRow(
+                        p, s, selection = sel?.let { p.id in it },
+                        onLongClick = { if (sel == null) selected = setOf(p.id) else toggle() },
+                        actions = {
+                            RowAction(Icons.AutoMirrored.Filled.Undo, "Put back in My positions") { putBack = listOf(p.id) }
+                            RowAction(Icons.Default.Delete, "Delete") {
+                                scope.launch {
+                                    val d = app.positions.removeForUndo(p.id)
+                                    refresh++
+                                    if (d != null) offerUndo(scope, snackbar, "Position deleted.") { app.positions.restore(d); refresh++ }
+                                }
+                            }
+                        },
+                    ) {
+                        if (sel != null) toggle() else { BrowseList.ids = l.map { it.id }; onOpen(p.id) }
+                    }
+                }
             }
         }
     }
     putBack?.let { ids ->
         PutBackDialog(ids.size, onDismiss = { putBack = null }) { reset ->
             putBack = null
+            selected = null
             scope.launch { app.positions.unlearn(ids, reset); refresh++ }
         }
     }
-    if (confirmClear) AlertDialog(
-        onDismissRequest = { confirmClear = false },
-        title = { Text("Delete all learned positions?") },
-        text = { Text("They are deleted for good.") },
-        confirmButton = {
-            TextButton(onClick = {
-                confirmClear = false
-                scope.launch { list.orEmpty().forEach { app.positions.remove(it.id) }; refresh++ }
-            }) { Text("Delete") }
-        },
-        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
-    )
+    deleteIds?.let { ids ->
+        val n = ids.size
+        AlertDialog(
+            onDismissRequest = { deleteIds = null },
+            title = { Text("Delete $n learned position${if (n == 1) "" else "s"}?") },
+            text = { Text("They are deleted for good.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteIds = null
+                    selected = null
+                    scope.launch { ids.forEach { app.positions.remove(it) }; refresh++ }
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deleteIds = null }) { Text("Cancel") } },
+        )
+    }
 }
 
 /**
