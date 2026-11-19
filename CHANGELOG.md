@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.9 — 2026-11-19 (build 90, internal test)
+## 0.9.9 — 2026-11-19 (build 90)
 
 - My positions, the lists (folders, All positions, No folder, New errors, New Marked, Learned) made alike:
   - One row: the board (the same size everywhere: 120 dp wide in portrait, 160 dp in landscape), the play with its
