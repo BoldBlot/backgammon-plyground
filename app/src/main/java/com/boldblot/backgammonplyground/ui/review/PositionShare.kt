@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.Board
 import com.boldblot.backgammonplyground.core.CheckerAnalysis
 import com.boldblot.backgammonplyground.core.CubeEval
@@ -173,7 +174,7 @@ fun SharePositionItems(
             playedIndex = answerIndex, playedKind = answerCube, factor = XgRules.errorFactor(p.setup.matchLength),
         )
     }.orEmpty()
-    val label = analysis?.let { a -> a.label.ifBlank { a.checker?.label ?: a.cube?.label ?: "" } }?.ifBlank { null }
+    val label = analysis?.shownLabel?.ifBlank { null }
     SharePositionItems(PositionIds.toXgid(p.setup.copy(doubled = p.doubled)), PositionShare.title(p, com.boldblot.backgammonplyground.ui.components.LocalScoreAway.current), lines, capture, playedTag = "you", analysisLabel = label, noAnalysis = noAnalysis, onDone = onDone)
 }
 
@@ -235,7 +236,9 @@ object PositionShare {
         /** "Win 62.3% (G 18.1% B 1.2%) · Lose 37.7% (G 12.0% B 0.3%)": drawn under the row when the picture asks for chances. */
         val chances: String? = null,
         /** A line of text under all the rows (a cube decision's chances), not a row: it has no equity and no highlight. */
-        val note: Boolean = false)
+        val note: Boolean = false,
+        /** The depth the play was searched at ("4-ply", "3/36/7"): where the plays shown differ, each depth's plays end with a line under them. */
+        val depth: String? = null)
 
     fun text(context: Context, text: String) {
         val send = Intent(Intent.ACTION_SEND).apply {
@@ -303,7 +306,8 @@ object PositionShare {
             val shown = (a.candidates.indices.take(5) + listOfNotNull(playedIndex, alsoIndex).filter { it >= 5 && it < a.candidates.size }).distinct().sorted()
             return shown.map { i ->
                 val c = a.candidates[i]
-                line("${i + 1}. ${MoveNotation.format(board, player, c.move)}", c.equity, a.bestEquity, i == playedIndex).copy(chances = chancesText(c.probs))
+                line("${i + 1}. ${MoveNotation.format(board, player, c.move)}", c.equity, a.bestEquity, i == playedIndex)
+                    .copy(chances = chancesText(c.probs), depth = Depth.of(c.plies).copy(incomplete = false).label(cube = true))
             }
         }
         val e = cube ?: return emptyList()
@@ -384,7 +388,12 @@ object PositionShare {
         // A row is a block (its highlight): the play's line, the chances line under it if any, with room above and below.
         val gap = text * 0.3f
         fun block(l: Line) = if (l.note) text * 1.2f else if (chances && l.chances != null) text * 2.65f else text * 1.75f
-        val below = (if (shown.isNotEmpty()) pad + shown.sumOf { (block(it) + gap).toDouble() }.toFloat() + text * 0.4f else 0f) + (if (footer) small * 1.6f else 0f) +
+        // Plays searched at different depths: under each depth's last play, its depth and a line ([Line.depth]).
+        val rows = shown.filterNot { it.note }
+        val split = rows.mapNotNull { it.depth }.distinct().size > 1
+        val groupEnds: Set<Line> = if (!split) emptySet() else rows.filterIndexed { i, l -> l.depth != null && rows.getOrNull(i + 1)?.depth != l.depth }.toSet()
+        val band = small * 1.7f
+        val below = (if (shown.isNotEmpty()) pad + shown.sumOf { (block(it) + gap).toDouble() }.toFloat() + groupEnds.size * band + text * 0.4f else 0f) + (if (footer) small * 1.6f else 0f) +
             (if (xgid != null) small * 2 else 0f) + pad / 2
         val h = (top + board.height + below).toInt()
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -422,6 +431,12 @@ object PositionShare {
                 c.drawText(l.chances!!, pad + text * 1.2f, line1 + small * 1.45f, Paint(sans).apply { textSize = small * 0.9f; color = grey })
             }
             y += h + gap
+            if (l in groupEnds) {
+                c.drawText(l.depth!!, pad, y + small * 0.9f, Paint(sans).apply { textSize = small; color = grey })
+                val ruleY = y + small * 1.2f
+                c.drawLine(pad / 2, ruleY, w - pad / 2, ruleY, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = grey; strokeWidth = maxOf(1f, w / 600f) })
+                y += band
+            }
         }
         y += text * 0.4f
         if (footer) {

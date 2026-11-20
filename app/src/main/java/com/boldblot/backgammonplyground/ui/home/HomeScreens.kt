@@ -60,6 +60,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Bolt
@@ -1878,7 +1879,7 @@ private fun DataSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) 
     Header("Data")
     ClearKind.entries.forEach { k ->
         OutlinedButton(onClick = { onClear(k) }, modifier = Modifier.padding(vertical = 2.dp)) {
-            Icon(Icons.Default.DeleteSweep, null)
+            Icon(if (k == ClearKind.OBSOLETE) Icons.Default.Refresh else Icons.Default.DeleteSweep, null)
             Spacer(Modifier.width(6.dp))
             Text(k.title)
         }
@@ -1928,6 +1929,13 @@ private enum class ClearKind(val title: String, val button: String, val question
         "Delete all positions (My positions)", "Delete all positions", "Delete all positions?",
         "Every position in My positions will be deleted, with its analysis, notes, your answers and quiz counts. Folders, " +
             "autofilters and labels stay, empty; your matches, statistics and New errors are kept. This cannot be undone.",
+    ),
+    OBSOLETE(
+        "Mark all analyses obsolete", "Mark all obsolete", "Mark all analyses obsolete?",
+        "Every analysis in My positions, New errors and New Marked gets \"(obsolete)\" after its label. Nothing is analyzed " +
+            "now: the quiz analyzes a position again the next time it shows it, at the quiz standard, and you can analyze one " +
+            "again from its screen. Analyses read from XG or GNU files stay as they are. The app does this by itself after " +
+            "an update that changes the searches.",
     );
 
     /** [olderThanDays]: for game records, null = all. */
@@ -1937,6 +1945,7 @@ private enum class ClearKind(val title: String, val button: String, val question
         MATCHES -> app.repository.clearMatchHistory()
         BLUNDERS -> app.repository.clearBlunders()
         POSITIONS -> app.positions.removeAll()
+        OBSOLETE -> app.positions.markAllObsolete() + app.repository.markBlundersObsolete()
     }
 }
 
@@ -1956,7 +1965,7 @@ private fun ClearDialog(kind: ClearKind, onDismiss: () -> Unit, onConfirm: (olde
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(days) }) { Text(if (kind.button.startsWith("Delete")) "Delete" else "Clear") } },
+        confirmButton = { TextButton(onClick = { onConfirm(days) }) { Text(kind.button.substringBefore(' ').let { if (it == "Delete" || it == "Mark") it else "Clear" }) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

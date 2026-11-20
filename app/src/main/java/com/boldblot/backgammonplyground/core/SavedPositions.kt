@@ -91,6 +91,17 @@ data class PositionAnalysis(
     /** "PureTD 3-ply" and the like. */
     val label: String = "",
 ) {
+    /** Made by a search that has changed since: analyzed again the next time the quiz shows it. */
+    val obsolete: Boolean get() = checker?.obsolete == true || cube?.obsolete == true
+
+    /** Marked obsolete (what was read from another program's file stays as it is); null when nothing changed. */
+    fun markedObsolete(): PositionAnalysis? = copy(checker = checker?.markedObsolete(), cube = cube?.markedObsolete()).takeIf { it != this }
+
+    /** The label as shown: [label] (or the analysis's own), " (obsolete)" after it. */
+    val shownLabel: String get() = label.ifBlank { checker?.label ?: cube?.label ?: "" }.let { l ->
+        if (obsolete && l.isNotBlank() && !l.endsWith(OBSOLETE)) l + OBSOLETE else l
+    }
+
     /**
      * With the engine (and the cube's depth) that [label] names filled in where the analysis itself
      * does not record them (saved before 0.7.11), and [label] filled in from the analysis when blank.

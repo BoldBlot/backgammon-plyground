@@ -321,6 +321,18 @@ class PositionsRepository(db: AppDatabase) {
         return id
     }
 
+    /** Marks every analysis in My positions obsolete (not those read from other programs' files); returns how many changed. */
+    suspend fun markAllObsolete(): Int {
+        var n = 0
+        for (e in dao.all()) {
+            val a = e.analysis?.let { runCatching { AppJson.decodeFromString<PositionAnalysis>(it) }.getOrNull() } ?: continue
+            val marked = a.markedObsolete() ?: continue
+            dao.update(e.copy(analysis = AppJson.encodeToString(marked)))
+            n++
+        }
+        return n
+    }
+
     suspend fun setAnalysis(id: Long, a: PositionAnalysis) {
         val e = dao.position(id) ?: return
         dao.update(e.copy(analysis = AppJson.encodeToString(a)))

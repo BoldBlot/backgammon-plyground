@@ -346,6 +346,19 @@ class Repository(private val db: AppDatabase) {
 
     suspend fun clearBlunders() = dao.deleteAllBlunders()
 
+    /** Marks the analyses of New errors and New Marked obsolete (not those read from other programs' files); returns how many changed. */
+    suspend fun markBlundersObsolete(): Int {
+        var n = 0
+        for (e in dao.blunders(false) + dao.blunders(true)) {
+            val d = runCatching { AppJson.decodeFromString<DecisionRecord>(e.record) }.getOrNull() ?: continue
+            val marked = d.copy(checker = d.checker?.markedObsolete(), cubeEval = d.cubeEval?.markedObsolete())
+            if (marked == d) continue
+            dao.updateBlunder(e.copy(record = AppJson.encodeToString(marked)))
+            n++
+        }
+        return n
+    }
+
     // ---- blunder list ----------------------------------------------------------------
 
     /** Puts the decision the player marked (at [index] of [m]'s current game) in New Marked; analyzed later, if it isn't yet. */

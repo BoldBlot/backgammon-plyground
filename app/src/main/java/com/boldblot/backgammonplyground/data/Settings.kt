@@ -235,6 +235,8 @@ data class Settings(
     val quizOwnDepths: Boolean = false,
     val quizChecker: Int = -1,
     val quizCube: Int = -1,
+    /** The [com.boldblot.backgammonplyground.core.SEARCH_VERSION] the saved analyses were last checked against; -1 = a new install. */
+    val searchVersion: Int = -1,
     val quizMatchChecker: Int = -1,
     val quizMatchCube: Int = -1,
     /** Seconds after which a one-position analysis offers to stop (the search goes on until told). */
@@ -544,6 +546,7 @@ class SettingsStore(private val context: Context) {
         val quizOwnDepths = booleanPreferencesKey("quiz_own_depths")
         val quizChecker = intPreferencesKey("quiz_checker_depth")
         val quizCube = intPreferencesKey("quiz_cube_depth")
+        val searchVersion = intPreferencesKey("search_version")
         val quizMatchChecker = intPreferencesKey("quiz_match_checker_depth")
         val quizMatchCube = intPreferencesKey("quiz_match_cube_depth")
         val analysisLimit = intPreferencesKey("analysis_limit_seconds")
@@ -685,6 +688,7 @@ class SettingsStore(private val context: Context) {
             quizOwnDepths = p[Keys.quizOwnDepths] ?: d.quizOwnDepths,
             quizChecker = p[Keys.quizChecker] ?: d.quizChecker,
             quizCube = p[Keys.quizCube] ?: d.quizCube,
+            searchVersion = p[Keys.searchVersion] ?: d.searchVersion,
             quizMatchChecker = p[Keys.quizMatchChecker] ?: d.quizMatchChecker,
             quizMatchCube = p[Keys.quizMatchCube] ?: d.quizMatchCube,
             analysisLimit = (p[Keys.analysisLimit] ?: d.analysisLimit).coerceIn(1, 3600),
@@ -822,6 +826,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.quizOwnDepths] = s.quizOwnDepths
             p[Keys.quizChecker] = s.quizChecker
             p[Keys.quizCube] = s.quizCube
+            p[Keys.searchVersion] = s.searchVersion
             p[Keys.quizMatchChecker] = s.quizMatchChecker
             p[Keys.quizMatchCube] = s.quizMatchCube
             p[Keys.analysisLimit] = s.analysisLimit

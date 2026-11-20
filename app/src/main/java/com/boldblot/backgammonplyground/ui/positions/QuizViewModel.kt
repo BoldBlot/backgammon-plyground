@@ -199,17 +199,17 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
     private var cardToken = 0
 
     /**
-     * Positions whose analysis is below the standard (Settings → Quiz): analyzed again while the card is shown, so the
+     * Positions whose analysis is obsolete, or below the standard (Settings → Quiz): analyzed again while the card is shown, so the
      * answer rarely waits. Each position is tried once a round, so a search that falls short cannot repeat.
      */
     private val refreshed = mutableMapOf<Long, kotlinx.coroutines.Deferred<PositionAnalysis?>>()
 
     private fun staleAnalysis(sp: SavedPosition, s: Settings): Boolean =
-        !detached && s.quizReanalyze && sp.id !in refreshed && sp.analysis?.let { belowStandard(sp.position, it, s) } == true
+        !detached && sp.id !in refreshed && sp.analysis?.let { it.obsolete || s.quizReanalyze && belowStandard(sp.position, it, s) } == true
 
     private fun refreshAnalysis(sp: SavedPosition, s: Settings) {
         if (!staleAnalysis(sp, s)) return
-        AppLog.i("Quiz: position ${sp.id} is below the standard (${sp.analysis?.label}), analyzing it again")
+        AppLog.i("Quiz: position ${sp.id} is below the standard (${sp.analysis?.shownLabel}), analyzing it again")
         refreshed[sp.id] = viewModelScope.async {
             runCatching { analyzeForQuiz(app, sp.position, s, keep = keepMoves(sp)) }
                 .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; AppLog.error("Quiz: analyzing again failed", it) }

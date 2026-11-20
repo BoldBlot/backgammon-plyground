@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.11 — 2026-11-20 (build 92, internal test)
+
+- Shared images with the top moves: where the plays shown were searched at different depths (4-ply fast: 4-ply,
+  3-ply, 2-ply), each depth's plays end with a line under them and the depth above it. "Analysis: …" at the foot
+  stays as before.
+- Obsolete analyses. Settings → Data and help → Mark all analyses obsolete: every analysis in My positions, New
+  errors and New Marked gets "(obsolete)" after its label; nothing is analyzed then. The quiz analyzes an obsolete
+  position again the next time it shows it, at the quiz standard (also with Analyze again what is below the
+  standard off); analyzing it again from its screen clears it too. The mark goes with an error added to My
+  positions. Analyses read from XG or GNU files are never marked. After an update that changes the searches, the
+  app marks them all by itself, once.
+
 ## 0.9.10 — 2026-11-19 (build 91, internal test)
 
 - Played-out games only for close decisions: a decision the rule settles as clear (no games played) is now labelled

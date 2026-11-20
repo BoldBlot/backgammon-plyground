@@ -809,7 +809,7 @@ fun PositionDetailScreen(
                                     com.boldblot.backgammonplyground.ui.review.PositionShare.title(cur.position, com.boldblot.backgammonplyground.ui.components.LocalScoreAway.current),
                                     cur.analysis?.let { com.boldblot.backgammonplyground.ui.review.PositionShare.marked(cur.position, it, cur.played, cur.answer) }.orEmpty(),
                                     capture,
-                                    analysisLabel = cur.analysis?.let { a -> a.label.ifBlank { a.checker?.label ?: a.cube?.label ?: "" } }?.ifBlank { null },
+                                    analysisLabel = cur.analysis?.shownLabel?.ifBlank { null },
                                     noAnalysis = {
                                         Toast.makeText(context, "Analyzing the position; share again when it is done.", Toast.LENGTH_SHORT).show()
                                         if (!analyzing) analyze()
@@ -1591,7 +1591,7 @@ private fun QuizResultCard(
             var asking by remember { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Analysis: ${r.analysis.label.ifBlank { UNKNOWN_ENGINE }}",
+                    "Analysis: ${r.analysis.shownLabel.ifBlank { UNKNOWN_ENGINE }}",
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
                 )
                 if (st.reanalyzing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)

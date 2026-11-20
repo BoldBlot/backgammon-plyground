@@ -47,6 +47,17 @@ class PlyGroundApp : Application() {
                 settings.update { it.copy(folders074 = true, errorsMode = if (collecting) ErrorsMode.AUTOMATIC else it.errorsMode) }
             }
         }
+        // The searches changed since the saved analyses were made ([SEARCH_VERSION] raised): mark them all obsolete, once.
+        // A first start only records the version.
+        appScope.launch {
+            val seen = settings.settings.first().searchVersion
+            if (seen == com.boldblot.backgammonplyground.core.SEARCH_VERSION) return@launch
+            if (seen >= 0) {
+                val n = positions.markAllObsolete() + repository.markBlundersObsolete()
+                AppLog.i("Searches changed (version $seen → ${com.boldblot.backgammonplyground.core.SEARCH_VERSION}): $n analyses marked obsolete")
+            }
+            settings.update { it.copy(searchVersion = com.boldblot.backgammonplyground.core.SEARCH_VERSION) }
+        }
         // A new error: autofilters take the ones they match; the automatic methods file it at once when it
         // passes the fixed or adaptive threshold ([Settings.errorsSort]), Top X at the end of the match. A filed
         // error skips New errors; with the automatic methods New errors keeps the others, a rolling list.

@@ -45,6 +45,7 @@ data class Candidate(
 data class RankResult(val candidates: List<Candidate>, val playedIndex: Int)
 
 /** Cube decision equities, normalized, from the point of view of the player on roll. */
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 @Serializable
 data class CubeEval(
     val noDouble: Float,
@@ -64,16 +65,22 @@ data class CubeEval(
     val spread: Float? = null,
     /** An analysis read from another program's file ([XgImport]): its level as that program names it ("3-ply", "XG Roller++"). */
     val level: String? = null,
+    /** Made by a search that has changed since ([markedObsolete]): analyzed again the next time the quiz shows it. */
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER) val obsolete: Boolean = false,
 ) {
     /** Read from a file of another program, not worked out by one of PlyGround's engines. */
     val imported: Boolean get() = level != null
 
-    /** "PureTD 4-ply"; "Engine unknown, 4-ply" or "Engine unknown" for what older analyses recorded. */
+    /** "PureTD 4-ply"; "Engine unknown, 4-ply" or "Engine unknown" for what older analyses recorded; " (obsolete)" after it. */
     val label: String get() {
         if (level != null) return "${engine ?: UNKNOWN_ENGINE} $level"
         val depth = plies?.let { Depth.of(it).label(cube = true) }
-        return if (engine != null) listOfNotNull(engine, depth).joinToString(" ") else listOfNotNull(UNKNOWN_ENGINE, depth).joinToString(", ")
+        return (if (engine != null) listOfNotNull(engine, depth).joinToString(" ") else listOfNotNull(UNKNOWN_ENGINE, depth).joinToString(", ")) +
+            if (obsolete) OBSOLETE else ""
     }
+
+    /** This evaluation marked obsolete; one read from another program's file stays as it is. */
+    fun markedObsolete(): CubeEval = if (imported || obsolete) this else copy(obsolete = true)
 
     /** Equity after doubling, given the opponent's best response. */
     val afterDouble: Float get() = minOf(doubleTake, doublePass)
@@ -229,6 +236,15 @@ class SearchMonitor {
 const val UNKNOWN_ENGINE = "Engine unknown"
 
 /** Label of a stored analysis depth code (see [Depth]). */
+/**
+ * The version of the searches. Raise it whenever a change makes an existing search give other results: at the next
+ * start the app marks every analysis in My positions, New errors and New Marked obsolete (once).
+ */
+const val SEARCH_VERSION = 1
+
+/** After the label of an obsolete analysis. */
+const val OBSOLETE = " (obsolete)"
+
 fun plyLabel(plies: Int): String = Depth.of(plies).label()
 
 /** Engines the app can play and analyze with. */
