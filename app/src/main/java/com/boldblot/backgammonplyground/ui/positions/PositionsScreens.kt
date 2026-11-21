@@ -193,6 +193,8 @@ fun MyPositionsScreen(
     val folderSettings by app.settings.settings.collectAsState(initial = Settings())
     var exporting by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf<ImportPreview?>(null) }
+    // The text of a plain list of IDs being imported: it can become a set (Match Library → Sets) instead.
+    var importingText by remember { mutableStateOf<String?>(null) }
     var importingId by remember { mutableStateOf(false) }
     var savingImported by remember { mutableStateOf<StudyPosition?>(null) }
     LaunchedEffect(refresh) {
@@ -206,7 +208,7 @@ fun MyPositionsScreen(
         val text = pending ?: return@LaunchedEffect
         app.pendingImport.value = null
         runCatching { app.positions.preview(text) }
-            .onSuccess { importing = it }
+            .onSuccess { importing = it; importingText = text.takeUnless { t -> t.trim().startsWith("{") } }
             .onFailure { Toast.makeText(context, (it.message ?: "Could not read that file.") + " " + IMPORT_FORMATS, Toast.LENGTH_LONG).show() }
     }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -372,7 +374,8 @@ fun MyPositionsScreen(
     }
     savingImported?.let { SaveToPositionsDialog(app, it, "Imported XGID", onSaved = { refresh++ }) { savingImported = null } }
     importing?.let { preview ->
-        ImportDialog(preview, onDismiss = { importing = null }) { cats, other ->
+        val asSet = importingText?.let { text -> { importing = null; app.pendingSet.value = com.boldblot.backgammonplyground.PendingSet(text) } }
+        ImportDialog(preview, onDismiss = { importing = null }, onAsSet = asSet) { cats, other ->
             importing = null
             scope.launch {
                 val added = app.positions.import(preview, cats, other)
@@ -443,7 +446,12 @@ private fun ExportDialog(categories: List<CategoryCount>, uncategorized: Int, on
 }
 
 @Composable
-private fun ImportDialog(preview: ImportPreview, onDismiss: () -> Unit, onImport: (Set<String>, String?) -> Unit) {
+private fun ImportDialog(
+    preview: ImportPreview, onDismiss: () -> Unit,
+    /** A plain list of IDs: make a set of it in the Match Library instead (null: a positions file). */
+    onAsSet: (() -> Unit)? = null,
+    onImport: (Set<String>, String?) -> Unit,
+) {
     var chosen by remember { mutableStateOf(preview.categories.toSet()) }
     var other by remember { mutableStateOf("Imported") }
     AlertDialog(
@@ -476,7 +484,12 @@ private fun ImportDialog(preview: ImportPreview, onDismiss: () -> Unit, onImport
         confirmButton = {
             TextButton(onClick = { onImport(chosen, other.takeIf { it.isNotBlank() }) }, enabled = preview.positions.isNotEmpty()) { Text("Import") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                if (onAsSet != null) TextButton(onClick = onAsSet, enabled = preview.positions.isNotEmpty()) { Text("Make a set") }
+            }
+        },
     )
 }
 
@@ -1170,18 +1183,34 @@ fun SaveToPositionsDialog(
     played: MyAnswer? = null,
     /** Called once the position is saved (before its analysis). */
     onSaved: () -> Unit = {},
+    /** The position's analysis when it has one (a set's): kept, instead of analyzing it again. */
+    analysis: com.boldblot.backgammonplyground.core.PositionAnalysis? = null,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     CategoriesDialog(app, initial = emptySet(), positionId = null, withNote = true, title = "Save to My positions", onDismiss = onDismiss) { ids, note ->
         onDismiss()
         app.appScope.launch {
-            val id = app.positions.save(position, source, note, ids, labels = labels, played = played)
+            val id = app.positions.save(position, source, note, ids, analysis = analysis, labels = labels, played = played)
             onSaved()
+            if (analysis != null) return@launch
             val s = app.settings.settings.first()
             runCatching { analyzePosition(app, position, s) }.onSuccess { app.positions.setAnalysis(id, it) }
         }
         Toast.makeText(context, "Saved to My positions", Toast.LENGTH_SHORT).show()
+    }
+}
+
+/** Saves all of [positions] (a set's) to My positions, in the folders picked, with the analyses they have. */
+@Composable
+fun SaveAllToPositionsDialog(app: PlyGroundApp, positions: List<SavedPosition>, source: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    CategoriesDialog(app, initial = emptySet(), positionId = null, title = "Save ${positions.size} to My positions", onDismiss = onDismiss) { ids, _ ->
+        onDismiss()
+        app.appScope.launch {
+            positions.forEach { app.positions.save(it.position, source, "", ids, analysis = it.analysis) }
+        }
+        Toast.makeText(context, "Saved ${positions.size} to My positions", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -1200,7 +1229,8 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit = {
         }
         if (r == SnackbarResult.ActionPerformed) vm.undoDelete(d)
     }
-    val name = if (st.detached) (if (st.friend) "Game quiz · friend" else "Game quiz") else if (st.friend) "Quiz a friend" else "Quiz"
+    val name = if (st.setQuiz) (if (st.friend) "Set quiz · friend" else "Set quiz")
+        else if (st.detached) (if (st.friend) "Game quiz · friend" else "Game quiz") else if (st.friend) "Quiz a friend" else "Quiz"
     val title = if (st.finished || st.total == 0) name else "$name · ${st.answered + if (st.result == null) 1 else 0}"
     // In landscape the title goes into the side panel, so the board has the whole height and sits in the middle.
     val landscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -1216,7 +1246,7 @@ fun QuizScreen(vm: QuizViewModel, onBack: () -> Unit, onOpen: (Long) -> Unit = {
         text = {
             Text(
                 "${st.queue.size - if (st.result != null) 1 else 0} of ${st.total} positions are left. " +
-                    if (st.friend) "Nothing is saved in this quiz." else if (st.detached) "The answers count in the statistics; the positions are not changed." else "The answers so far are kept.",
+                    if (st.friend) "Nothing is saved in this quiz." else if (st.setQuiz) "The set keeps the answers so far (they are not in the statistics)." else if (st.detached) "The answers count in the statistics; the positions are not changed." else "The answers so far are kept.",
             )
         },
         confirmButton = { TextButton(onClick = { leaving = false; onBack() }) { Text("Leave") } },
@@ -1266,7 +1296,8 @@ private fun QuizSummary(st: QuizState, vm: QuizViewModel, onBack: () -> Unit, on
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Done", style = MaterialTheme.typography.titleLarge)
-        if (st.detached) Text("Game quiz${st.gameTitle?.let { ": $it" } ?: ""}. " + if (st.friend) "Nothing was saved." else "The answers are in the statistics.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (st.setQuiz) Text("Set quiz${st.gameTitle?.let { ": $it" } ?: ""}. " + if (st.friend) "Nothing was saved." else "The set keeps the last answers; they are not in the statistics.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        else if (st.detached) Text("Game quiz${st.gameTitle?.let { ": $it" } ?: ""}. " + if (st.friend) "Nothing was saved." else "The answers are in the statistics.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         else if (st.friend) Text("Quiz a friend: nothing was saved.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
             "${st.total} position${if (st.total == 1) "" else "s"}, ${st.answered} answer${if (st.answered == 1) "" else "s"}" +
@@ -1369,7 +1400,12 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
     // [wide]: landscape, beside the board (Undo and Done as chips there, as in a game).
     val panel: @Composable (wide: Boolean) -> Unit = { wide ->
         ContextText(p, deciderColors, style = MaterialTheme.typography.titleSmall)
-        if (st.detached) Text(
+        // A set's card: its line (number, who decides, score) is its note, shown below; here the set's name.
+        if (st.setQuiz) Text(
+            "Set: ${sp.entity.source}",
+            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        else if (st.detached) Text(
             (if (sp.id in st.theirs) "The opponent's decision" else "My decision") + " · ${sp.entity.source}",
             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -1475,7 +1511,8 @@ private fun QuizResultCard(
         PutBackDialog(1, onDismiss = { puttingBack = false }) { reset -> puttingBack = false; vm.toggleLearned(reset) }
     }
     // A game quiz's card is not in My positions: its folder button saves it there (with what was played in the game).
-    if (filing && st.detached) SaveToPositionsDialog(vm.app, p, "Game quiz", played = sp.played) { filing = false }
+    if (filing && st.setQuiz) SaveToPositionsDialog(vm.app, p, "Set: ${sp.entity.source}", analysis = r.analysis) { filing = false }
+    else if (filing && st.detached) SaveToPositionsDialog(vm.app, p, "Game quiz", played = sp.played) { filing = false }
     else if (filing) {
         CategoriesDialog(vm.app, initial = null, positionId = sp.id, title = "Move to folder", onDismiss = { filing = false }) { ids, _ ->
             filing = false

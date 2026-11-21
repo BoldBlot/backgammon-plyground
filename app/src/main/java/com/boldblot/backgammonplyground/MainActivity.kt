@@ -71,6 +71,13 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** The action another app sends to open Analyze Position with a position: the XGID in [Intent.EXTRA_TEXT]. */
         const val ACTION_ANALYZE_POSITION = "com.boldblot.backgammonplyground.action.ANALYZE_POSITION"
+        /**
+         * The action another app sends to make a set (Match Library → Sets): one XGID per line in [Intent.EXTRA_TEXT], in order;
+         * optional the set's name in [Intent.EXTRA_TITLE] and the players at the bottom and the top in [EXTRA_BOTTOM_PLAYER], [EXTRA_TOP_PLAYER].
+         */
+        const val ACTION_IMPORT_SET = "com.boldblot.backgammonplyground.action.IMPORT_SET"
+        const val EXTRA_BOTTOM_PLAYER = "com.boldblot.backgammonplyground.extra.BOTTOM_PLAYER"
+        const val EXTRA_TOP_PLAYER = "com.boldblot.backgammonplyground.extra.TOP_PLAYER"
     }
 
     private val app: PlyGroundApp get() = application as PlyGroundApp
@@ -88,6 +95,14 @@ class MainActivity : ComponentActivity() {
         // Another app's position for Analyze Position (an XGID as text).
         if (intent?.action == ACTION_ANALYZE_POSITION) {
             app.pendingAnalyze.value = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+            return
+        }
+        // Another app's series of positions for a new set.
+        if (intent?.action == ACTION_IMPORT_SET) {
+            app.pendingSet.value = PendingSet(
+                intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty(), name = intent.getStringExtra(Intent.EXTRA_TITLE)?.takeIf { it.isNotBlank() },
+                bottomName = intent.getStringExtra(EXTRA_BOTTOM_PLAYER)?.takeIf { it.isNotBlank() }, topName = intent.getStringExtra(EXTRA_TOP_PLAYER)?.takeIf { it.isNotBlank() },
+            )
             return
         }
         val uri: Uri? = when (intent?.action) {
@@ -167,6 +182,10 @@ class MainActivity : ComponentActivity() {
         }
 
         // A position sent by another app opens Analyze Position with it set up.
+        val pendingSet by app.pendingSet.collectAsState()
+        LaunchedEffect(pendingSet != null) {
+            if (pendingSet != null && nav.currentDestination?.route != "history") nav.navigate("history")
+        }
         val pendingAnalyze by app.pendingAnalyze.collectAsState()
         LaunchedEffect(pendingAnalyze) {
             val text = pendingAnalyze ?: return@LaunchedEffect
@@ -260,7 +279,22 @@ class MainActivity : ComponentActivity() {
                     onImported = gameVm::queueAnalysis,
                     analysisProgress = gameVm.analysisProgress.collectAsState().value,
                     onSettings = { nav.navigate("settings/DATA") },
+                    onOpenSet = { id -> nav.navigate("sets/$id") },
                 )
+            }
+            // A set of the Match Library, and its quiz.
+            composable("sets/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
+                com.boldblot.backgammonplyground.ui.sets.SetScreen(app, entry.arguments?.getLong("id") ?: 0L, onBack = { nav.popBackStack() }) { spec ->
+                    nav.navigate("setquiz/${spec.encode()}")
+                }
+            }
+            composable("setquiz/{spec}") { entry ->
+                val key = entry.arguments?.getString("spec").orEmpty()
+                val vm: QuizViewModel = viewModel(
+                    key = "setquiz-$key",
+                    factory = factory { QuizViewModel(app, QuizSpec(), set = com.boldblot.backgammonplyground.ui.sets.SetQuizSpec.decode(key)) },
+                )
+                QuizScreen(vm, onBack = { nav.popBackStack() }, onSettings = { nav.navigate("settings") })
             }
             composable(
                 "blunder/{id}?marked={marked}",

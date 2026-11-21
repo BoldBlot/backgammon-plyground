@@ -90,6 +90,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -474,7 +475,14 @@ fun HistoryScreen(
     onSettings: () -> Unit = {},
     /** "Quiz this match" in a match's menu: the game quiz's menu. */
     onQuiz: (Long) -> Unit = {},
+    /** A set (the Sets side of the library) to open. */
+    onOpenSet: (Long) -> Unit = {},
 ) {
+    // Matches or Sets (series of positions imported together); a set sent by another app opens Sets.
+    var setsShown by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var importingSet by remember { mutableStateOf(false) }
+    val pendingSet by app.pendingSet.collectAsState()
+    LaunchedEffect(pendingSet != null) { if (pendingSet != null) setsShown = true }
     var matches by remember { mutableStateOf<List<MatchEntity>?>(null) }
     var filtering by remember { mutableStateOf(false) }
     var toDelete by remember { mutableStateOf<MatchEntity?>(null) }
@@ -594,6 +602,10 @@ fun HistoryScreen(
                 title = { Text("Match Library") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
+                    if (setsShown) {
+                        IconButton(onClick = { importingSet = true }) { Icon(Icons.Default.FileOpen, "Import a set of positions") }
+                        return@TopAppBar
+                    }
                     IconButton(onClick = { matchPicker.launch(arrayOf("*/*")) }) { Icon(Icons.Default.FileOpen, "Import matches (.mat or .xg)") }
                     if (!matches.isNullOrEmpty()) {
                         IconButton(onClick = { selecting = true }) { Icon(Icons.Default.Share, "Export matches") }
@@ -616,6 +628,18 @@ fun HistoryScreen(
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
+            if (!selecting) androidx.compose.material3.SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+                listOf("Matches", "Sets").forEachIndexed { i, label ->
+                    SegmentedButton(
+                        selected = setsShown == (i == 1), onClick = { setsShown = i == 1 },
+                        shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, 2),
+                    ) { Text(label) }
+                }
+            }
+            if (setsShown) {
+                com.boldblot.backgammonplyground.ui.sets.SetsPane(app, importingSet, onImportingDone = { importingSet = false }, onOpen = onOpenSet, modifier = Modifier.weight(1f))
+                return@Column
+            }
             val list = matches
             if (list != null && !selecting) {
                 val max = settings?.libraryMax ?: 100
@@ -2091,8 +2115,10 @@ fun AboutScreen(
             Spacer(Modifier.height(16.dp))
             Text(
                 "Backgammon PlyGround is made by Bold Blot (boldblot.com, support@boldblot.com), free software under " +
-                    "the GNU Affero General Public License, version 3 or later; source code at " +
-                    "github.com/BoldBlot/backgammon-plyground. Titles use the Archivo " +
+                    "the GNU Affero General Public License, version 3 or later, with an additional term under its " +
+                    "section 7(b): modified versions and works based on it must show \"Based on Backgammon PlyGround " +
+                    "by Bold Blot (boldblot.com)\" in their About screen or wherever their credits are shown. Source " +
+                    "code at github.com/BoldBlot/backgammon-plyground. Titles use the Archivo " +
                     "typeface, copyright The Archivo Project Authors, under the SIL Open Font License 1.1 (included " +
                     "in the app as licenses/archivo-OFL.txt).",
                 style = MaterialTheme.typography.bodySmall,

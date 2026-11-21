@@ -25,6 +25,7 @@ class PlyGroundApp : Application() {
     val database: AppDatabase by lazy { AppDatabase.create(this) }
     val repository: Repository by lazy { Repository(database) }
     val positions: PositionsRepository by lazy { PositionsRepository(database) }
+    val sets: com.boldblot.backgammonplyground.data.PositionSetsRepository by lazy { com.boldblot.backgammonplyground.data.PositionSetsRepository(database) }
     val settings: SettingsStore by lazy { SettingsStore(this) }
     /** A positions file opened with PlyGround (or picked in My positions), waiting for its import dialog. */
     val pendingImport = MutableStateFlow<String?>(null)
@@ -34,6 +35,8 @@ class PlyGroundApp : Application() {
     val pendingMatchFile = MutableStateFlow<ByteArray?>(null)
     /** A position (XGID) another app sent to Analyze Position ([MainActivity.ACTION_ANALYZE_POSITION]), waiting to be set up there. */
     val pendingAnalyze = MutableStateFlow<String?>(null)
+    /** A series of positions for a new set (another app's [MainActivity.ACTION_IMPORT_SET], or My positions' import), waiting for the Match Library's Sets. */
+    val pendingSet = MutableStateFlow<PendingSet?>(null)
 
     override fun onCreate() {
         super.onCreate()
@@ -53,7 +56,7 @@ class PlyGroundApp : Application() {
             val seen = settings.settings.first().searchVersion
             if (seen == com.boldblot.backgammonplyground.core.SEARCH_VERSION) return@launch
             if (seen >= 0) {
-                val n = positions.markAllObsolete() + repository.markBlundersObsolete()
+                val n = positions.markAllObsolete() + repository.markBlundersObsolete() + sets.markAllObsolete()
                 AppLog.i("Searches changed (version $seen → ${com.boldblot.backgammonplyground.core.SEARCH_VERSION}): $n analyses marked obsolete")
             }
             settings.update { it.copy(searchVersion = com.boldblot.backgammonplyground.core.SEARCH_VERSION) }
@@ -125,3 +128,6 @@ class PlyGroundApp : Application() {
         NewErrors.overflow(ids, keep).takeIf { it.isNotEmpty() }?.let { repository.removeBlunders(it) }
     }
 }
+
+/** Positions for a new set: [text] with one ID per line; the set's name and players when the sender gave them. */
+data class PendingSet(val text: String, val name: String? = null, val bottomName: String? = null, val topName: String? = null)

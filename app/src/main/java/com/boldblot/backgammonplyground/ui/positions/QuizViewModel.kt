@@ -142,6 +142,8 @@ data class QuizState(
     /** A game quiz ([gameTitle]: its match): the cards are a match's decisions, not in My positions; nothing is saved. */
     val detached: Boolean = false,
     val gameTitle: String? = null,
+    /** A set quiz ([gameTitle]: the set's name): the cards are a set's positions (Match Library → Sets), not in My positions. */
+    val setQuiz: Boolean = false,
     /** Game quiz: the cards that are the opponent's decisions, and how they are shown. */
     val theirs: Set<Long> = emptySet(),
     val theirView: TheirView = TheirView.COLOUR,
@@ -156,10 +158,16 @@ data class QuizState(
  * The My positions quiz: the positions [spec] picks (folders, labels, how many, order), answered on the board.
  * With [game] it is a game quiz instead: the decisions of a saved match, which are not in My positions.
  */
-class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private val game: GameQuizSpec? = null) : ViewModel() {
+class QuizViewModel(
+    val app: PlyGroundApp, private val spec: QuizSpec, private val game: GameQuizSpec? = null,
+    /** A set quiz instead: the positions of a set, which keeps their analyses and last answers (not with Quiz a friend). */
+    private val set: com.boldblot.backgammonplyground.ui.sets.SetQuizSpec? = null,
+) : ViewModel() {
 
-    /** The cards are not in My positions (game quiz): nothing about them is stored. */
-    private val detached = game != null
+    /** The cards are not in My positions (game quiz, set quiz): nothing about them is stored there. */
+    private val detached = game != null || set != null
+    /** Quiz a friend, in any of the quizzes. */
+    private val friend = game?.friend ?: set?.friend ?: spec.friend
     /** The answers go to the positions' quiz counts, last answers and trends (not with Quiz a friend or a game quiz). */
     private val keep = !spec.friend && !detached
     private var theirs: Set<Long> = emptySet()
@@ -175,7 +183,11 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
     init {
         viewModelScope.launch {
             val s = app.settings.settings.first()
-            if (game != null) {
+            if (set != null) {
+                val cards = app.sets.cards(set.setId)
+                all = if (set.shuffle) cards.shuffled() else cards
+                gameTitle = app.sets.set(set.setId)?.name
+            } else if (game != null) {
                 // The priority and the limit pick the decisions once; "Repeat" asks the same ones.
                 gameQuizDecisions(app, game.matchId)?.let { (m, ds) ->
                     val (cards, their) = gameQuizCards(m, com.boldblot.backgammonplyground.core.GameQuiz.pick(ds, game.rules))
@@ -205,7 +217,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
     private val refreshed = mutableMapOf<Long, kotlinx.coroutines.Deferred<PositionAnalysis?>>()
 
     private fun staleAnalysis(sp: SavedPosition, s: Settings): Boolean =
-        !detached && sp.id !in refreshed && sp.analysis?.let { it.obsolete || s.quizReanalyze && belowStandard(sp.position, it, s) } == true
+        (!detached || set != null) && sp.id !in refreshed && sp.analysis?.let { it.obsolete || s.quizReanalyze && belowStandard(sp.position, it, s) } == true
 
     private fun refreshAnalysis(sp: SavedPosition, s: Settings) {
         if (!staleAnalysis(sp, s)) return
@@ -248,7 +260,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
         _state.update {
             QuizState(
                 loading = false, settings = it.settings, queue = list, total = list.size, finished = list.isEmpty(),
-                friend = if (detached) game?.friend == true else spec.friend, detached = detached, gameTitle = gameTitle, theirs = theirs, theirView = game?.theirView ?: TheirView.COLOUR,
+                friend = friend, detached = detached, setQuiz = set != null, gameTitle = gameTitle, theirs = theirs, theirView = game?.theirView ?: TheirView.COLOUR,
             )
         }
         show()
@@ -393,6 +405,11 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
         answer(move = null, cube = c.kind, cubeAnswer = c, partial = partial)
     }
 
+    /** Keeps a card's new analysis: in My positions, or in its set (a game quiz keeps none). */
+    private suspend fun keepAnalysis(id: Long, a: PositionAnalysis) {
+        if (set != null) app.sets.setAnalysis(id, a) else if (!detached) app.positions.setAnalysis(id, a)
+    }
+
     private fun answer(move: Move?, cube: DecisionKind?, cubeAnswer: CubeAnswer? = null, partial: Boolean = false, claim: Boolean? = null) {
         val sp = _state.value.current ?: return
         val p = sp.position
@@ -404,8 +421,8 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
             try {
                 // A position saved without analysis (or imported) is analyzed now, and keeps it.
                 refreshAnalysis(sp, s)
-                val fresh = refreshed[sp.id]?.await()?.also { if (!detached) app.positions.setAnalysis(sp.id, it) }
-                val a = fresh ?: sp.analysis ?: analyzeForQuiz(app, p, s, keep = keepMoves(sp)).also { if (!detached) app.positions.setAnalysis(sp.id, it) }
+                val fresh = refreshed[sp.id]?.await()?.also { keepAnalysis(sp.id, it) }
+                val a = fresh ?: sp.analysis ?: analyzeForQuiz(app, p, s, keep = keepMoves(sp)).also { keepAnalysis(sp.id, it) }
                 AppLog.i("Quiz: position ${sp.id} analyzed in ${android.os.SystemClock.elapsedRealtime() - t0} ms")
                 val factor = factorOf(p)
                 val asked = cubeAnswer?.let { if (partial) withBestResponse(p, a, it.double) else it }
@@ -431,7 +448,15 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
                 if (counted != null) app.positions.recordAnswer(sp.id, result.verdict, result.error / factor, cube = p.dice == null, match = p.setup.matchLength > 0)
                 // A game quiz's answers count in the statistics like any quiz's (its positions are not in My positions, so
                 // they carry no counts, folders or labels), unless it is a quiz for a friend.
-                else if (detached && game?.friend != true) app.positions.recordAnswer(sp.id, result.verdict, result.error / factor, cube = p.dice == null, match = p.setup.matchLength > 0)
+                else if (game != null && !game.friend) app.positions.recordAnswer(sp.id, result.verdict, result.error / factor, cube = p.dice == null, match = p.setup.matchLength > 0)
+                // A set keeps the last answer to each of its positions (shown in its list), never in the statistics.
+                if (set != null && !set.friend) {
+                    app.sets.setLast(sp.id, result.verdict, given)
+                    latest[sp.id] = sp.copy(
+                        entity = sp.entity.copy(lastRight = result.verdict == QuizVerdict.RIGHT, lastNeutral = result.verdict == QuizVerdict.NEUTRAL),
+                        analysis = a, lastAnswer = given,
+                    )
+                }
                 val favourite = !detached && app.positions.isFavourite(sp.id)
                 // A neutral answer leaves the balance alone, so it never moves a position to Learned.
                 val deleted = counted != null && !result.neutral && s.quizAutoDelete && counted.quizBalance >= s.quizDeleteAt && !favourite
@@ -565,6 +590,8 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
                 AppLog.i("Quiz: analyze again of position ${sp.id} done in ${android.os.SystemClock.elapsedRealtime() - t0} ms" + if (token != cardToken) " (the quiz had moved on)" else "")
                 val kept = !old.deleted && old.removed == null && !detached
                 if (kept) app.positions.setAnalysis(sp.id, a)
+                // A set keeps the new analysis too (and the answer judged again by it, below).
+                if (set != null) app.sets.setAnalysis(sp.id, a)
                 // A saved answer that the new analysis calls an error: the card asks what to do with it.
                 val note = sp.answer?.takeIf { kept }?.let { mine ->
                     val cost = answerCost(p, a, mine, s) ?: return@let null
@@ -593,6 +620,7 @@ class QuizViewModel(val app: PlyGroundApp, private val spec: QuizSpec, private v
         val asked = partialOf?.let { withBestResponse(p, a, it.double) } ?: old.cubeAnswer
         val fresh = judge(sp.copy(analysis = a), a, old.move, old.cube, asked, s, engine).withAsked(p, a, s, partialOf, old.doubleClaim)
         val flipped = fresh.verdict != old.verdict
+        if (set != null && !set.friend && flipped) app.sets.setLast(sp.id, fresh.verdict, MyAnswer(move = old.move, cube = old.cube))
         val counted = if (kept && keep && flipped) app.positions.fixResult(sp.id, old.verdict, fresh.verdict)?.let { sp.copy(entity = it) } else null
         val result = fresh.copy(
             trend = old.trend,

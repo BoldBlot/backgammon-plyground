@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.12 — 2026-11-21 (build 93, internal test)
+
+- Sets: Match Library has Matches and Sets at the top. A set is a series of positions imported together, in order,
+  for example the positions of one match. Import one with the button at the top (paste, or a text file with one
+  XGID or GNU ID per line), from My positions' import of a plain list of IDs ("Make a set"), or from another app
+  (action com.boldblot.backgammonplyground.action.IMPORT_SET: the IDs in EXTRA_TEXT, the name in EXTRA_TITLE, the
+  players in extra.BOTTOM_PLAYER and extra.TOP_PLAYER).
+  - From one match (when the positions share a match length; can be turned off): the players at the bottom and the
+    top get names, and each position says who decides and the score by name.
+  - A set opens like a folder, its positions numbered, with Quiz on top. A position opens in Analyze Position; its
+    folder button saves it to My positions (it stays in the set too); Save all to My positions saves them all.
+    The ⋮ menu changes the name and the players, or deletes the set.
+  - Sets are not part of My positions: not in its folders or counts, and their quiz answers are never in the
+    statistics. The set quiz goes in the set's order or shuffled; the set keeps each position's analysis and last
+    answer (shown in its list), except with Quiz a friend, which keeps nothing. Learned is not offered.
+- Licence: an additional term under section 7(b) of the AGPL, from this version: modified versions and works based
+  on Backgammon PlyGround must show "Based on Backgammon PlyGround by Bold Blot (boldblot.com)" in their About
+  screen, or where their credits are shown. In LICENSE, the README and About.
+
 ## 0.9.11 — 2026-11-20 (build 92)
 
 - Shared images with the top moves: where the plays shown were searched at different depths (4-ply fast: 4-ply,

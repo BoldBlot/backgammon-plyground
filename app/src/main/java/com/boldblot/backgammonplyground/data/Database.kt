@@ -439,21 +439,122 @@ interface PositionDao {
     suspend fun setLearned(id: Long, at: Long?)
 }
 
+/**
+ * A set of positions (schema 11): a series imported together (one ID per line), listed under Sets in the Match
+ * Library. It is not part of My positions: its positions are in no folder, count nowhere and stay out of the quiz
+ * statistics. From one match ([fromMatch]) it names the players at the bottom and the top of the imported IDs.
+ */
+@Entity(tableName = "position_sets")
+data class PositionSetEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val createdAt: Long,
+    val fromMatch: Boolean = false,
+    val bottomName: String = "",
+    val topName: String = "",
+    /** The match's length (0 = money); only with [fromMatch]. */
+    val matchLength: Int = 0,
+)
+
+/** A position of a set, at its place [number] (from 1), stored as My positions stores one (the player who decides as X). */
+@Entity(tableName = "set_positions", indices = [Index("setId")])
+data class SetPositionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val setId: Long,
+    val number: Int,
+    val xgid: String,
+    val doubled: Boolean = false,
+    val beavers: Boolean = false,
+    /** The imported ID's bottom player decides (false: the top player, and the position was turned). */
+    val bottomDecides: Boolean = true,
+    /** JSON of PositionAnalysis; null until analyzed (the set quiz analyzes it and keeps it). */
+    val analysis: String? = null,
+    /** The last set quiz answer (not Quiz a friend): null = not tried; [lastNeutral] then [lastRight] false. */
+    val lastRight: Boolean? = null,
+    val lastNeutral: Boolean = false,
+    /** JSON of MyAnswer: the last set quiz answer. */
+    val lastAnswer: String? = null,
+)
+
+/** A set with its number of positions. */
+data class SetCount(
+    val id: Long, val name: String, val createdAt: Long, val fromMatch: Boolean, val bottomName: String, val topName: String,
+    val matchLength: Int, val count: Int,
+)
+
+@Dao
+interface SetDao {
+    @Insert
+    suspend fun insertSet(s: PositionSetEntity): Long
+
+    @Insert
+    suspend fun insertPositions(p: List<SetPositionEntity>)
+
+    @Transaction
+    suspend fun create(s: PositionSetEntity, positions: List<SetPositionEntity>): Long {
+        val id = insertSet(s)
+        insertPositions(positions.map { it.copy(setId = id) })
+        return id
+    }
+
+    @Query("SELECT s.id, s.name, s.createdAt, s.fromMatch, s.bottomName, s.topName, s.matchLength, (SELECT COUNT(*) FROM set_positions p WHERE p.setId = s.id) AS count FROM position_sets s ORDER BY s.createdAt DESC, s.id DESC")
+    suspend fun sets(): List<SetCount>
+
+    @Query("SELECT * FROM position_sets WHERE id = :id")
+    suspend fun set(id: Long): PositionSetEntity?
+
+    @Update
+    suspend fun updateSet(s: PositionSetEntity)
+
+    @Query("SELECT * FROM set_positions WHERE setId = :setId ORDER BY number")
+    suspend fun positions(setId: Long): List<SetPositionEntity>
+
+    @Query("SELECT * FROM set_positions WHERE id = :id")
+    suspend fun position(id: Long): SetPositionEntity?
+
+    @Query("SELECT * FROM set_positions WHERE analysis IS NOT NULL")
+    suspend fun analyzed(): List<SetPositionEntity>
+
+    @Update
+    suspend fun updatePosition(p: SetPositionEntity)
+
+    @Query("UPDATE set_positions SET analysis = :analysis WHERE id = :id")
+    suspend fun setAnalysis(id: Long, analysis: String)
+
+    @Query("UPDATE set_positions SET lastRight = :right, lastNeutral = :neutral, lastAnswer = :answer WHERE id = :id")
+    suspend fun setLast(id: Long, right: Boolean, neutral: Boolean, answer: String?)
+
+    @Query("DELETE FROM set_positions WHERE setId = :setId")
+    suspend fun deletePositionsOf(setId: Long)
+
+    @Query("DELETE FROM position_sets WHERE id = :id")
+    suspend fun deleteSetOnly(id: Long)
+
+    @Transaction
+    suspend fun deleteSet(id: Long) {
+        deletePositionsOf(id)
+        deleteSetOnly(id)
+    }
+}
+
 @Database(
     entities = [
         MatchEntity::class, GameEntity::class, CurrentMatchEntity::class, BlunderEntity::class,
         PositionEntity::class, CategoryEntity::class, PositionCategoryEntity::class, QuizAnswerEntity::class,
+        PositionSetEntity::class, SetPositionEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
         AutoMigration(from = 4, to = 5, spec = QuizCountsMigration::class), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9), AutoMigration(from = 9, to = 10),
+        AutoMigration(from = 10, to = 11),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun matches(): MatchDao
     abstract fun positions(): PositionDao
+    abstract fun sets(): SetDao
 
     companion object {
         fun create(context: Context): AppDatabase =

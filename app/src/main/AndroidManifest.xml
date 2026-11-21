@@ -24,6 +24,11 @@
                 <action android:name="com.boldblot.backgammonplyground.action.ANALYZE_POSITION" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <!-- Match Library → Sets: another app sends a series of positions (one XGID per line in EXTRA_TEXT) for a new set. -->
+            <intent-filter>
+                <action android:name="com.boldblot.backgammonplyground.action.IMPORT_SET" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
             <!-- My positions: a positions file (or XGIDs as text) opened or shared with PlyGround is imported. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
