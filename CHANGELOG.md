@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.11 — 2026-11-20 (build 92, internal test)
+## 0.9.11 — 2026-11-20 (build 92)
 
 - Shared images with the top moves: where the plays shown were searched at different depths (4-ply fast: 4-ply,
   3-ply, 2-ply), each depth's plays end with a line under them and the depth above it. "Analysis: …" at the foot
