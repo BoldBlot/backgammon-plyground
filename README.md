@@ -174,6 +174,11 @@ from its release.
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details and
 [CHANGELOG.md](CHANGELOG.md) for the change history.
 
+## Contributing
+
+Outside code contributions (pull requests) are not accepted; bug reports and ideas are welcome as issues.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Licence
 
 Backgammon PlyGround is free software under the GNU Affero General Public License v3 or later
