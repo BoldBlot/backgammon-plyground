@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.17 — 2026-11-22 (build 98, internal test)
+
+- Deep dive, the score: Pre-Crawford, Crawford game and Post-Crawford switches under each score range (all on): the
+  scores 2-away and more, 1-away in the Crawford game, 1-away after it; turn any off to look at the others only. With
+  both scores, both players 1-away (double match point) comes with Post-Crawford on for both. The 1-away steps are
+  now called "1a Crawford" and "1a post".
+- Deep dive: the grid of two changes always fits the width (no columns out of sight to the right).
+
 ## 0.9.16 — 2026-11-22 (build 97, internal test)
 
 - Deep dive:

@@ -35,10 +35,19 @@ object DeepDive {
         data class Checkers(val slots: List<Slot>) : Change
 
         /**
-         * [player]'s score, from [from]-away (0: the match length) down to [to]-away, 1-away as Crawford and post-Crawford,
-         * then [money] (a money game; not with two score changes).
+         * [player]'s score, from [from]-away (0: the match length) down to [to]-away, then [money] (a money game; not with
+         * two score changes). [pre]: the scores 2-away and more; 1-away as [crawford] (the Crawford game) and [post]
+         * (post-Crawford).
          */
-        data class Score(val player: Int, val from: Int = 0, val to: Int = 1, val money: Boolean = true) : Change
+        data class Score(
+            val player: Int,
+            val from: Int = 0,
+            val to: Int = 1,
+            val money: Boolean = true,
+            val pre: Boolean = true,
+            val crawford: Boolean = true,
+            val post: Boolean = true,
+        ) : Change
 
         /** The cube: centred, or owned by either player at 2, 4 and 8 (where the decision exists). */
         data object Cube : Change
@@ -96,7 +105,11 @@ object DeepDive {
             change.slots.any { it.targets.size < 2 } -> "Tap the points the checkers may stand on."
             else -> null
         }
-        is Change.Score -> if (base.setup.matchLength == 0) "A money game has no score. Set a match length in Analyze Position." else null
+        is Change.Score -> when {
+            base.setup.matchLength == 0 -> "A money game has no score. Set a match length in Analyze Position."
+            steps(base, change).isEmpty() -> "Turn on Pre-Crawford, or reach 1-away with the Crawford game or post-Crawford."
+            else -> null
+        }
         Change.Cube -> if (base.setup.matchLength > 0 && base.setup.crawford) "No cube in the Crawford game." else null
     }
 
@@ -246,10 +259,10 @@ object DeepDive {
         val from = (if (change.from <= 0) n else change.from).coerceIn(1, n)
         val to = change.to.coerceIn(1, from)
         for (away in from downTo to) {
-            if (away > 1) add(away, null, "${away}a")
+            if (away > 1) { if (change.pre) add(away, null, "${away}a") }
             else {
-                add(1, true, "1a C")
-                add(1, false, "1a PC")
+                if (change.crawford) add(1, true, "1a Crawford")
+                if (change.post) add(1, false, "1a post")
             }
         }
         if (change.money) out += Step("Money game", "$", false, emptyList()) { p -> p.copy(setup = p.setup.copy(matchLength = 0, score = listOf(0, 0), crawford = false)) }

@@ -105,11 +105,15 @@ data class DimSetup(
     val from: Int = 0,
     val to: Int = 1,
     val money: Boolean = true,
+    /** Which scores: 2-away and more, 1-away in the Crawford game, 1-away post-Crawford. */
+    val pre: Boolean = true,
+    val crawford: Boolean = true,
+    val post: Boolean = true,
 ) {
     val change: Change
         get() = when (mode) {
             DiveMode.CHECKER, DiveMode.CHECKERS -> Change.Checkers(slots)
-            DiveMode.SCORE -> Change.Score(scorePlayer, from, to, money)
+            DiveMode.SCORE -> Change.Score(scorePlayer, from, to, money, pre, crawford, post)
             DiveMode.CUBE -> Change.Cube
         }
     val checkers: Boolean get() = mode == DiveMode.CHECKER || mode == DiveMode.CHECKERS
@@ -294,6 +298,9 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
 
     /** The score change [d]'s range: from [from]-away down to [to]-away, and the money game. */
     fun setScoreRange(d: Int, from: Int, to: Int, money: Boolean) = updateDim(d) { it.copy(from = from, to = to, money = money) }
+
+    /** Which kinds of score change [d] takes: pre-Crawford, the Crawford game, post-Crawford. */
+    fun setScoreKinds(d: Int, pre: Boolean, crawford: Boolean, post: Boolean) = updateDim(d) { it.copy(pre = pre, crawford = crawford, post = post) }
 
     fun dismissMessage() = _state.update { it.copy(message = null) }
 

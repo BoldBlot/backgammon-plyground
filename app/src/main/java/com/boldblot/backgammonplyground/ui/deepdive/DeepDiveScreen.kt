@@ -390,13 +390,18 @@ private fun ScoreRange(st: DeepDiveState, vm: DeepDiveViewModel, d: Int) {
         Text("$to-away", style = MaterialTheme.typography.titleSmall)
         IconButton(onClick = { vm.setScoreRange(d, from, to + 1, dim.money) }, enabled = to < from) { Icon(Icons.Default.Add, "More") }
     }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FilterChip(selected = dim.pre, onClick = { vm.setScoreKinds(d, !dim.pre, dim.crawford, dim.post) }, label = { Text("Pre-Crawford") })
+        FilterChip(selected = dim.crawford, enabled = to == 1, onClick = { vm.setScoreKinds(d, dim.pre, !dim.crawford, dim.post) }, label = { Text("Crawford game") })
+        FilterChip(selected = dim.post, enabled = to == 1, onClick = { vm.setScoreKinds(d, dim.pre, dim.crawford, !dim.post) }, label = { Text("Post-Crawford") })
+    }
     if (!twoScores) Row(verticalAlignment = Alignment.CenterVertically) {
         Text("And a money game", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
         androidx.compose.material3.Switch(checked = dim.money, onCheckedChange = { vm.setScoreRange(d, from, to, it) })
     }
     Text(
-        (if (to == 1) "1-away comes as the Crawford game and post-Crawford. " else "") + "The other score stays as it is" +
-            (if (twoScores) ", except where both change." else "."),
+        "Pre-Crawford: 2-away and more. The Crawford game and post-Crawford: 1-away (the range must reach it). " +
+            "The other score stays as it is" + (if (twoScores) ", except where both change; both 1-away is always post-Crawford." else "."),
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
@@ -621,7 +626,7 @@ private fun LossChart(st: DeepDiveState, onSelect: (Int) -> Unit, unit: ErrorUni
     val selJ = row.indexOf(st.selected)
     Text(if (ks.size == 1) "Loss of ${st.firstText}" else "Loss of each play, in its colour", style = MaterialTheme.typography.labelMedium, color = muted)
     Canvas(
-        Modifier.fillMaxWidth().height(200.dp).pointerInput(row) {
+        Modifier.fillMaxWidth().height(208.dp).pointerInput(row) {
             detectTapGestures { pos ->
                 val left = 56.dp.toPx(); val right = size.width - 12.dp.toPx()
                 val step = if (n > 1) (right - left) / (n - 1) else 0f
@@ -632,7 +637,7 @@ private fun LossChart(st: DeepDiveState, onSelect: (Int) -> Unit, unit: ErrorUni
     ) {
         if (n == 0) return@Canvas
         val left = 56.dp.toPx(); val right = size.width - 12.dp.toPx()
-        val top = 18.dp.toPx(); val bottom = size.height - 24.dp.toPx()
+        val top = 18.dp.toPx(); val bottom = size.height - 32.dp.toPx()
         val step = if (n > 1) (right - left) / (n - 1) else 0f
         fun x(j: Int) = left + j * step
         fun y(v: Float) = top + (v.coerceAtMost(yMax) / yMax) * (bottom - top)
@@ -685,7 +690,7 @@ private fun LossChart(st: DeepDiveState, onSelect: (Int) -> Unit, unit: ErrorUni
         for (j in 0 until n) {
             if (j % every != 0 && j != selJ) continue
             val base = row[j]?.let { st.versions[it].isBase } == true
-            val t = measurer.measure(axis.getOrElse(j) { "" }, TextStyle(color = if (j == selJ || base) ink else muted, fontSize = 10.sp, fontWeight = if (base) FontWeight.Bold else FontWeight.Normal))
+            val t = measurer.measure(axis.getOrElse(j) { "" }.replace(" ", "\n"), TextStyle(color = if (j == selJ || base) ink else muted, fontSize = 10.sp, fontWeight = if (base) FontWeight.Bold else FontWeight.Normal))
             drawText(t, topLeft = Offset(x(j) - t.size.width / 2, bottom + 4.dp.toPx()))
         }
     }
@@ -704,30 +709,38 @@ private fun BestGrid(st: DeepDiveState, onSelect: (Int) -> Unit) {
     st.versions.forEachIndexed { i, v -> at[v.coords[st.primary] to v.coords[sec]] = i }
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Text("Which followed play is best (grey: none of them)", style = MaterialTheme.typography.labelMedium, color = muted)
-    Column(Modifier.horizontalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            Spacer(Modifier.width(52.dp))
-            for (c in cols) Text(c, style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1, softWrap = false, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.width(38.dp))
-        }
-        rows.forEachIndexed { r, label ->
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(label, style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1, modifier = Modifier.width(52.dp))
-                cols.indices.forEach { c ->
-                    val i = at[c to r]
-                    val fill = if (i == null) Color.Transparent else {
-                        val ls = st.losses.getOrNull(i).orEmpty()
-                        val k = ls.indices.firstOrNull { st.tracked[it] != null && (ls[it] as? Loss.Value)?.best == true }
-                        when {
-                            k != null -> TrackColors[k]
-                            ls.indices.any { st.tracked[it] != null && ls[it] == Loss.Pending } -> MaterialTheme.colorScheme.surfaceVariant
-                            else -> GreyFill
+    // The whole grid fits the panel: the cells share the width left by the row labels.
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val labelW = 64.dp
+        val cell = ((maxWidth - labelW - 2.dp * cols.size) / cols.size).coerceIn(12.dp, 44.dp)
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
+                Spacer(Modifier.width(labelW))
+                for (c in cols) Text(
+                    c.replace(" ", "\n"), style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, lineHeight = 10.sp), color = muted,
+                    maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.width(cell),
+                )
+            }
+            rows.forEachIndexed { r, label ->
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1, modifier = Modifier.width(labelW))
+                    cols.indices.forEach { c ->
+                        val i = at[c to r]
+                        val fill = if (i == null) Color.Transparent else {
+                            val ls = st.losses.getOrNull(i).orEmpty()
+                            val k = ls.indices.firstOrNull { st.tracked[it] != null && (ls[it] as? Loss.Value)?.best == true }
+                            when {
+                                k != null -> TrackColors[k]
+                                ls.indices.any { st.tracked[it] != null && ls[it] == Loss.Pending } -> MaterialTheme.colorScheme.surfaceVariant
+                                else -> GreyFill
+                            }
                         }
+                        Box(
+                            Modifier.size(width = cell, height = 24.dp).background(fill, RoundedCornerShape(4.dp))
+                                .then(if (i == st.selected) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(4.dp)) else Modifier)
+                                .then(if (i != null) Modifier.clickable { onSelect(i) } else Modifier),
+                        )
                     }
-                    Box(
-                        Modifier.size(width = 38.dp, height = 26.dp).background(fill, RoundedCornerShape(4.dp))
-                            .then(if (i == st.selected) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(4.dp)) else Modifier)
-                            .then(if (i != null) Modifier.clickable { onSelect(i) } else Modifier),
-                    )
                 }
             }
         }

@@ -63,7 +63,7 @@ class DeepDiveTest {
     @Test
     fun scoreVersionsRunDownToCrawfordAndPostCrawfordThenMoney() {
         val v = DeepDive.versions(base(), Change.Score(Player.CPU))
-        assertEquals(listOf("7a", "6a", "5a", "4a", "3a", "2a", "1a C", "1a PC", "$"), v.map { it.short })
+        assertEquals(listOf("7a", "6a", "5a", "4a", "3a", "2a", "1a Crawford", "1a post", "$"), v.map { it.short })
         assertTrue(v[0].isBase)
         assertTrue(v[6].position.setup.crawford)
         assertFalse(v[7].position.setup.crawford)
@@ -100,7 +100,7 @@ class DeepDiveTest {
         val take = base(dice = null, doubled = true)
         assertTrue(DeepDive.isLegal(take, Tracked.Cube(DecisionKind.TAKE)))
         assertFalse(DeepDive.isLegal(take, Tracked.Cube(DecisionKind.DOUBLE)))
-        val crawford = DeepDive.versions(take, Change.Score(Player.CPU)).first { it.short == "1a C" }
+        val crawford = DeepDive.versions(take, Change.Score(Player.CPU)).first { it.short == "1a Crawford" }
         assertFalse(DeepDive.isLegal(crawford.position, Tracked.Cube(DecisionKind.TAKE)))
         val double = base(dice = null)
         assertTrue(DeepDive.isLegal(double, Tracked.Cube(DecisionKind.DOUBLE)))
@@ -149,7 +149,7 @@ class DeepDiveTest {
     @Test
     fun theCrawfordGameHasOnlyTheCentredCube() {
         val v = DeepDive.versions(base(), listOf(Change.Cube, Change.Score(Player.CPU)))
-        val crawfordRow = DeepDive.steps(base(), Change.Score(Player.CPU)).indexOfFirst { it.short == "1a C" }
+        val crawfordRow = DeepDive.steps(base(), Change.Score(Player.CPU)).indexOfFirst { it.short == "1a Crawford" }
         val inCrawford = v.filter { it.coords[1] == crawfordRow }
         assertEquals(listOf("C"), inCrawford.map { DeepDive.steps(base(), Change.Cube)[it.coords[0]].short })
         assertEquals(9 * 7 - 6, v.size)
@@ -175,7 +175,7 @@ class DeepDiveTest {
         val v = DeepDive.versions(base(), Change.Score(Player.CPU, from = 4, to = 2, money = false))
         assertEquals(listOf("4a", "3a", "2a"), v.map { it.short })
         val withOne = DeepDive.versions(base(), Change.Score(Player.CPU, from = 2, to = 1, money = true))
-        assertEquals(listOf("2a", "1a C", "1a PC", "$"), withOne.map { it.short })
+        assertEquals(listOf("2a", "1a Crawford", "1a post", "$"), withOne.map { it.short })
     }
 
     @Test
@@ -183,7 +183,7 @@ class DeepDiveTest {
         val changes = listOf(Change.Score(Player.HUMAN, from = 2, to = 1), Change.Score(Player.CPU, from = 2, to = 1))
         val (v, axes) = DeepDive.plan(base(), changes)
         // No money game with two scores.
-        assertEquals(listOf(listOf("2a", "1a C", "1a PC"), listOf("2a", "1a C", "1a PC")), axes)
+        assertEquals(listOf(listOf("2a", "1a Crawford", "1a post"), listOf("2a", "1a Crawford", "1a post")), axes)
         // 2a×2a, you 1a C × opp 2a, you 1a PC × opp 2a, the same the other way, and 1a × 1a only as post-Crawford.
         assertEquals(6, v.size)
         val dmp = v.single { it.position.setup.score == listOf(6, 6) }
@@ -202,5 +202,19 @@ class DeepDiveTest {
         assertTrue(win > lose)
         assertEquals((win + lose) / 2, DeepDive.mwc(b, 0f)!!, 1e-9)
         assertNull(DeepDive.mwc(base(matchLength = 0, score = listOf(0, 0)), 0f))
+    }
+
+    @Test
+    fun preCrawfordCrawfordAndPostCrawfordCanBeChosen() {
+        fun shorts(c: Change.Score) = DeepDive.versions(base(), c).map { it.short }
+        assertEquals(listOf("1a post", "$"), shorts(Change.Score(Player.CPU, pre = false, crawford = false)))
+        assertEquals(listOf("3a", "2a", "1a Crawford"), shorts(Change.Score(Player.CPU, from = 3, money = false, post = false)))
+        val none = Change.Score(Player.CPU, money = false, pre = false, crawford = false, post = false)
+        assertTrue(DeepDive.problem(base(), none) != null)
+        // Both post-Crawford only: the 1-away of each, and double match point.
+        val both = listOf(Change.Score(Player.HUMAN, pre = false, crawford = false), Change.Score(Player.CPU, pre = false, crawford = false))
+        val v = DeepDive.versions(base(), both)
+        assertEquals(1, v.size)
+        assertEquals(listOf(6, 6), v[0].position.setup.score)
     }
 }
