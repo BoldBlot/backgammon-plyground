@@ -844,7 +844,7 @@ fun PositionDetailScreen(
                                 onClick = {
                                     menu = false
                                     p?.let { cur ->
-                                        val req = com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest.of(cur.position, cur.analysis, cur.answer?.move, cur.answer?.cube)
+                                        val req = com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest.preset(cur.position, cur.analysis, cur.played, cur.lastAnswer)
                                         if (req != null) app.pendingDeepDive.value = req
                                         else Toast.makeText(context, "Analyzing the position; try again when it is done.", Toast.LENGTH_SHORT).show()
                                     }
@@ -1555,7 +1555,7 @@ private fun QuizResultCard(
                     }
                 }
                 IconButton(onClick = {
-                    com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest.of(p, r.analysis, r.move, r.cube)?.let { vm.app.pendingDeepDive.value = it }
+                    com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest.preset(p, r.analysis, sp.played, sp.lastAnswer)?.let { vm.app.pendingDeepDive.value = it }
                 }, icon) { Icon(Icons.Default.Layers, "Deep dive") }
                 if (st.detached || (!r.deleted && r.removed == null)) IconButton(onClick = { filing = true }, icon) { Icon(Icons.Default.Folder, if (st.detached) "Save to My positions" else "Move to folder") }
                 if (!st.detached && !readOnly && !r.deleted && r.removed == null) IconButton(onClick = vm::deleteCurrent, icon) { Icon(Icons.Default.Delete, "Delete from My positions") }

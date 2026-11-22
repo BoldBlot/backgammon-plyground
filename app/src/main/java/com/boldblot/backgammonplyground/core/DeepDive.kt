@@ -34,15 +34,26 @@ object DeepDive {
     sealed interface Change {
         data class Checkers(val slots: List<Slot>) : Change
 
-        /** [player]'s score, from the match length away down to 1-away (Crawford and post-Crawford), then money. */
-        data class Score(val player: Int) : Change
+        /**
+         * [player]'s score, from [from]-away (0: the match length) down to [to]-away, 1-away as Crawford and post-Crawford,
+         * then [money] (a money game; not with two score changes).
+         */
+        data class Score(val player: Int, val from: Int = 0, val to: Int = 1, val money: Boolean = true) : Change
 
         /** The cube: centred, or owned by either player at 2, 4 and 8 (where the decision exists). */
         data object Cube : Change
     }
 
     /** One value of one change: its labels, where its checkers stand ([spots], bottom numbering) and how it is made. */
-    class Step(val label: String, val short: String, val isBase: Boolean, val spots: List<Int>, val apply: (StudyPosition) -> StudyPosition?)
+    class Step(
+        val label: String,
+        val short: String,
+        val isBase: Boolean,
+        val spots: List<Int>,
+        /** What the version must be once every change is made (a Crawford step: still the Crawford game). */
+        val check: (StudyPosition) -> Boolean = { true },
+        val apply: (StudyPosition) -> StudyPosition?,
+    )
 
     /**
      * One version: [position], its [label] for lists, its [short] label for the chart's axis, where each slot's
@@ -92,7 +103,7 @@ object DeepDive {
     /** The steps of [change] in [base], in the chart's order (the base one included). */
     fun steps(base: StudyPosition, change: Change): List<Step> = when (change) {
         is Change.Checkers -> checkerSteps(base, change.slots)
-        is Change.Score -> scoreSteps(base, change.player)
+        is Change.Score -> scoreSteps(base, change)
         Change.Cube -> cubeSteps(base)
     }
 
@@ -104,24 +115,42 @@ object DeepDive {
      * change's steps innermost. Applied checkers first, then the score, then the cube (the Crawford game takes a
      * centred cube).
      */
-    fun versions(base: StudyPosition, changes: List<Change>): List<Version> {
-        val axes = changes.map { steps(base, it) }
-        if (axes.isEmpty() || axes.any { it.isEmpty() }) return emptyList()
+    fun versions(base: StudyPosition, changes: List<Change>): List<Version> = plan(base, changes).first
+
+    /**
+     * The versions of [changes] and each change's axis labels, keeping only the steps some version has ([Version.coords]
+     * index these axes).
+     */
+    fun plan(base: StudyPosition, changes: List<Change>): Pair<List<Version>, List<List<String>>> {
+        val (all, axes) = raw(base, changes)
+        val used = axes.indices.map { d -> all.map { it.coords[d] }.toSortedSet().toList() }
+        val versions = all.map { v -> v.copy(coords = v.coords.mapIndexed { d, i -> used[d].indexOf(i) }) }
+        return versions to axes.indices.map { d -> used[d].map { axes[d][it].short } }
+    }
+
+    private fun raw(base: StudyPosition, changes: List<Change>): Pair<List<Version>, List<List<Step>>> {
+        // Two scores: no money game (it has no score to cross with the other).
+        val two = changes.count { it is Change.Score } == 2
+        val made = changes.map { if (two && it is Change.Score) it.copy(money = false) else it }
+        val axes = made.map { steps(base, it) }
+        if (axes.isEmpty() || axes.any { it.isEmpty() }) return emptyList<Version>() to axes
         fun rank(c: Change) = when (c) { is Change.Checkers -> 0; is Change.Score -> 1; Change.Cube -> 2 }
-        val order = changes.indices.sortedBy { rank(changes[it]) }
+        val order = made.indices.sortedBy { rank(made[it]) }
         var combos: List<List<Int>> = listOf(emptyList())
         for (a in axes.indices.reversed()) combos = combos.flatMap { c -> axes[a].indices.map { listOf(it) + c } }
         // combos: the last change outermost, the first innermost.
         val out = ArrayList<Version>()
         for (c in combos) {
             var p: StudyPosition? = base
-            for (d in order) p = p?.let { axes[d][c[d]].apply(it) }
-            val pos = p ?: continue
+            for (d in order) p = p?.let { axes[d][c[d]].apply(it) }?.let(::settled)
             val steps = c.mapIndexed { d, i -> axes[d][i] }
+            val pos = p?.takeIf { v -> steps.all { it.check(v) } } ?: continue
             val checkerSteps = changes.indices.filter { changes[it] is Change.Checkers }.map { steps[it] }
             out += Version(
                 position = pos,
-                label = steps.joinToString(" · ") { it.label },
+                // The score as it ends up (two score changes make one score), the other changes' own labels.
+                label = (made.indices.filter { made[it] !is Change.Score }.map { steps[it].label } +
+                    listOfNotNull(scoreLabel(pos).takeIf { made.any { it is Change.Score } })).joinToString(" · "),
                 short = steps.joinToString(" · ") { it.short },
                 isBase = steps.all { it.isBase },
                 spots = checkerSteps.flatMap { it.spots },
@@ -129,11 +158,36 @@ object DeepDive {
             )
             if (out.size >= MAX_VERSIONS) break
         }
-        return out
+        return out to axes
     }
 
     /** How many versions [changes] would make before the cap and before dropping combinations that cannot be. */
-    fun planned(base: StudyPosition, changes: List<Change>): Int = changes.fold(1) { n, c -> n * steps(base, c).size }
+    fun planned(base: StudyPosition, changes: List<Change>): Int {
+        val two = changes.count { it is Change.Score } == 2
+        return changes.fold(1) { n, c -> n * steps(base, if (two && c is Change.Score) c.copy(money = false) else c).size }
+    }
+
+    /** "You 1-away, opponent 2-away, Crawford", or "Money game". */
+    fun scoreLabel(p: StudyPosition): String {
+        val s = p.setup
+        if (s.matchLength == 0) return "Money game"
+        val a = s.matchLength - s.score[Player.HUMAN]
+        val b = s.matchLength - s.score[Player.CPU]
+        val tag = when {
+            minOf(a, b) != 1 || maxOf(a, b) == 1 -> ""
+            s.crawford -> ", Crawford"
+            else -> ", post-Crawford"
+        }
+        return "You $a-away, opponent $b-away$tag"
+    }
+
+    /** The Crawford game only while exactly one player is 1-away; its cube centred. */
+    private fun settled(p: StudyPosition): StudyPosition {
+        val s = p.setup
+        if (s.matchLength == 0 || !s.crawford) return p
+        val ones = s.score.count { s.matchLength - it == 1 }
+        return if (ones != 1) p.copy(setup = s.copy(crawford = false)) else if (!s.cube.centred) p.copy(setup = s.copy(cube = CubeState())) else p
+    }
 
     private fun checkerSteps(base: StudyPosition, slots: List<Slot>): List<Step> {
         if (slots.isEmpty()) return emptyList()
@@ -160,36 +214,45 @@ object DeepDive {
         }.filter { it.apply(base) != null } // combinations that cannot be (a point the other side holds) are left out
     }
 
-    private fun scoreSteps(base: StudyPosition, player: Int): List<Step> {
+    private fun scoreSteps(base: StudyPosition, change: Change.Score): List<Step> {
         val s = base.setup
         val n = s.matchLength
         if (n == 0) return emptyList()
+        val player = change.player
         val other = Player.other(player)
-        val otherAway = n - s.score[other]
+        fun away(p: StudyPosition, who: Int) = p.setup.matchLength - p.setup.score[who]
         val out = ArrayList<Step>()
-        fun add(away: Int, crawford: Boolean, short: String) {
+        fun add(away: Int, crawford: Boolean?, short: String) {
             val score = s.score.toMutableList().also { it[player] = n - away }
             val aways = listOf(n - score[Player.HUMAN], n - score[Player.CPU])
             val tag = when {
                 aways.min() != 1 || aways.max() == 1 -> ""
-                crawford -> ", Crawford"
+                crawford == true || (crawford == null && s.crawford) -> ", Crawford"
                 else -> ", post-Crawford"
             }
-            out += Step("You ${aways[0]}-away, opponent ${aways[1]}-away$tag", short, score == s.score && crawford == s.crawford, emptyList()) { p ->
-                p.copy(setup = p.setup.copy(score = score, crawford = crawford, cube = if (crawford) CubeState() else p.setup.cube))
+            val isBase = score == s.score && (crawford == null || crawford == s.crawford)
+            val check: (StudyPosition) -> Boolean = when (crawford) {
+                // 1-away in the Crawford game: the other player must not be 1-away too.
+                true -> { v -> v.setup.crawford && away(v, other) > 1 }
+                false -> { v -> !v.setup.crawford }
+                null -> { _ -> true }
+            }
+            out += Step("You ${aways[0]}-away, opponent ${aways[1]}-away$tag", short, isBase, emptyList(), check) { p ->
+                if (p.setup.matchLength == 0) return@Step null
+                val sc = p.setup.score.toMutableList().also { it[player] = n - away }
+                p.copy(setup = p.setup.copy(score = sc, crawford = crawford ?: p.setup.crawford))
             }
         }
-        for (away in n downTo 1) {
-            when {
-                away > 1 -> add(away, crawford = s.crawford && otherAway == 1, "${away}a")
-                otherAway == 1 -> add(1, crawford = false, "1a")
-                else -> {
-                    add(1, crawford = true, "1a C")
-                    add(1, crawford = false, "1a PC")
-                }
+        val from = (if (change.from <= 0) n else change.from).coerceIn(1, n)
+        val to = change.to.coerceIn(1, from)
+        for (away in from downTo to) {
+            if (away > 1) add(away, null, "${away}a")
+            else {
+                add(1, true, "1a C")
+                add(1, false, "1a PC")
             }
         }
-        out += Step("Money game", "$", false, emptyList()) { p -> p.copy(setup = p.setup.copy(matchLength = 0, score = listOf(0, 0), crawford = false)) }
+        if (change.money) out += Step("Money game", "$", false, emptyList()) { p -> p.copy(setup = p.setup.copy(matchLength = 0, score = listOf(0, 0), crawford = false)) }
         return out
     }
 
@@ -245,6 +308,23 @@ object DeepDive {
         DecisionKind.DOUBLE, DecisionKind.NO_DOUBLE ->
             if (!eval.cubeAvailable) null else DecisionMath.doubleError(eval, doubled = kind == DecisionKind.DOUBLE, beavers = beavers)
         else -> DecisionMath.takeError(eval, kind, beavers)
+    }
+
+    private val met by lazy { MatchEquityTable() }
+
+    /**
+     * The match winning chance of the bottom player for [equity] (normalized, at the cube of [p]); null for money.
+     * For a take the equity is the taker's (lose the cube's value: pass).
+     */
+    fun mwc(p: StudyPosition, equity: Float): Double? {
+        val s = p.setup
+        if (s.matchLength == 0) return null
+        val a = s.matchLength - s.score[Player.HUMAN]
+        val b = s.matchLength - s.score[Player.CPU]
+        val v = maxOf(1, s.cube.value)
+        val win = met.after(a, b, s.crawford, v, 0)
+        val lose = met.after(a, b, s.crawford, 0, v)
+        return ((equity * (win - lose) + win + lose) / 2).coerceIn(0.0, 1.0)
     }
 
     /**

@@ -47,9 +47,31 @@ data class DeepDiveRequest(
     val engine: EngineKind? = null,
     val checker: Depth? = null,
     val cube: Depth? = null,
+    /** More decisions for the other colour slots, in order (from My positions and the quiz). */
+    val preset: List<Tracked> = emptyList(),
     val id: Long = System.nanoTime(),
 ) {
     companion object {
+        /** A cube answer as a followed decision (a beaver counts as the take; raccoons are not followed). */
+        private fun tracked(a: com.boldblot.backgammonplyground.core.MyAnswer?): Tracked? = when {
+            a == null -> null
+            a.move != null -> a.move.takeIf { !it.isEmpty }?.let { Tracked.Play(it) }
+            a.cube == DecisionKind.BEAVER -> Tracked.Cube(DecisionKind.TAKE)
+            a.cube in setOf(DecisionKind.DOUBLE, DecisionKind.NO_DOUBLE, DecisionKind.TAKE, DecisionKind.PASS) -> Tracked.Cube(a.cube!!)
+            else -> null
+        }
+
+        /**
+         * From My positions and the quiz: the colour slots start with what was played in the game, the last quiz answer
+         * and the best decision of [a] (the same decision once); null when there is none of them.
+         */
+        fun preset(p: StudyPosition, a: PositionAnalysis?, played: com.boldblot.backgammonplyground.core.MyAnswer?, last: com.boldblot.backgammonplyground.core.MyAnswer?): DeepDiveRequest? {
+            val best = of(p, a)?.tracked
+            val list = listOfNotNull(tracked(played), tracked(last), best)
+            val first = list.firstOrNull() ?: return null
+            return DeepDiveRequest(p, first, a?.checker?.candidates?.map { it.move }.orEmpty(), preset = list.drop(1))
+        }
+
         /**
          * A deep dive of [p] following [move] or [cube] (an answer, a play made), else the best decision of [a];
          * null when there is nothing to follow (a checker play without a play or an analysis).
@@ -75,11 +97,19 @@ data class DeepDiveRequest(
 enum class DiveMode(val label: String) { CHECKER("One checker"), CHECKERS("Several checkers"), SCORE("Score"), CUBE("Cube") }
 
 /** One change being set up: its kind, its checker slots, and for the score whose score moves. */
-data class DimSetup(val mode: DiveMode, val slots: List<Slot> = emptyList(), val scorePlayer: Int = Player.CPU) {
+data class DimSetup(
+    val mode: DiveMode,
+    val slots: List<Slot> = emptyList(),
+    val scorePlayer: Int = Player.CPU,
+    /** The score's range: from [from]-away (0: the match length) down to [to]-away, and a money game. */
+    val from: Int = 0,
+    val to: Int = 1,
+    val money: Boolean = true,
+) {
     val change: Change
         get() = when (mode) {
             DiveMode.CHECKER, DiveMode.CHECKERS -> Change.Checkers(slots)
-            DiveMode.SCORE -> Change.Score(scorePlayer)
+            DiveMode.SCORE -> Change.Score(scorePlayer, from, to, money)
             DiveMode.CUBE -> Change.Cube
         }
     val checkers: Boolean get() = mode == DiveMode.CHECKER || mode == DiveMode.CHECKERS
@@ -121,6 +151,10 @@ data class DeepDiveState(
     val selected: Int = 0,
     /** Which change runs along the chart (with two). */
     val primary: Int = 0,
+    /** The analysis each version gets (null until Settings are read). */
+    val engine: EngineKind? = null,
+    val checkerDepth: Depth? = null,
+    val cubeDepth: Depth? = null,
     val saved: Boolean = false,
     val message: String? = null,
 ) {
@@ -128,7 +162,9 @@ data class DeepDiveState(
     val changes: List<Change> get() = dims.map { it.change }
     val problem: String?
         get() = dims.firstNotNullOfOrNull { DeepDive.problem(base, it.change) }
-            ?: if (dims.size == 2 && !dims[0].checkers && dims[0].mode == dims[1].mode) "Pick two different things to change." else null
+            ?: if (dims.size == 2 && !dims[0].checkers && dims[0].mode == dims[1].mode &&
+                !(dims[0].mode == DiveMode.SCORE && dims[0].scorePlayer != dims[1].scorePlayer)
+            ) "Pick two different things to change (both scores: one each)." else null
     val planned: Int get() = if (problem != null) 0 else DeepDive.planned(base, changes)
     val hasResults: Boolean get() = versions.isNotEmpty()
     val secondary: Int? get() = if (dims.size == 2) 1 - primary else null
@@ -159,6 +195,37 @@ data class DeepDiveState(
     /** The first followed decision is (equal) best in version [i]. */
     fun firstBest(i: Int): Boolean = (losses.getOrNull(i)?.getOrNull(0) as? Loss.Value)?.best == true
 
+    /**
+     * The equity of followed decision [k] in version [i] (the bottom player's, normalized; for a take the taker's), or
+     * null; [k] = -1: the best decision's.
+     */
+    fun equityOf(i: Int, k: Int): Float? {
+        val v = versions.getOrNull(i) ?: return null
+        val a = results.getOrNull(i)?.analysis ?: return null
+        val t = if (k < 0) null else tracked.getOrNull(k) ?: return null
+        a.checker?.let { c ->
+            if (t == null) return c.candidates.firstOrNull()?.equity
+            val m = (t as? Tracked.Play)?.move ?: return null
+            val target = runCatching { v.position.board.applyMove(Player.HUMAN, m) }.getOrNull() ?: return null
+            return c.candidates.firstOrNull { runCatching { v.position.board.applyMove(Player.HUMAN, it.move) }.getOrNull() == target }?.equity
+        }
+        val e = a.cube ?: return null
+        val after = minOf(e.doubleTake, e.doublePass)
+        val kind = (t as? Tracked.Cube)?.kind
+        return when {
+            v.position.doubled -> when (kind) {
+                null -> maxOf(-e.doubleTake, -e.doublePass)
+                DecisionKind.TAKE -> -e.doubleTake
+                DecisionKind.PASS -> -e.doublePass
+                else -> null
+            }
+            kind == null -> if (e.cubeAvailable) maxOf(e.noDouble, after) else e.noDouble
+            kind == DecisionKind.NO_DOUBLE -> e.noDouble
+            kind == DecisionKind.DOUBLE -> if (e.cubeAvailable) after else null
+            else -> null
+        }
+    }
+
     /** The best play or cube action of version [i], or "". */
     fun bestText(i: Int): String {
         val v = versions.getOrNull(i) ?: return ""
@@ -185,9 +252,11 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
             all.distinctBy { runCatching { p.board.applyMove(Player.HUMAN, it) }.getOrNull() }.map { Tracked.Play(it) }
         } else if (p.doubled) listOf(Tracked.Cube(DecisionKind.TAKE), Tracked.Cube(DecisionKind.PASS))
         else listOf(Tracked.Cube(DecisionKind.NO_DOUBLE), Tracked.Cube(DecisionKind.DOUBLE))
-        val first = options.firstOrNull { same(p, it, request.tracked) } ?: request.tracked
+        val wanted = (listOf(request.tracked) + request.preset).map { t -> options.firstOrNull { same(p, it, t) } ?: t }
+        val slots = wanted.fold(emptyList<Tracked>()) { acc, t -> if (acc.any { same(p, it, t) }) acc else acc + t }.take(DeepDive.MAX_TRACKED)
         return DeepDiveState(
-            base = p, options = options, tracked = listOf(first, null, null, null),
+            base = p, options = (options + slots.filter { t -> options.none { same(p, it, t) } }), tracked = slots + List(DeepDive.MAX_TRACKED - slots.size) { null },
+            engine = request.engine, checkerDepth = request.checker, cubeDepth = request.cube,
             dims = listOf(DimSetup(if (p.isChecker) DiveMode.CHECKER else DiveMode.CUBE)),
         )
     }
@@ -198,6 +267,33 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
             runCatching { p.board.applyMove(Player.HUMAN, a.move) }.getOrNull() == runCatching { p.board.applyMove(Player.HUMAN, b.move) }.getOrNull()
         else -> a == b
     }
+
+    init {
+        // The analysis: the one the deep dive came from, else Settings → Analysis.
+        viewModelScope.launch {
+            val s = app.settings.settings.first()
+            val match = request.base.setup.matchLength > 0
+            _state.update {
+                it.copy(
+                    engine = it.engine ?: s.analysisEngine,
+                    checkerDepth = it.checkerDepth ?: s.checkerDepth(match),
+                    cubeDepth = it.cubeDepth ?: s.cubeDepth(match),
+                )
+            }
+        }
+    }
+
+    /** Another engine or depths: after a run, every version is analyzed again. */
+    fun setAnalysis(engine: EngineKind, checker: Depth, cube: Depth) {
+        val st = _state.value
+        if (st.engine == engine && st.checkerDepth == checker && st.cubeDepth == cube) return
+        stop()
+        _state.update { withLosses(it.copy(engine = engine, checkerDepth = checker, cubeDepth = cube, results = List(it.versions.size) { null })) }
+        if (_state.value.hasResults) ensure()
+    }
+
+    /** The score change [d]'s range: from [from]-away down to [to]-away, and the money game. */
+    fun setScoreRange(d: Int, from: Int, to: Int, money: Boolean) = updateDim(d) { it.copy(from = from, to = to, money = money) }
 
     fun dismissMessage() = _state.update { it.copy(message = null) }
 
@@ -222,7 +318,10 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
     fun setMode(d: Int, m: DiveMode) = _state.update { st ->
         val dim = st.dims.getOrNull(d) ?: return@update st
         val slots = if (m == DiveMode.CHECKER) dim.slots.take(1) else dim.slots
-        val dims = st.dims.toMutableList().also { it[d] = dim.copy(mode = m, slots = if (m == DiveMode.CHECKER || m == DiveMode.CHECKERS) slots else dim.slots) }
+        // Two scores: one each.
+        val other = st.dims.getOrNull(1 - d)
+        val player = if (m == DiveMode.SCORE && other?.mode == DiveMode.SCORE) Player.other(other.scorePlayer) else dim.scorePlayer
+        val dims = st.dims.toMutableList().also { it[d] = dim.copy(mode = m, scorePlayer = player, slots = if (m == DiveMode.CHECKER || m == DiveMode.CHECKERS) slots else dim.slots) }
         st.copy(dims = dims, editDim = d, editing = if (slots.isEmpty()) 0 else slots.lastIndex)
     }
 
@@ -317,9 +416,8 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
         val st = _state.value
         if (st.running) return
         st.problem?.let { msg -> _state.update { it.copy(message = msg) }; return }
-        val versions = DeepDive.versions(st.base, st.changes)
+        val (versions, axes) = DeepDive.plan(st.base, st.changes)
         if (versions.size < 2) { _state.update { it.copy(message = "That makes fewer than two versions to compare.") }; return }
-        val axes = st.changes.map { c -> DeepDive.steps(st.base, c).map { it.short } }
         val first = versions.indexOfFirst { it.isBase }.coerceAtLeast(0)
         _state.update { withLosses(it.copy(versions = versions, axes = axes, results = List(versions.size) { null }, selected = first, primary = 0, saved = false)) }
         ensure()
@@ -345,16 +443,16 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
         _state.update { it.copy(running = true) }
         job = viewModelScope.launch {
             val s = app.settings.settings.first()
-            val engine = request.engine ?: s.analysisEngine
             while (true) {
                 val st = _state.value
+                val engine = st.engine ?: s.analysisEngine
                 val i = st.versions.indices.firstOrNull { needsWork(st, it) } ?: break
                 val v = st.versions[i]
                 val legal = legalIn(st, i)
                 val match = v.position.setup.matchLength > 0
                 val r = try {
                     val keep = legal.filterIsInstance<Tracked.Play>().map { it.move }
-                    val a = app.engine.run(engine, null, positionAnalysis(v.position, engine, request.checker ?: s.checkerDepth(match), request.cube ?: s.cubeDepth(match), keep))
+                    val a = app.engine.run(engine, null, positionAnalysis(v.position, engine, st.checkerDepth ?: s.checkerDepth(match), st.cubeDepth ?: s.cubeDepth(match), keep))
                     VersionResult(a, legal.toSet())
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e

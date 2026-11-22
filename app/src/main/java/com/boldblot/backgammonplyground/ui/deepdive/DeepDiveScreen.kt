@@ -278,7 +278,47 @@ private fun DiveBoard(st: DeepDiveState, vm: DeepDiveViewModel, colors: BoardCol
 @Composable
 private fun Panel(st: DeepDiveState, vm: DeepDiveViewModel) {
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        AnalysisLine(st, vm)
         if (!st.hasResults) Setup(st, vm) else Results(st, vm)
+    }
+}
+
+/** The analysis every version gets, and Change (after a run: every version analyzed again, asked first). */
+@Composable
+private fun AnalysisLine(st: DeepDiveState, vm: DeepDiveViewModel) {
+    val engine = st.engine ?: return
+    val checker = st.checkerDepth ?: return
+    val cube = st.cubeDepth ?: return
+    var open by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "Analysis: ${engine.label} · checker ${checker.label()} · cube ${cube.label(cube = true)}",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
+        )
+        TextButton(onClick = { open = true }) { Text("Change") }
+    }
+    if (open) {
+        var e by remember { mutableStateOf(engine) }
+        var c by remember { mutableStateOf(checker) }
+        var k by remember { mutableStateOf(cube) }
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text("Analysis") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    com.boldblot.backgammonplyground.ui.components.AnalysisLevelPicker(
+                        engine = e, onEngine = { e = it }, checker = c, cube = k, onChange = { a, b -> c = a; k = b },
+                        match = st.base.setup.matchLength > 0,
+                    )
+                    if (st.hasResults) Text(
+                        "The ${st.versions.size} versions are analyzed again.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { open = false; vm.setAnalysis(e, c, k) }) { Text(if (st.hasResults) "Analyze again" else "OK") } },
+            dismissButton = { TextButton(onClick = { open = false }) { Text("Cancel") } },
+        )
     }
 }
 
@@ -304,10 +344,7 @@ private fun Setup(st: DeepDiveState, vm: DeepDiveViewModel) {
                     FilterChip(selected = dim.scorePlayer == Player.CPU, onClick = { vm.setScorePlayer(d, Player.CPU) }, label = { Text("Opponent's score") })
                     FilterChip(selected = dim.scorePlayer == Player.HUMAN, onClick = { vm.setScorePlayer(d, Player.HUMAN) }, label = { Text("Your score") })
                 }
-                Text(
-                    "From ${st.base.setup.matchLength}-away down to 1-away (Crawford and post-Crawford), then a money game. The other score stays as it is.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                ScoreRange(st, vm, d)
             }
             DiveMode.CUBE -> Text(
                 "The cube centred, then owned at 2, 4 and 8 by " + when {
@@ -330,6 +367,38 @@ private fun Setup(st: DeepDiveState, vm: DeepDiveViewModel) {
     Button(onClick = vm::start, enabled = problem == null && n >= 2, modifier = Modifier.fillMaxWidth()) {
         Text(if (problem == null && n >= 2) "Analyze ${minOf(n, DeepDive.MAX_VERSIONS)} versions" else "Analyze")
     }
+}
+
+/** The score's range: from n-away down to m-away (1-away: Crawford and post-Crawford), and a money game. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ScoreRange(st: DeepDiveState, vm: DeepDiveViewModel, d: Int) {
+    val dim = st.dims[d]
+    val n = st.base.setup.matchLength
+    if (n == 0) return
+    val from = if (dim.from <= 0) n else dim.from.coerceIn(1, n)
+    val to = dim.to.coerceIn(1, from)
+    val twoScores = st.dims.count { it.mode == DiveMode.SCORE } == 2
+    FlowRow(verticalArrangement = Arrangement.Center, itemVerticalAlignment = Alignment.CenterVertically) {
+        Text("From", style = MaterialTheme.typography.bodyMedium)
+        IconButton(onClick = { vm.setScoreRange(d, from - 1, to, dim.money) }, enabled = from > to) { Icon(Icons.Default.Remove, "Fewer") }
+        Text("$from-away", style = MaterialTheme.typography.titleSmall)
+        IconButton(onClick = { vm.setScoreRange(d, from + 1, to, dim.money) }, enabled = from < n) { Icon(Icons.Default.Add, "More") }
+        Spacer(Modifier.width(8.dp))
+        Text("to", style = MaterialTheme.typography.bodyMedium)
+        IconButton(onClick = { vm.setScoreRange(d, from, to - 1, dim.money) }, enabled = to > 1) { Icon(Icons.Default.Remove, "Fewer") }
+        Text("$to-away", style = MaterialTheme.typography.titleSmall)
+        IconButton(onClick = { vm.setScoreRange(d, from, to + 1, dim.money) }, enabled = to < from) { Icon(Icons.Default.Add, "More") }
+    }
+    if (!twoScores) Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("And a money game", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        androidx.compose.material3.Switch(checked = dim.money, onCheckedChange = { vm.setScoreRange(d, from, to, it) })
+    }
+    Text(
+        (if (to == 1) "1-away comes as the Crawford game and post-Crawford. " else "") + "The other score stays as it is" +
+            (if (twoScores) ", except where both change." else "."),
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -409,26 +478,8 @@ private fun Results(st: DeepDiveState, vm: DeepDiveViewModel) {
             }
         }
     }
-    if (st.ranked) RankedBars(st, vm::select, unit) else LossChart(st, vm::select, unit)
+    if (st.ranked) RankedBars(st, vm, unit) else LossChart(st, vm::select, unit)
     if (sec != null) BestGrid(st, vm::select)
-    val v = st.versions.getOrNull(st.selected)
-    if (v != null) {
-        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-            Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(v.label + if (v.isBase) " (as it is)" else "", style = MaterialTheme.typography.titleSmall)
-                val best = st.bestText(st.selected)
-                Text(
-                    if (best.isEmpty()) "Not analyzed yet" else "Best: $best",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                )
-                st.results.getOrNull(st.selected)?.analysis?.cube?.let { CubeRows(st, it, v.position.doubled) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) { TrackedPills(st, st.selected, unit) }
-                    TextButton(onClick = { vm.openInAnalysis(st.selected) }) { Text("Open in analysis") }
-                }
-            }
-        }
-    }
     if (!st.ranked) {
         HorizontalDivider()
         for (i in st.row.filterNotNull()) {
@@ -440,10 +491,51 @@ private fun Results(st: DeepDiveState, vm: DeepDiveViewModel) {
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(ver.label, style = MaterialTheme.typography.bodySmall)
+                    Text(ver.label + if (ver.isBase) " (as it is)" else "", style = MaterialTheme.typography.bodySmall)
                     Text(st.bestText(i), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 TrackedPills(st, i, unit)
+            }
+            if (i == st.selected) VersionDetails(st, vm, i, unit)
+        }
+    }
+}
+
+private fun pctText(v: Double) = String.format(java.util.Locale.US, "%.1f%%", v * 100)
+
+/**
+ * Under the version tapped: the best decision and each followed one with its equity, loss and match winning chances
+ * (match play), the cube actions for a cube decision, and Open in analysis.
+ */
+@Composable
+private fun VersionDetails(st: DeepDiveState, vm: DeepDiveViewModel, i: Int, unit: ErrorUnit) {
+    val v = st.versions[i]
+    val mono = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(start = 8.dp, bottom = 6.dp)) {
+        Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val match = v.position.setup.matchLength > 0
+            @Composable
+            fun line(dot: Color?, text: String, equity: Float?, loss: Loss?) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (dot != null) Box(Modifier.size(8.dp).background(dot, CircleShape)) else Spacer(Modifier.width(8.dp))
+                    Text(text, style = mono, modifier = Modifier.weight(1f), maxLines = 1)
+                    if (equity != null) Text(eq(equity), style = mono)
+                    if (match && equity != null) DeepDive.mwc(v.position, equity)?.let { Text("MWC ${pctText(it)}", style = mono) }
+                    if (loss != null) Surface(shape = RoundedCornerShape(50), color = fillOf(loss)) {
+                        Text(lossText(loss, unit), color = inkOf(loss), style = mono, modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp))
+                    }
+                }
+            }
+            val best = st.bestText(i)
+            if (best.isEmpty()) Text("Not analyzed yet", style = MaterialTheme.typography.bodySmall)
+            else line(null, "Best: $best", st.equityOf(i, -1), null)
+            st.tracked.forEachIndexed { k, t ->
+                if (t != null) line(TrackColors[k], st.text(t), st.equityOf(i, k), st.losses.getOrNull(i)?.getOrNull(k))
+            }
+            st.results.getOrNull(i)?.analysis?.cube?.let { CubeRows(st, it, v) }
+            Row {
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { vm.openInAnalysis(i) }) { Text("Open in analysis") }
             }
         }
     }
@@ -473,7 +565,8 @@ private fun TrackedPills(st: DeepDiveState, i: Int, unit: ErrorUnit) {
 
 /** The cube actions of the version shown, each followed one marked in its colour. */
 @Composable
-private fun CubeRows(st: DeepDiveState, e: CubeEval, doubled: Boolean) {
+private fun CubeRows(st: DeepDiveState, e: CubeEval, v: com.boldblot.backgammonplyground.core.DeepDive.Version) {
+    val doubled = v.position.doubled
     val rows: List<Triple<String, Float, List<DecisionKind>>> = if (doubled) listOf(
         Triple("Take", -e.doubleTake, listOf(DecisionKind.TAKE)),
         Triple("Pass", -e.doublePass, listOf(DecisionKind.PASS)),
@@ -492,6 +585,9 @@ private fun CubeRows(st: DeepDiveState, e: CubeEval, doubled: Boolean) {
             ) {
                 Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
                 Text(eq(value), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                DeepDive.mwc(v.position, value)?.let {
+                    Text("  MWC ${pctText(it)}", style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+                }
             }
         }
     }
@@ -611,7 +707,7 @@ private fun BestGrid(st: DeepDiveState, onSelect: (Int) -> Unit) {
     Column(Modifier.horizontalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             Spacer(Modifier.width(52.dp))
-            for (c in cols) Text(c, style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1, modifier = Modifier.width(26.dp))
+            for (c in cols) Text(c, style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1, softWrap = false, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.width(38.dp))
         }
         rows.forEachIndexed { r, label ->
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -628,7 +724,7 @@ private fun BestGrid(st: DeepDiveState, onSelect: (Int) -> Unit) {
                         }
                     }
                     Box(
-                        Modifier.size(26.dp).background(fill, RoundedCornerShape(4.dp))
+                        Modifier.size(width = 38.dp, height = 26.dp).background(fill, RoundedCornerShape(4.dp))
                             .then(if (i == st.selected) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(4.dp)) else Modifier)
                             .then(if (i != null) Modifier.clickable { onSelect(i) } else Modifier),
                     )
@@ -640,7 +736,8 @@ private fun BestGrid(st: DeepDiveState, onSelect: (Int) -> Unit) {
 
 /** Several checkers along the chart: no natural order, so the versions ranked by the first decision's loss. */
 @Composable
-private fun RankedBars(st: DeepDiveState, onSelect: (Int) -> Unit, unit: ErrorUnit) {
+private fun RankedBars(st: DeepDiveState, vm: DeepDiveViewModel, unit: ErrorUnit) {
+    val onSelect: (Int) -> Unit = vm::select
     val ids = st.row.filterNotNull()
     fun first(i: Int) = st.losses.getOrNull(i)?.getOrNull(0)
     val order = ids.sortedWith(compareBy({ first(it) !is Loss.Value }, { (first(it) as? Loss.Value)?.v ?: Float.MAX_VALUE }))
@@ -666,6 +763,7 @@ private fun RankedBars(st: DeepDiveState, onSelect: (Int) -> Unit, unit: ErrorUn
                 }
                 TrackedPills(st, i, unit)
             }
+            if (i == st.selected) VersionDetails(st, vm, i, unit)
         }
     }
 }

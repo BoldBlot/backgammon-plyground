@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.16 — 2026-11-22 (build 97, internal test)
+
+- Deep dive:
+  - Your score and your opponent's score as the two changes: every combination, the Crawford game worked out from
+    the score (both 1-away only as post-Crawford). Each score change has its range (From n-away to m-away, − and +),
+    and with one score change a switch adds the money game.
+  - The analysis used is shown at the top (engine, checker and cube depth), with Change: the same choices as Analyze
+    Position. After a run every version is analyzed again.
+  - The details of a version open under its row in the list (no longer under the chart): the best play and each
+    followed play with its equity, loss and match winning chances (match play), the cube actions with theirs, and
+    Open in analysis.
+  - From My positions and the quiz the colour slots start with what was played in the game, the last quiz answer and
+    the best play (the same play once).
+
 ## 0.9.15 — 2026-11-22 (build 96, internal test)
 
 - Deep dive:

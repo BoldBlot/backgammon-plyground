@@ -169,4 +169,38 @@ class DeepDiveTest {
         assertEquals(0f, DeepDive.playLoss(a, b.board, move2414)!!, 1e-6f)
         assertNull(DeepDive.playLoss(a, b.board, Move(listOf(Step(12, 6), Step(12, 8)))))
     }
+
+    @Test
+    fun aScoreRangeKeepsOnlyItsSteps() {
+        val v = DeepDive.versions(base(), Change.Score(Player.CPU, from = 4, to = 2, money = false))
+        assertEquals(listOf("4a", "3a", "2a"), v.map { it.short })
+        val withOne = DeepDive.versions(base(), Change.Score(Player.CPU, from = 2, to = 1, money = true))
+        assertEquals(listOf("2a", "1a C", "1a PC", "$"), withOne.map { it.short })
+    }
+
+    @Test
+    fun bothScoresCrossWithCrawfordWorkedOutFromTheCombinedScore() {
+        val changes = listOf(Change.Score(Player.HUMAN, from = 2, to = 1), Change.Score(Player.CPU, from = 2, to = 1))
+        val (v, axes) = DeepDive.plan(base(), changes)
+        // No money game with two scores.
+        assertEquals(listOf(listOf("2a", "1a C", "1a PC"), listOf("2a", "1a C", "1a PC")), axes)
+        // 2a×2a, you 1a C × opp 2a, you 1a PC × opp 2a, the same the other way, and 1a × 1a only as post-Crawford.
+        assertEquals(6, v.size)
+        val dmp = v.single { it.position.setup.score == listOf(6, 6) }
+        assertFalse(dmp.position.setup.crawford)
+        assertEquals(listOf(2, 2), dmp.coords)
+        val crawford = v.single { it.position.setup.score == listOf(6, 5) && it.position.setup.crawford }
+        assertEquals("You 1-away, opponent 2-away, Crawford", crawford.label)
+        assertNull(DeepDive.problem(base(), changes[0]))
+    }
+
+    @Test
+    fun matchWinningChancesSpanALossAndAWinOfTheCube() {
+        val b = base()
+        val win = DeepDive.mwc(b, 1f)!!
+        val lose = DeepDive.mwc(b, -1f)!!
+        assertTrue(win > lose)
+        assertEquals((win + lose) / 2, DeepDive.mwc(b, 0f)!!, 1e-9)
+        assertNull(DeepDive.mwc(base(matchLength = 0, score = listOf(0, 0)), 0f))
+    }
 }
