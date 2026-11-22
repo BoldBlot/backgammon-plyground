@@ -750,7 +750,17 @@ private fun ReviewTools(st: ReviewState, vm: ReviewViewModel, modifier: Modifier
         if (st.currentMarked) labels += com.boldblot.backgammonplyground.core.AutoLabel.MARKED.name
         SaveToPositionsDialog(vm.app, study, "Game review", labels, com.boldblot.backgammonplyground.core.MyAnswer.played(d)) { saving = false }
     }
-    ReviewViewChips(st.view, d.move != null, vm::setView, { saving = true }.takeIf { study != null }, modifier)
+    // Deep dive: follows the play (or cube action) made, at the depths of Settings → Analysis.
+    val tracked = when (d.reviewKind) {
+        DecisionKind.CHECKER -> d.reviewMove?.takeIf { !it.isEmpty }?.let { com.boldblot.backgammonplyground.core.DeepDive.Tracked.Play(it) }
+        DecisionKind.DOUBLE, DecisionKind.NO_DOUBLE, DecisionKind.TAKE, DecisionKind.PASS -> com.boldblot.backgammonplyground.core.DeepDive.Tracked.Cube(d.reviewKind)
+        DecisionKind.BEAVER -> com.boldblot.backgammonplyground.core.DeepDive.Tracked.Cube(DecisionKind.TAKE)
+        else -> null
+    }
+    val dive = if (study != null && tracked != null) {
+        { vm.app.pendingDeepDive.value = com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest(study, tracked) }
+    } else null
+    ReviewViewChips(st.view, d.move != null, vm::setView, { saving = true }.takeIf { study != null }, modifier, onDeepDive = dive)
 }
 
 /**

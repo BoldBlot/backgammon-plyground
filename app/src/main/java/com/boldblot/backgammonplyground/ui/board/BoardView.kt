@@ -243,6 +243,8 @@ fun BoardView(
     flagged: Set<Int> = emptySet(),
     /** Home board on the left (Settings → Board); see [BoardGeometry]. */
     mirrored: Boolean = false,
+    /** Small labels by the points' tips (human orientation): the deep dive's losses. */
+    pointLabels: Map<Int, PointLabel> = emptyMap(),
     /**
      * Position editing: a tap on point [target] (human orientation) at checker [slot] (0 = base),
      * or on the bar ([target] = [BAR], [slot] counted from the centre) in [barPlayer]'s half.
@@ -358,6 +360,7 @@ fun BoardView(
             drawArrows(g, board, splitAtHits(cpu) { _, p -> p in lastCpuHits }, postMove = true)
         }
         drawHighlights(g, colors, board, movable, selected, destinations, dragPlayer)
+        if (pointLabels.isNotEmpty()) drawPointLabels(g, colors, pointLabels, measurer)
         if ((!crawford && !dmp) || cubeOffered) drawCube(g, colors, cube, cubeOffered, cubeAside, measurer)
         pips?.let { drawPips(g, colors, it, measurer) }
         dice.forEach { drawDice(g, colors, it) }
@@ -397,6 +400,25 @@ private fun DrawScope.drawBoard(g: BoardGeometry, c: BoardColors, measurer: Text
             val y = if (top) 0f else size.height - label.size.height
             drawText(label, topLeft = Offset(left + (g.pointW - label.size.width) / 2, y - (if (top) 1f else -1f)))
         }
+    }
+}
+
+/** A label by a point's tip: [text] on [fill] in [ink]; [ring]: framed in the highlight colour (the one shown). */
+data class PointLabel(val text: String, val fill: Color, val ink: Color, val ring: Boolean = false)
+
+private fun DrawScope.drawPointLabels(g: BoardGeometry, c: BoardColors, labels: Map<Int, PointLabel>, measurer: TextMeasurer) {
+    for ((i, l) in labels) {
+        if (i !in 0..23) continue
+        val text = measurer.measure(l.text, TextStyle(color = l.ink, fontSize = 8.5.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium))
+        val w = maxOf(text.size.width + 8f, g.pointW * 0.92f)
+        val h = text.size.height + 4f
+        val cx = g.columnLeft(g.column(i)) + g.pointW / 2
+        // inside the point's tip, clear of the dice and the cube in the middle
+        val top = if (g.isTop(i)) g.surfaceTop + g.pointH - h else g.surfaceBottom - g.pointH
+        val at = Offset(cx - w / 2, top)
+        drawRoundRect(l.fill, at, Size(w, h), CornerRadius(h / 2))
+        if (l.ring) drawRoundRect(c.highlight, at, Size(w, h), CornerRadius(h / 2), style = Stroke(width = g.radius * 0.14f))
+        drawText(text, topLeft = Offset(cx - text.size.width / 2, top + 2f))
     }
 }
 

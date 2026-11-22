@@ -335,6 +335,33 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
         return StudyPosition(StudyPosition.turned(s, if (st.isOffered) Player.other(st.onRoll) else st.onRoll), doubled = st.isOffered, beavers = false)
     }
 
+    /**
+     * Opens a deep dive of the position (analyzed first), following the play selected in the list or the best cube
+     * action, at the engine and depths of this analysis.
+     */
+    fun deepDive() {
+        val st = _state.value
+        val p = study() ?: run { _state.update { it.copy(message = st.problem) }; return }
+        val e = st.cubeEval
+        val tracked: com.boldblot.backgammonplyground.core.DeepDive.Tracked? = when {
+            st.checker != null -> st.checker.candidates.getOrNull(st.selected)?.move?.takeIf { !it.isEmpty }
+                ?.let { com.boldblot.backgammonplyground.core.DeepDive.Tracked.Play(it) }
+            e != null -> com.boldblot.backgammonplyground.core.DeepDive.Tracked.Cube(
+                when {
+                    st.isOffered -> if (e.doubleTake <= e.doublePass) com.boldblot.backgammonplyground.core.DecisionKind.TAKE else com.boldblot.backgammonplyground.core.DecisionKind.PASS
+                    e.shouldDouble -> com.boldblot.backgammonplyground.core.DecisionKind.DOUBLE
+                    else -> com.boldblot.backgammonplyground.core.DecisionKind.NO_DOUBLE
+                },
+            )
+            else -> null
+        }
+        if (tracked == null) {
+            _state.update { it.copy(message = if (st.checker != null) "There is no play to follow with this roll." else "Analyze the position first: the deep dive follows the play you pick in the list.") }
+            return
+        }
+        app.pendingDeepDive.value = com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest(p, tracked, st.engine, st.checkerDepth, st.cubeDepth)
+    }
+
     /** Switches between setting the position up and entering the decision ("Your play"). */
     fun setPlayMode(on: Boolean) {
         _state.update { st ->

@@ -39,6 +39,9 @@ class PlyGroundApp : Application() {
     val pendingAnalyze = MutableStateFlow<String?>(null)
     /** A series of positions for a new set (another app's [MainActivity.ACTION_IMPORT_SET], or My positions' import), waiting for the Match Library's Sets. */
     val pendingSet = MutableStateFlow<PendingSet?>(null)
+    /** A deep dive asked for (Analyze Position, the review), waiting to open; then [deepDive] while its screen shows. */
+    val pendingDeepDive = MutableStateFlow<com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest?>(null)
+    var deepDive: com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest? = null
 
     override fun onCreate() {
         super.onCreate()

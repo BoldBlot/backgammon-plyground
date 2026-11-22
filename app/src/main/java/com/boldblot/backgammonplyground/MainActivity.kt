@@ -193,6 +193,13 @@ class MainActivity : ComponentActivity() {
             positionVm.openSent(text)
             if (nav.currentDestination?.route != "position") nav.navigate("position")
         }
+        val pendingDeepDive by app.pendingDeepDive.collectAsState()
+        LaunchedEffect(pendingDeepDive) {
+            val req = pendingDeepDive ?: return@LaunchedEffect
+            app.pendingDeepDive.value = null
+            app.deepDive = req
+            nav.navigate("deepdive")
+        }
 
         // The welcome screen: only when it has never been shown (a new install, or the app's data
         // cleared); updates go straight to the home screen.
@@ -304,6 +311,16 @@ class MainActivity : ComponentActivity() {
                 val marked = entry.arguments?.getBoolean("marked") ?: false
                 val vm: BlunderViewModel = viewModel(key = "blunder-$id-$marked", factory = factory { BlunderViewModel(app, id, marked) })
                 BlunderScreen(vm, onBack = { nav.popBackStack() })
+            }
+            composable("deepdive") {
+                val req = app.deepDive
+                if (req == null) {
+                    LaunchedEffect(Unit) { nav.popBackStack() }
+                } else {
+                    val vm: com.boldblot.backgammonplyground.ui.deepdive.DeepDiveViewModel =
+                        viewModel(key = "deepdive-${req.id}", factory = factory { com.boldblot.backgammonplyground.ui.deepdive.DeepDiveViewModel(app, req) })
+                    com.boldblot.backgammonplyground.ui.deepdive.DeepDiveScreen(vm, onBack = { nav.popBackStack() })
+                }
             }
             composable("position") {
                 PositionScreen(positionVm, onBack = { nav.popBackStack() })

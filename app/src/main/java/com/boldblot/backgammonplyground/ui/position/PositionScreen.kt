@@ -35,6 +35,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Remove
@@ -154,6 +155,7 @@ private fun TopRow(vm: PositionViewModel, st: PositionState, capture: com.boldbl
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
         Text("Analyze Position", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
         IconButton(onClick = vm::undo, enabled = canUndo) { Icon(Icons.AutoMirrored.Filled.Undo, "Undo") }
+        IconButton(onClick = vm::deepDive) { Icon(Icons.Default.Layers, "Deep dive") }
         // Share, as in the review and the quiz: the XGID, the board, or the board with the top 5
         // (analyzed first when there is no analysis yet).
         val context = LocalContext.current
@@ -192,6 +194,7 @@ private fun TopRow(vm: PositionViewModel, st: PositionState, capture: com.boldbl
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
             DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(text = { Text("Deep dive…") }, onClick = { menu = false; vm.deepDive() })
                 DropdownMenuItem(text = { Text("Import XGID…") }, onClick = { menu = false; importing = true })
                 DropdownMenuItem(text = { Text("Starting position") }, onClick = { menu = false; vm.startPosition() })
                 DropdownMenuItem(text = { Text("Clear board") }, onClick = { menu = false; vm.clear() })

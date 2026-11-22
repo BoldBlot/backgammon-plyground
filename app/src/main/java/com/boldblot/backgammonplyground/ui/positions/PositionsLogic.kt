@@ -75,7 +75,7 @@ suspend fun analyzeInBackground(app: PlyGroundApp, p: StudyPosition, s: Settings
 }
 
 /** The engine work of [analyzePosition]. */
-private fun positionAnalysis(p: StudyPosition, engine: EngineKind, checker: Depth, cube: Depth, keep: List<Move>): SearchEngine.() -> PositionAnalysis =
+fun positionAnalysis(p: StudyPosition, engine: EngineKind, checker: Depth, cube: Depth, keep: List<Move>): SearchEngine.() -> PositionAnalysis =
     {
         val dice = p.dice
         if (dice != null) {

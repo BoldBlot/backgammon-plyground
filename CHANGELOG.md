@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.14 — 2026-11-22 (build 95, internal test)
+
+- Deep dive: one position analyzed in versions that differ in one thing, following one decision through them. Open it
+  from Analyze Position (the layers button at the top, or ⋮ → Deep dive…; it follows the play selected in the list,
+  or the best cube action) or from a match review (Deep dive beside Save; it follows the play or cube action made).
+  - What to change: one checker (tap a checker, yours or your opponent's, then the points it may stand on, or All
+    open points), several checkers (up to three, every combination), the score (one player's, from the match length
+    away down to 1-away, Crawford and post-Crawford, then money) or the cube (centred, or owned at 2, 4 and 8 where
+    the decision exists).
+  - The versions are analyzed one by one at the engine and depths of the analysis (from a review: Settings →
+    Analysis). The chart shows the loss of the followed decision in each version, 0 (best) at the top, with a red band
+    where it is not best and a gap marked [!] where it cannot be played. Several checkers are ranked as bars instead.
+    Tap a version to see it on the board; for one checker each point shows its loss. Open in analysis takes a version
+    to Analyze Position.
+  - The results are not kept unless saved: Save to set makes a set in the Match Library (all versions, those where
+    the decision is not best, or the one shown), with the analyses. Leaving asks whether to save.
+
 ## 0.9.13 — 2026-11-22 (build 94, internal test)
 
 - Sets: analysis in the background. The New set dialog has Analyze the positions (on by default): they are analyzed

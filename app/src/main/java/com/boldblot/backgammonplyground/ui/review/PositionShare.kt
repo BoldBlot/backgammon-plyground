@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Icon
@@ -83,7 +84,7 @@ enum class ReviewView(val arrows: Boolean, val after: Boolean) {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ReviewViewChips(view: ReviewView, hasMove: Boolean, onPick: (ReviewView) -> Unit, onSave: (() -> Unit)?, modifier: Modifier = Modifier) {
+fun ReviewViewChips(view: ReviewView, hasMove: Boolean, onPick: (ReviewView) -> Unit, onSave: (() -> Unit)?, modifier: Modifier = Modifier, onDeepDive: (() -> Unit)? = null) {
     val after = view.after && hasMove
     FlowRow(
         modifier, horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
@@ -98,6 +99,12 @@ fun ReviewViewChips(view: ReviewView, hasMove: Boolean, onPick: (ReviewView) -> 
             AssistChip(
                 onClick = onSave, label = { Text("Save") },
                 leadingIcon = { Icon(Icons.Default.BookmarkAdd, null, Modifier.size(AssistChipDefaults.IconSize)) },
+            )
+        }
+        if (onDeepDive != null) {
+            AssistChip(
+                onClick = onDeepDive, label = { Text("Deep dive", maxLines = 1, softWrap = false) },
+                leadingIcon = { Icon(Icons.Default.Layers, null, Modifier.size(AssistChipDefaults.IconSize)) },
             )
         }
     }
