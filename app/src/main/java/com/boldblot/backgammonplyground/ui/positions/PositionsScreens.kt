@@ -663,6 +663,8 @@ internal fun PositionRow(
     quizAnswer: QuizVerdict? = null,
     /** Small buttons in the bottom right corner (Learned: put back, delete; a folder: delete). */
     actions: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)? = null,
+    /** A line after the note (a set's: the analysis's best answer). */
+    extra: String? = null,
     onClick: () -> Unit,
 ) {
     val sp = p.position
@@ -721,6 +723,7 @@ internal fun PositionRow(
         if (p.entity.note.isNotBlank()) {
             Text(p.entity.note, style = small, maxLines = 2, overflow = TextOverflow.Ellipsis, color = grey)
         }
+        extra?.let { Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         p.answer?.let { Text("My answer: ${answerText(sp, it)}", style = MaterialTheme.typography.labelSmall) }
         LabelTags(settings.visible(p.labels), Modifier.padding(top = 2.dp))
         p.entity.lastRight?.let {

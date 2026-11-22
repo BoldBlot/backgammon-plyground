@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.13 — 2026-11-22 (build 94, internal test)
+
+- Sets: analysis in the background. The New set dialog has Analyze the positions (on by default): they are analyzed
+  one by one at the depths of Settings → Analysis, in the background analysis slot, and the set keeps the analyses.
+  The set's card and its screen show "Analyzing: 3 of 12 left"; Stop analysis ends it. A long press selects
+  positions: Analyze (again, also ones already analyzed) and Save to My positions. Analyze the rest (n) does the
+  ones without an analysis. Each row shows the best play or cube action and the depth, or "Not analyzed yet".
+- Speed: a game won (or lost) whatever is played no longer waits for a deeper search when the gammon chances differ
+  between the plays but a gammon cannot count, as at double match point (4-4 in a 5-point match a won 6-1
+  bear-off took 28 s on a phone, now it is immediate). Gammons still count where they can change the score.
+
 ## 0.9.12 — 2026-11-21 (build 93, internal test)
 
 - Sets: Match Library has Matches and Sets at the top. A set is a series of positions imported together, in order,

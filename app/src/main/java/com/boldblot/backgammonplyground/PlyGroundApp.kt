@@ -26,6 +26,8 @@ class PlyGroundApp : Application() {
     val repository: Repository by lazy { Repository(database) }
     val positions: PositionsRepository by lazy { PositionsRepository(database) }
     val sets: com.boldblot.backgammonplyground.data.PositionSetsRepository by lazy { com.boldblot.backgammonplyground.data.PositionSetsRepository(database) }
+    /** The background analysis of sets' positions. */
+    val setAnalysis: com.boldblot.backgammonplyground.ui.sets.SetAnalysis by lazy { com.boldblot.backgammonplyground.ui.sets.SetAnalysis(this) }
     val settings: SettingsStore by lazy { SettingsStore(this) }
     /** A positions file opened with PlyGround (or picked in My positions), waiting for its import dialog. */
     val pendingImport = MutableStateFlow<String?>(null)

@@ -17,7 +17,7 @@ class PositionSetsRepository(db: AppDatabase) {
 
     suspend fun set(id: Long): PositionSetEntity? = dao.set(id)
 
-    /** Creates a set of [items] in their order; returns its id. */
+    /** Creates a set of [items] in their order; returns its id (the positions' ids: [positionIds]). */
     suspend fun create(name: String, items: List<PositionSeries.Item>, fromMatch: Boolean, bottomName: String, topName: String, matchLength: Int): Long =
         dao.create(
             PositionSetEntity(
@@ -34,6 +34,12 @@ class PositionSetsRepository(db: AppDatabase) {
         )
 
     suspend fun update(s: PositionSetEntity) = dao.updateSet(s)
+
+    suspend fun position(id: Long): SetPositionEntity? = dao.position(id)
+
+    /** The ids of the set's positions, in order; [unanalyzed]: only those without an analysis. */
+    suspend fun positionIds(setId: Long, unanalyzed: Boolean = false): List<Long> =
+        dao.positions(setId).filter { !unanalyzed || it.analysis == null }.map { it.id }
 
     suspend fun delete(id: Long) = dao.deleteSet(id)
 

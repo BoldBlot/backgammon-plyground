@@ -20,7 +20,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -51,7 +53,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.boldblot.backgammonplyground.PendingSet
 import com.boldblot.backgammonplyground.PlyGroundApp
+import com.boldblot.backgammonplyground.core.DecisionKind
+import com.boldblot.backgammonplyground.core.MoveNotation
+import com.boldblot.backgammonplyground.core.Player
 import com.boldblot.backgammonplyground.core.PositionSeries
+import com.boldblot.backgammonplyground.data.PositionSetsRepository
+import com.boldblot.backgammonplyground.ui.components.bestCubeLabel
+import com.boldblot.backgammonplyground.ui.positions.SelectionActions
 import com.boldblot.backgammonplyground.data.PositionSetEntity
 import com.boldblot.backgammonplyground.data.SavedPosition
 import com.boldblot.backgammonplyground.data.SetCount
@@ -103,6 +111,7 @@ fun SetsPane(app: PlyGroundApp, importing: Boolean, onImportingDone: () -> Unit,
     var sets by remember { mutableStateOf<List<SetCount>?>(null) }
     var reload by remember { mutableIntStateOf(0) }
     LaunchedEffect(reload) { sets = app.sets.sets() }
+    val progress by app.setAnalysis.progress.collectAsState()
     val pending by app.pendingSet.collectAsState()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
@@ -151,6 +160,7 @@ fun SetsPane(app: PlyGroundApp, importing: Boolean, onImportingDone: () -> Unit,
                     Column(Modifier.padding(12.dp)) {
                         Text(s.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(setSummary(s), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        progress[s.id]?.let { pr -> AnalysisProgressLine(pr) }
                     }
                 }
             }
@@ -169,6 +179,7 @@ fun SetImportDialog(app: PlyGroundApp, pending: PendingSet, onDismiss: () -> Uni
     var fromMatch by remember(pending) { mutableStateOf(length != null) }
     var bottom by remember(pending) { mutableStateOf(pending.bottomName.orEmpty()) }
     var top by remember(pending) { mutableStateOf(pending.topName ?: "Opponent") }
+    var analyze by remember(pending) { mutableStateOf(true) }
     LaunchedEffect(settings == null) { if (bottom.isEmpty()) settings?.let { bottom = it.playerName } }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -202,13 +213,25 @@ fun SetImportDialog(app: PlyGroundApp, pending: PendingSet, onDismiss: () -> Uni
                     OutlinedTextField(bottom, { bottom = it.take(40) }, singleLine = true, label = { Text("Player at the bottom") }, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(top, { top = it.take(40) }, singleLine = true, label = { Text("Player at the top") }, modifier = Modifier.fillMaxWidth())
                 }
+                Row(Modifier.fillMaxWidth().clickable { analyze = !analyze }, verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Analyze the positions", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "In the background, one by one, at the depths of Settings → Analysis.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = analyze, onCheckedChange = { analyze = it })
+                }
             }
         },
         confirmButton = {
             TextButton(enabled = preview.items.isNotEmpty(), onClick = {
                 scope.launch {
                     val match = fromMatch && length != null
-                    onCreated(app.sets.create(name, preview.items, match, bottom, top, length ?: 0))
+                    val id = app.sets.create(name, preview.items, match, bottom, top, length ?: 0)
+                    if (analyze) app.setAnalysis.add(id, app.sets.positionIds(id))
+                    onCreated(id)
                 }
             }) { Text("Create") }
         },
@@ -229,9 +252,20 @@ fun SetScreen(app: PlyGroundApp, setId: Long, onBack: () -> Unit, onQuiz: (SetQu
     var set by remember { mutableStateOf<PositionSetEntity?>(null) }
     var cards by remember { mutableStateOf<List<SavedPosition>?>(null) }
     var reload by remember { mutableIntStateOf(0) }
-    LaunchedEffect(setId, reload) {
+    // Each finished background analysis reloads the list (the rows show the analyses).
+    val analyzed by app.setAnalysis.done.collectAsState()
+    val progress = app.setAnalysis.progress.collectAsState().value[setId]
+    LaunchedEffect(setId, reload, analyzed) {
         set = app.sets.set(setId)
         cards = app.sets.cards(setId)
+    }
+    // Selecting positions (a long press starts it): null = not selecting.
+    var selected by remember { mutableStateOf<Set<Long>?>(null) }
+    androidx.activity.compose.BackHandler(enabled = selected != null) { selected = null }
+    var savingSelected by remember { mutableStateOf<List<SavedPosition>?>(null) }
+    fun analyze(cardIds: Collection<Long>) {
+        app.setAnalysis.add(setId, cardIds.map { PositionSetsRepository.positionId(it) })
+        Toast.makeText(context, "Analyzing ${cardIds.size} in the background.", Toast.LENGTH_SHORT).show()
     }
     var quizzing by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
@@ -258,6 +292,7 @@ fun SetScreen(app: PlyGroundApp, setId: Long, onBack: () -> Unit, onQuiz: (SetQu
                     Icon(Icons.Default.School, null)
                     Text("Quiz", Modifier.padding(start = 6.dp))
                 }
+                progress?.let { AnalysisProgressLine(it) }
                 set?.let { s ->
                     Text(
                         if (s.fromMatch) "${s.bottomName.ifBlank { "Bottom" }} vs ${s.topName.ifBlank { "Top" }}" + if (s.matchLength > 0) " · ${s.matchLength}-pt match" else " · money"
@@ -267,8 +302,22 @@ fun SetScreen(app: PlyGroundApp, setId: Long, onBack: () -> Unit, onQuiz: (SetQu
                 }
             }
         },
-        actions = list.takeUnless { it.isNullOrEmpty() }?.let {
+        actions = selected?.let { sel ->
             {
+                val all = list.orEmpty().map { it.id }.toSet()
+                val allOn = sel.containsAll(all) && all.isNotEmpty()
+                SelectionActions(sel.size, allOn, onAll = { selected = if (allOn) emptySet() else all }, onDone = { selected = null }) {
+                    FolderAction("Analyze", Icons.Default.Refresh, enabled = sel.isNotEmpty()) { analyze(sel); selected = null }
+                    FolderAction("Save to My positions", Icons.Default.Folder, enabled = sel.isNotEmpty()) {
+                        savingSelected = list.orEmpty().filter { it.id in sel }
+                    }
+                }
+            }
+        } ?: list.takeUnless { it.isNullOrEmpty() }?.let { l ->
+            {
+                val rest = l.count { it.analysis == null }
+                if (progress != null) FolderAction("Stop analysis", Icons.Default.Stop) { app.setAnalysis.stop(setId) }
+                else if (rest > 0) FolderAction("Analyze the rest ($rest)", Icons.Default.Refresh) { analyze(l.filter { it.analysis == null }.map { it.id }) }
                 FolderAction("Save all to My positions", Icons.Default.Folder) { savingAll = true }
                 FolderAction("Delete set", Icons.Default.Delete) { deleting = true }
             }
@@ -279,15 +328,25 @@ fun SetScreen(app: PlyGroundApp, setId: Long, onBack: () -> Unit, onQuiz: (SetQu
             list.isEmpty() -> EmptyListText("This set has no positions.", filtered = false, modifier = area)
             else -> LazyColumn(area) {
                 items(list, key = { it.id }) { p ->
-                    PositionRow(p, settings, actions = { RowAction(Icons.Default.Folder, "Save to My positions") { saving = p } }) {
+                    val sel = selected
+                    fun toggle() { selected = sel?.let { if (p.id in it) it - p.id else it + p.id } }
+                    PositionRow(
+                        p, settings, selection = sel?.let { p.id in it },
+                        onLongClick = { if (sel == null) selected = setOf(p.id) else toggle() },
+                        actions = { RowAction(Icons.Default.Folder, "Save to My positions") { saving = p } },
+                        extra = analysisLine(p),
+                    ) {
                         // Analyze Position with the position as the set has it (a take or pass with the double on offer).
-                        app.pendingAnalyze.value = PositionSeries.analyzeId(p.position)
+                        if (sel != null) toggle() else app.pendingAnalyze.value = PositionSeries.analyzeId(p.position)
                     }
                 }
             }
         }
     }
     saving?.let { p -> SaveToPositionsDialog(app, p.position, "Set: ${p.entity.source}", analysis = p.analysis) { saving = null } }
+    savingSelected?.let { l ->
+        SaveAllToPositionsDialog(app, l, "Set: ${set?.name.orEmpty()}") { savingSelected = null; selected = null }
+    }
     if (savingAll) list?.let { l ->
         SaveAllToPositionsDialog(app, l, "Set: ${set?.name.orEmpty()}") { savingAll = false }
     }
@@ -309,6 +368,7 @@ fun SetScreen(app: PlyGroundApp, setId: Long, onBack: () -> Unit, onQuiz: (SetQu
             TextButton(onClick = {
                 deleting = false
                 scope.launch {
+                    app.setAnalysis.stop(setId)
                     app.sets.delete(setId)
                     Toast.makeText(context, "Set deleted.", Toast.LENGTH_SHORT).show()
                     onBack()
@@ -317,6 +377,27 @@ fun SetScreen(app: PlyGroundApp, setId: Long, onBack: () -> Unit, onQuiz: (SetQu
         },
         dismissButton = { TextButton(onClick = { deleting = false }) { Text("Cancel") } },
     )
+}
+
+/** "Analyzing: 3 of 12 left" under a set being analyzed in the background. */
+@Composable
+private fun AnalysisProgressLine(p: SetProgress) {
+    Column(Modifier.padding(vertical = 2.dp)) {
+        Text("Analyzing: ${p.left} of ${p.total} left", style = MaterialTheme.typography.labelMedium)
+        androidx.compose.material3.LinearProgressIndicator(
+            progress = { if (p.total == 0) 0f else (p.total - p.left).toFloat() / p.total }, modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+        )
+    }
+}
+
+/** A set row's analysis line: the best play or cube action and the depth, or that it has none yet. */
+internal fun analysisLine(p: SavedPosition): String {
+    val a = p.analysis ?: return "Not analyzed yet"
+    val sp = p.position
+    val best = a.checker?.candidates?.firstOrNull()?.let { MoveNotation.format(sp.board, Player.HUMAN, it.move) }
+        ?: a.cube?.let { bestCubeLabel(it, if (sp.doubled) DecisionKind.TAKE else null, sp.beavers) }
+        ?: return "Not analyzed yet"
+    return "Best: $best · ${a.shownLabel}"
 }
 
 /** The set quiz's choices: in the set's order or shuffled, and Quiz a friend (nothing kept). */

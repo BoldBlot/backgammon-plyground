@@ -204,7 +204,7 @@ abstract class SearchEngine : AnalysisEngine {
         val depthOf = Depth.of(plies)
         var stopped = false
         val search = depthOf.search
-        if (depthOf.plies >= 2 && posts.size > 1 && !decided(probs) && !exactAtOnePly(ctx, posts) && search == null) {
+        if (depthOf.plies >= 2 && posts.size > 1 && !decided(probs, ctx) && !exactAtOnePly(ctx, posts) && search == null) {
             val within = depthOf.filter.within
             val best = eq.max()
             // Every move whose 1-ply equity is within the window of the best is searched deeper, and
@@ -229,7 +229,7 @@ abstract class SearchEngine : AnalysisEngine {
                     depth[i] = code
                 }
             }
-        } else if (search != null && posts.size > 1 && !decided(probs) && !exactAtOnePly(ctx, posts)) {
+        } else if (search != null && posts.size > 1 && !decided(probs, ctx) && !exactAtOnePly(ctx, posts)) {
             // A funnel: fewer and fewer plays at each deeper stage, the last of them by played-out games.
             // The move played goes through every stage. (plies, window, most plays; plies 0 = the games.)
             val stages = if (search.games == 0) listOf(Triple(2, 0.16f, 16), Triple(3, 0.08f, 8), Triple(search.plies, search.within, search.plays))
@@ -289,11 +289,17 @@ abstract class SearchEngine : AnalysisEngine {
      * gammon and backgammon chances are the same after every play (1-ply chances, for the mover).
      * A deeper search could only find the same value for each play, so it is skipped.
      */
-    private fun decided(probs: List<List<Float>>): Boolean {
+    private fun decided(probs: List<List<Float>>, ctx: CubeContext): Boolean {
         fun same(i: Int) = probs.maxOf { it[i] } - probs.minOf { it[i] } < DECIDED_CHANCE
         val lost = probs.all { it[0] < DECIDED_CHANCE }
         val won = probs.all { it[0] > 1 - DECIDED_CHANCE }
-        return (lost || won) && (1..4).all { same(it) }
+        if (!lost && !won) return false
+        // In a match, a player whose single win at this cube wins the match gains nothing by a gammon (double
+        // match point: neither does), so their gammon and backgammon chances need not be the same.
+        fun gammonsCount(player: Int) = ctx.matchLength == 0 || ctx.matchLength - ctx.score[player] > ctx.cube.value
+        val mine = !gammonsCount(ctx.onRoll) || (same(1) && same(2))
+        val theirs = !gammonsCount(1 - ctx.onRoll) || (same(3) && same(4))
+        return mine && theirs
     }
 
     override fun chooseMove(board: Board, ctx: CubeContext, d1: Int, d2: Int, level: CpuLevel): Move {

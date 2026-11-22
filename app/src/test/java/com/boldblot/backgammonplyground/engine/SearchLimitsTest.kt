@@ -48,4 +48,25 @@ class SearchLimitsTest {
         val again = e.rankMoves(s.board, c.copy(cube = c.cube.copy()), 1, 1, pruned, last)
         assertEquals(pruned, again.candidates[again.playedIndex].plies)
     }
+
+    @Test
+    fun aWonGameAtDoubleMatchPointIsNotSearchedDeeper() {
+        val e = TestEngine.engine
+        assumeTrue(e != null)
+        // 4-4 in a 5-point match, 6-1 to play: won whatever is played (all plays 1.0000), the gammon chances differ
+        // but a gammon is worth nothing. The played-out games took 28.6 s for it on a phone (log 2026-11-21).
+        val (s, c) = ctx("-FFAAbAa--------ad-bab-b--:0:0:1:61:4:4:0:5:10")
+        for (code in listOf(com.boldblot.backgammonplyground.core.GameSearch.G36.code, Depth(3, MoveFilter.WIDE).code)) {
+            val t = System.nanoTime()
+            val r = e!!.rankMoves(s.board, c, 6, 1, code, null)
+            val ms = (System.nanoTime() - t) / 1_000_000
+            assertTrue("several plays", r.candidates.size > 1)
+            assertTrue("no play searched deeper", r.candidates.all { it.plies == 0 })
+            assertTrue("fast ($ms ms)", ms < 1_000)
+        }
+        // The same position for money: the gammons count, so the plays are still searched.
+        val money = c.copy(matchLength = 0, score = listOf(0, 0))
+        val r = e!!.rankMoves(s.board, money, 6, 1, Depth(3, MoveFilter.WIDE).code, null)
+        assertTrue("searched for money", r.candidates.any { it.plies != 0 })
+    }
 }

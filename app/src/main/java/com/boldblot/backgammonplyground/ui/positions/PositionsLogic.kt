@@ -10,6 +10,7 @@ import com.boldblot.backgammonplyground.core.DecisionKind
 import com.boldblot.backgammonplyground.core.DecisionMath
 import com.boldblot.backgammonplyground.core.Depth
 import com.boldblot.backgammonplyground.core.EngineKind
+import com.boldblot.backgammonplyground.engine.SearchEngine
 import com.boldblot.backgammonplyground.core.DiceSource
 import com.boldblot.backgammonplyground.core.MatchController
 import com.boldblot.backgammonplyground.core.Move
@@ -61,8 +62,21 @@ suspend fun analyzePosition(app: PlyGroundApp, p: StudyPosition, s: Settings, wa
 suspend fun analyzePosition(
     app: PlyGroundApp, p: StudyPosition, engine: EngineKind, checker: Depth, cube: Depth, waiting: Waiting? = null,
     keep: List<Move> = emptyList(),
-): PositionAnalysis =
-    app.engine.run(engine, waiting) {
+): PositionAnalysis = app.engine.run(engine, waiting, positionAnalysis(p, engine, checker, cube, keep))
+
+/**
+ * Analyzes [p] at the analysis depths in Settings in the background: in the background analysis slot when it has one
+ * (PureTD), so a game never waits for it; otherwise on the analysis engine, in turn with the game.
+ */
+suspend fun analyzeInBackground(app: PlyGroundApp, p: StudyPosition, s: Settings): PositionAnalysis {
+    val match = p.ctx().matchLength > 0
+    val block = positionAnalysis(p, s.analysisEngine, s.checkerDepth(match), s.cubeDepth(match), emptyList())
+    return if (app.engine.twoSlots) app.engine.runBackground(block) else app.engine.run(s.analysisEngine, null, block)
+}
+
+/** The engine work of [analyzePosition]. */
+private fun positionAnalysis(p: StudyPosition, engine: EngineKind, checker: Depth, cube: Depth, keep: List<Move>): SearchEngine.() -> PositionAnalysis =
+    {
         val dice = p.dice
         if (dice != null) {
             val c = MatchController(this, DiceSource.secure(), AnalysisSettings(plies = checker.code, cubePlies = cube.code))
