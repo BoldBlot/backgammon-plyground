@@ -106,6 +106,9 @@ class Repository(private val db: AppDatabase) {
     /** Called with each blunder newly added to the list (linked folders that add new blunders at once). */
     var onNewBlunder: (suspend (SavedBlunder) -> Unit)? = null
 
+    /** Settings → My positions: marked decisions go through the automatic filing once analyzed. */
+    var fileMarked: (suspend () -> Boolean)? = null
+
     suspend fun createMatch(rules: MatchRules, level: CpuLevel, mistakes: MistakeRate?, engine: EngineKind = EngineKind.PURETD): Long = dao.insertMatch(
         MatchEntity(
             startedAt = System.currentTimeMillis(), length = rules.length, cpuLevel = Opponent.key(level, mistakes, engine),
@@ -195,7 +198,7 @@ class Repository(private val db: AppDatabase) {
     suspend fun matchOver(id: Long): Boolean = dao.match(id)?.let { it.status != MatchStatus.IN_PROGRESS } ?: true
 
     /** The errors of match [matchId] waiting in New errors (the human's). */
-    suspend fun blundersOf(matchId: Long): List<SavedBlunder> = dao.blundersOfMatch(matchId).filter { !it.opponent && !it.marked }.mapNotNull { e ->
+    suspend fun blundersOf(matchId: Long, marked: Boolean = false): List<SavedBlunder> = dao.blundersOfMatch(matchId).filter { !it.opponent && (marked || !it.marked) }.mapNotNull { e ->
         runCatching { SavedBlunder(e, AppJson.decodeFromString<DecisionRecord>(e.record)) }.getOrNull()
     }
 
@@ -401,7 +404,11 @@ class Repository(private val db: AppDatabase) {
         val rec = d.turned()
         // Marked: it waits in New Marked whatever it cost, now with its analysis.
         dao.blunderAt(matchId, gameNumber, index)?.takeIf { it.marked }?.let { e ->
-            rec.error?.let { dao.setMarkedBlunder(e.id, it * XgRules.errorFactor(matchLength), AppJson.encodeToString(rec)) }
+            val err = rec.error ?: return
+            val record = AppJson.encodeToString(rec)
+            dao.setMarkedBlunder(e.id, err * XgRules.errorFactor(matchLength), record)
+            // With "Include marked positions" the automatic filing sees it now it is analyzed (filed: it leaves New Marked).
+            if (fileMarked?.invoke() == true) onNewBlunder?.invoke(SavedBlunder(e.copy(error = err * XgRules.errorFactor(matchLength), record = record), rec))
             return
         }
         val error = (rec.error ?: return) * XgRules.errorFactor(matchLength)

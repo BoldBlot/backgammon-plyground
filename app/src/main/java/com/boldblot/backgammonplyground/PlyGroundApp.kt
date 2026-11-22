@@ -96,6 +96,7 @@ class PlyGroundApp : Application() {
             if (s.errorsMode != ErrorsMode.MANUAL) trimNewErrors(s.excludedKeep)
         }
         repository.libraryMax = { settings.settings.first().libraryMax }
+        repository.fileMarked = { settings.settings.first().fileMarked }
         repository.onMatchFinished = { id -> if (settings.settings.first().errorsMode == ErrorsMode.TOP_X) fileTopX(id) }
         // Analysis uses the engine chosen in Settings.
         appScope.launch {
@@ -120,7 +121,7 @@ class PlyGroundApp : Application() {
     /** Top X per match: files the biggest errors of match [id] still in New errors, up to X with the ones filed before. */
     private suspend fun fileTopX(id: Long) {
         val s = settings.settings.first()
-        val waiting = repository.blundersOf(id)
+        val waiting = repository.blundersOf(id, marked = s.fileMarked)
         val already = s.topXFiledOf(id)
         val chosen = NewErrors.topX(waiting.map { it.entity.id to it.entity.error }, s.topX, s.errorMin, already).toSet()
         if (chosen.isEmpty()) return

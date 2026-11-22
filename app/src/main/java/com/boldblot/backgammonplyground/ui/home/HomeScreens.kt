@@ -1394,6 +1394,12 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
             )
         }
     }
+    Toggle("Include marked positions", s.fileMarked) { v -> update { it.copy(fileMarked = v) } }
+    Note(
+        if (s.fileMarked) "A position you mark while playing goes through the automatic filing too once it is analyzed (your " +
+            "automatic folders and the method above); one that is filed leaves New Marked, keeping its Marked label."
+        else "Positions you mark while playing wait in New Marked until you add them.",
+    )
     if (s.errorsMode != ErrorsMode.MANUAL) {
         Chips("Sort into", ErrorsSort.entries, s.errorsSort, { it.label }) { v -> update { it.copy(errorsSort = v) } }
         Note("The Checker and Cube folders are made when needed.")

@@ -317,6 +317,10 @@ data class Settings(
     /** Top X per match: errors filed so far, per match ("id:count"; the newest matches only). */
     val topXFiled: Set<String> = emptySet(),
     val errorsSort: ErrorsSort = ErrorsSort.SPLIT,
+    /** Marked decisions, once analyzed, go through the automatic filing too (autofilters, the methods); off: they wait in New Marked. */
+    val fileMarked: Boolean = true,
+    /** Per set ("setId:index"): where a quiz in the set's order with a number of positions carries on. */
+    val setQuizNext: Set<String> = emptySet(),
     val quizCorrect: QuizCorrect = QuizCorrect.NOT_ERROR,
     /** [QuizCorrect.FIXED]: an answer costing up to this is right. */
     val quizFixedError: Float = 0.04f,
@@ -462,6 +466,15 @@ data class Settings(
     val newErrorsMin: Float get() = if (errorsMode == ErrorsMode.MANUAL) errorMin else XgRulesDefaults.ERROR
 
     /** Top X per match: errors of match [id] filed so far. */
+    /** Where set [id]'s next quiz in order carries on (0: the start), and how many its last quiz had (0: all). */
+    fun setQuizNextOf(id: Long): Pair<Int, Int> = setQuizNext.firstNotNullOfOrNull { e ->
+        e.split(':').takeIf { it.size >= 2 && it[0] == id.toString() }?.let { (it[1].toIntOrNull() ?: 0) to (it.getOrNull(2)?.toIntOrNull() ?: 0) }
+    } ?: (0 to 0)
+
+    /** [setQuizNext] with set [id] at [index] after a quiz of [count], keeping the 50 newest sets. */
+    fun withSetQuizNext(id: Long, index: Int, count: Int): Set<String> =
+        (setQuizNext.filterNot { it.startsWith("$id:") } + "$id:$index:$count").sortedByDescending { it.substringBefore(':').toLongOrNull() ?: 0L }.take(50).toSet()
+
     fun topXFiledOf(id: Long): Int = topXFiled.firstNotNullOfOrNull { e -> e.split(':').takeIf { it.size == 2 && it[0] == id.toString() }?.get(1)?.toIntOrNull() } ?: 0
 
     /** [topXFiled] with match [id] at [count], keeping the 30 newest matches. */
@@ -598,6 +611,8 @@ class SettingsStore(private val context: Context) {
         val excludedKeep = intPreferencesKey("excluded_keep")
         val topXFiled = androidx.datastore.preferences.core.stringSetPreferencesKey("top_x_filed")
         val errorsSort = stringPreferencesKey("errors_sort")
+        val fileMarked = booleanPreferencesKey("file_marked")
+        val setQuizNext = androidx.datastore.preferences.core.stringSetPreferencesKey("set_quiz_next")
         val quizCorrect = stringPreferencesKey("quiz_correct")
         val quizFixedError = floatPreferencesKey("quiz_fixed_error")
         val quizAdaptiveRatio = floatPreferencesKey("quiz_adaptive_ratio")
@@ -736,6 +751,8 @@ class SettingsStore(private val context: Context) {
             excludedKeep = p[Keys.excludedKeep] ?: d.excludedKeep,
             topXFiled = p[Keys.topXFiled] ?: d.topXFiled,
             errorsSort = p.enum(Keys.errorsSort, d.errorsSort),
+            fileMarked = p[Keys.fileMarked] ?: d.fileMarked,
+            setQuizNext = p[Keys.setQuizNext] ?: d.setQuizNext,
             quizCorrect = p.enum(Keys.quizCorrect, d.quizCorrect),
             quizFixedError = p[Keys.quizFixedError] ?: d.quizFixedError,
             quizAdaptiveRatio = p[Keys.quizAdaptiveRatio] ?: d.quizAdaptiveRatio,
@@ -871,6 +888,8 @@ class SettingsStore(private val context: Context) {
             p[Keys.excludedKeep] = s.excludedKeep
             p[Keys.topXFiled] = s.topXFiled
             p[Keys.errorsSort] = s.errorsSort.name
+            p[Keys.fileMarked] = s.fileMarked
+            p[Keys.setQuizNext] = s.setQuizNext
             p[Keys.quizCorrect] = s.quizCorrect.name
             p[Keys.quizFixedError] = s.quizFixedError
             p[Keys.quizAdaptiveRatio] = s.quizAdaptiveRatio

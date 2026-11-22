@@ -185,7 +185,12 @@ class QuizViewModel(
             val s = app.settings.settings.first()
             if (set != null) {
                 val cards = app.sets.cards(set.setId)
-                all = if (set.shuffle) cards.shuffled() else cards
+                // A number of positions: that many at random, or in the set's order from where the last quiz stopped.
+                all = when {
+                    set.count <= 0 || set.count >= cards.size -> if (set.shuffle) cards.shuffled() else cards
+                    set.shuffle -> cards.shuffled().take(set.count)
+                    else -> (cards.drop(set.start) + cards.take(set.start)).take(set.count)
+                }
                 gameTitle = app.sets.set(set.setId)?.name
             } else if (game != null) {
                 // The priority and the limit pick the decisions once; "Repeat" asks the same ones.

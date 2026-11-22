@@ -24,6 +24,9 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
@@ -77,13 +80,20 @@ import java.text.DateFormat
 import java.util.Date
 
 /** A set quiz: the positions of set [setId], in its order or [shuffle]d; with [friend] nothing is kept. */
-data class SetQuizSpec(val setId: Long, val shuffle: Boolean = false, val friend: Boolean = false) {
-    fun encode(): String = "$setId;${if (shuffle) 1 else 0};${if (friend) 1 else 0}"
+data class SetQuizSpec(
+    val setId: Long, val shuffle: Boolean = false, val friend: Boolean = false,
+    /** How many positions (0: all); in the set's order from [start] (0-based, wrapping round), else at random. */
+    val count: Int = 0, val start: Int = 0,
+) {
+    fun encode(): String = "$setId;${if (shuffle) 1 else 0};${if (friend) 1 else 0};$count;$start"
 
     companion object {
         fun decode(text: String): SetQuizSpec {
             val p = text.split(';')
-            return SetQuizSpec(p.getOrNull(0)?.toLongOrNull() ?: 0L, p.getOrNull(1) == "1", p.getOrNull(2) == "1")
+            return SetQuizSpec(
+                p.getOrNull(0)?.toLongOrNull() ?: 0L, p.getOrNull(1) == "1", p.getOrNull(2) == "1",
+                p.getOrNull(3)?.toIntOrNull() ?: 0, p.getOrNull(4)?.toIntOrNull() ?: 0,
+            )
         }
     }
 }
@@ -251,6 +261,7 @@ fun SetScreen(app: PlyGroundApp, setId: Long, onBack: () -> Unit, onQuiz: (SetQu
     val context = LocalContext.current
     var set by remember { mutableStateOf<PositionSetEntity?>(null) }
     var cards by remember { mutableStateOf<List<SavedPosition>?>(null) }
+    val settingsNow by app.settings.settings.collectAsState(initial = null)
     var reload by remember { mutableIntStateOf(0) }
     // Each finished background analysis reloads the list (the rows show the analyses).
     val analyzed by app.setAnalysis.done.collectAsState()
@@ -353,9 +364,21 @@ fun SetScreen(app: PlyGroundApp, setId: Long, onBack: () -> Unit, onQuiz: (SetQu
     if (savingAll) list?.let { l ->
         SaveAllToPositionsDialog(app, l, "Set: ${set?.name.orEmpty()}") { savingAll = false }
     }
-    if (quizzing) SetQuizDialog(onDismiss = { quizzing = false }) { shuffle, friend ->
-        quizzing = false
-        onQuiz(SetQuizSpec(setId, shuffle, friend))
+    if (quizzing) {
+        val size = cards?.size ?: 0
+        val (nextAt, lastCount) = settingsNow?.setQuizNextOf(setId) ?: (0 to 0)
+        val next = nextAt.takeIf { it in 0 until size } ?: 0
+        SetQuizDialog(size, next, lastCount.takeIf { it in 1 until size } ?: 0, onDismiss = { quizzing = false }) { shuffle, friend, count, start ->
+            quizzing = false
+            // The number is remembered; in order, the next quiz carries on after these.
+            scope.launch {
+                app.settings.update {
+                    val at = if (!shuffle && count in 1 until size) (start + count) % size else it.setQuizNextOf(setId).first
+                    it.copy(setQuizNext = it.withSetQuizNext(setId, at, count))
+                }
+            }
+            onQuiz(SetQuizSpec(setId, shuffle, friend, if (count >= size) 0 else count, start))
+        }
     }
     if (editing) set?.let { s ->
         SetDetailsDialog(s, length = list?.mapNotNull { it.position.setup.matchLength }?.distinct()?.singleOrNull(), onDismiss = { editing = false }) { changed ->
@@ -406,19 +429,45 @@ internal fun analysisLine(p: SavedPosition): String {
 
 /** The set quiz's choices: in the set's order or shuffled, and Quiz a friend (nothing kept). */
 @Composable
-private fun SetQuizDialog(onDismiss: () -> Unit, onStart: (shuffle: Boolean, friend: Boolean) -> Unit) {
+private fun SetQuizDialog(size: Int, next: Int, lastCount: Int, onDismiss: () -> Unit, onStart: (shuffle: Boolean, friend: Boolean, count: Int, start: Int) -> Unit) {
     var shuffle by remember { mutableStateOf(false) }
     var friend by remember { mutableStateOf(false) }
+    // How many: 0 = all.
+    var count by remember { mutableStateOf(lastCount) }
+    var start by remember { mutableStateOf(next) }
+    val n = if (count <= 0 || count >= size) size else count
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Quiz this set") },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Row(Modifier.fillMaxWidth().clickable { shuffle = false }, verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(!shuffle, { shuffle = false }); Text("In the set's order")
                 }
                 Row(Modifier.fillMaxWidth().clickable { shuffle = true }, verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(shuffle, { shuffle = true }); Text("Shuffled")
+                }
+                Text("How many", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp), itemVerticalAlignment = Alignment.CenterVertically,
+                ) {
+                    FilterChip(selected = n == size, onClick = { count = 0 }, label = { Text("All $size") })
+                    for (c in listOf(5, 10, 20).filter { it < size }) FilterChip(selected = count == c, onClick = { count = c }, label = { Text("$c") })
+                    IconButton(onClick = { count = (n - 1).coerceAtLeast(1) }, enabled = n > 1) { Icon(Icons.Default.Remove, "Fewer") }
+                    Text("$n", style = MaterialTheme.typography.titleSmall)
+                    IconButton(onClick = { count = (n + 1).coerceAtMost(size) }, enabled = n < size) { Icon(Icons.Default.Add, "More") }
+                }
+                if (!shuffle && n < size) {
+                    val last = (start + n - 1) % size + 1
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Positions ${start + 1}–$last" + (if (start > 0) ", where the last quiz stopped" else ""),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
+                        )
+                        if (start > 0) TextButton(onClick = { start = 0 }) { Text("From 1") }
+                    }
+                } else if (shuffle && n < size) {
+                    Text("$n positions of the $size at random.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Row(Modifier.fillMaxWidth().clickable { friend = !friend }.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -433,7 +482,7 @@ private fun SetQuizDialog(onDismiss: () -> Unit, onStart: (shuffle: Boolean, fri
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onStart(shuffle, friend) }) { Text("Start") } },
+        confirmButton = { TextButton(onClick = { onStart(shuffle, friend, if (n >= size) 0 else n, if (shuffle) 0 else start) }) { Text("Start") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

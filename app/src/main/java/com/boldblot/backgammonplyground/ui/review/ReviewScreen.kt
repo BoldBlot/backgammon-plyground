@@ -480,7 +480,8 @@ private fun title(m: MatchEntity?): String = when {
 private fun ReviewContent(st: ReviewState, vm: ReviewViewModel, onBack: () -> Unit, onQuiz: ((Long) -> Unit)? = null) {
     val capture = rememberBoardCapture()
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val sideWidth = minOf(390.dp, maxWidth * 0.42f)
+        // Wide enough for the view chips in one row (Board, After, Save, Deep dive); the board and the played/best boxes give way.
+        val sideWidth = minOf(440.dp, maxWidth * 0.48f)
         if (maxWidth > maxHeight) {
             Row(Modifier.fillMaxSize().padding(6.dp)) {
                 Column(Modifier.width(sideWidth).fillMaxHeight()) {

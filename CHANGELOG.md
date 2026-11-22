@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.19 — 2026-11-22 (build 100, internal test)
+
+- Match review in landscape: the left panel is wider, so Board, After, Save and Deep dive fit in one row; the board
+  and the Played / Best boxes are a little narrower.
+- Set quiz: How many (All, 5, 10, 20, or − and +). Shuffled takes that many at random; in the set's order a quiz
+  carries on where the last one stopped (positions 11–20 after 1–10, then round to the start), with From 1 to start
+  again. The number is remembered per set.
+- Settings → My positions: Include marked positions (on). A position you mark while playing now goes through the
+  automatic filing once it is analyzed, like any error: your automatic folders, the threshold or adaptive threshold,
+  and Top X. One that is filed leaves New Marked and keeps its Marked label. Off: marked positions wait in New
+  Marked as before (until 0.9.18 they always did, however big the error).
+
 ## 0.9.18 — 2026-11-22 (build 99, internal test)
 
 - Sets: another app can send the move played with each position (com.boldblot.backgammonplyground.extra.PLAYED with

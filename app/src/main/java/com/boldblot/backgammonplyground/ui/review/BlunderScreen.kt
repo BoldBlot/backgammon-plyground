@@ -365,7 +365,7 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
     val onKeep = { vm.keep() }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth > maxHeight) {
-            val sideWidth = minOf(390.dp, maxWidth * 0.42f)
+            val sideWidth = minOf(440.dp, maxWidth * 0.48f)
             Row(Modifier.fillMaxSize().padding(6.dp)) {
                 Column(Modifier.width(sideWidth).fillMaxHeight()) {
                     TopRow(onBack, share)
