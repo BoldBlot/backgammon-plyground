@@ -37,6 +37,8 @@ class PlyGroundApp : Application() {
     val pendingMatchFile = MutableStateFlow<ByteArray?>(null)
     /** A position (XGID) another app sent to Analyze Position ([MainActivity.ACTION_ANALYZE_POSITION]), waiting to be set up there. */
     val pendingAnalyze = MutableStateFlow<String?>(null)
+    /** With [pendingAnalyze]: the play to set as the decision (a set position's move played), read once. */
+    var pendingAnalyzePlayed: com.boldblot.backgammonplyground.core.Move? = null
     /** A series of positions for a new set (another app's [MainActivity.ACTION_IMPORT_SET], or My positions' import), waiting for the Match Library's Sets. */
     val pendingSet = MutableStateFlow<PendingSet?>(null)
     /** A deep dive asked for (Analyze Position, the review), waiting to open; then [deepDive] while its screen shows. */
@@ -135,4 +137,8 @@ class PlyGroundApp : Application() {
 }
 
 /** Positions for a new set: [text] with one ID per line; the set's name and players when the sender gave them. */
-data class PendingSet(val text: String, val name: String? = null, val bottomName: String? = null, val topName: String? = null)
+data class PendingSet(
+    val text: String, val name: String? = null, val bottomName: String? = null, val topName: String? = null,
+    /** The move played in each position (one entry per position line, "" when not known), when the sender sent them. */
+    val played: List<String>? = null,
+)

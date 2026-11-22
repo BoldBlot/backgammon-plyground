@@ -68,9 +68,9 @@ suspend fun analyzePosition(
  * Analyzes [p] at the analysis depths in Settings in the background: in the background analysis slot when it has one
  * (PureTD), so a game never waits for it; otherwise on the analysis engine, in turn with the game.
  */
-suspend fun analyzeInBackground(app: PlyGroundApp, p: StudyPosition, s: Settings): PositionAnalysis {
+suspend fun analyzeInBackground(app: PlyGroundApp, p: StudyPosition, s: Settings, keep: List<Move> = emptyList()): PositionAnalysis {
     val match = p.ctx().matchLength > 0
-    val block = positionAnalysis(p, s.analysisEngine, s.checkerDepth(match), s.cubeDepth(match), emptyList())
+    val block = positionAnalysis(p, s.analysisEngine, s.checkerDepth(match), s.cubeDepth(match), keep)
     return if (app.engine.twoSlots) app.engine.runBackground(block) else app.engine.run(s.analysisEngine, null, block)
 }
 

@@ -172,7 +172,7 @@ fun SetsPane(app: PlyGroundApp, importing: Boolean, onImportingDone: () -> Unit,
 @Composable
 fun SetImportDialog(app: PlyGroundApp, pending: PendingSet, onDismiss: () -> Unit, onCreated: (Long) -> Unit) {
     val settings by app.settings.settings.collectAsState(initial = null)
-    val preview = remember(pending) { PositionSeries.read(pending.text) }
+    val preview = remember(pending) { PositionSeries.read(pending.text, played = pending.played) }
     val scope = rememberCoroutineScope()
     val length = preview.matchLength
     var name by remember(pending) { mutableStateOf(pending.name ?: "Set ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date())}") }
@@ -188,7 +188,7 @@ fun SetImportDialog(app: PlyGroundApp, pending: PendingSet, onDismiss: () -> Uni
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 val n = preview.items.size
                 Text(
-                    "$n position${if (n == 1) "" else "s"}, in the order given" +
+                    "$n position${if (n == 1) "" else "s"}" + (if (preview.withPlayed > 0) ", ${preview.withPlayed} with the move played" else "") + ", in the order given" +
                         (if (preview.skipped > 0) " (${preview.skipped} line${if (preview.skipped == 1) "" else "s"} could not be read)" else "") +
                         ". A set is not part of My positions, and its quiz answers are not in the statistics.",
                     style = MaterialTheme.typography.bodySmall,
@@ -337,13 +337,16 @@ fun SetScreen(app: PlyGroundApp, setId: Long, onBack: () -> Unit, onQuiz: (SetQu
                         extra = analysisLine(p),
                     ) {
                         // Analyze Position with the position as the set has it (a take or pass with the double on offer).
-                        if (sel != null) toggle() else app.pendingAnalyze.value = PositionSeries.analyzeId(p.position)
+                        if (sel != null) toggle() else {
+                            app.pendingAnalyzePlayed = p.played?.move
+                            app.pendingAnalyze.value = PositionSeries.analyzeId(p.position)
+                        }
                     }
                 }
             }
         }
     }
-    saving?.let { p -> SaveToPositionsDialog(app, p.position, "Set: ${p.entity.source}", analysis = p.analysis) { saving = null } }
+    saving?.let { p -> SaveToPositionsDialog(app, p.position, "Set: ${p.entity.source}", played = p.played, analysis = p.analysis) { saving = null } }
     savingSelected?.let { l ->
         SaveAllToPositionsDialog(app, l, "Set: ${set?.name.orEmpty()}") { savingSelected = null; selected = null }
     }
@@ -391,6 +394,7 @@ private fun AnalysisProgressLine(p: SetProgress) {
 }
 
 /** A set row's analysis line: the best play or cube action and the depth, or that it has none yet. */
+// The move played (when the set has it) is the row's title, with its error once analyzed, as in My positions.
 internal fun analysisLine(p: SavedPosition): String {
     val a = p.analysis ?: return "Not analyzed yet"
     val sp = p.position

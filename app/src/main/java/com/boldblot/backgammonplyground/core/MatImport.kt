@@ -166,8 +166,8 @@ object MatImport {
     /** Galaxy's "Losses 1 point" on the loser's side of a game's last row: it ends the move (the result comes from Wins). */
     private val losses = Regex("""\blosses\s+\d+\s+points?\b.*$""", RegexOption.IGNORE_CASE)
 
-    /** "24/18* 13/7(2) bar/20/16" as (from, to) steps in the mover's points (bar 25, off 0). */
-    private fun steps(raw: String): List<Pair<Int, Int>> {
+    /** "24/18* 13/7(2) bar/20/16" as (from, to) steps in the mover's points (bar 25, off 0). Also for sets' played moves. */
+    fun steps(raw: String): List<Pair<Int, Int>> {
         val text = noMove.replace(losses.replace(raw, ""), " ")
         val out = mutableListOf<Pair<Int, Int>>()
         for (token in text.trim().split(Regex("\\s+"))) {

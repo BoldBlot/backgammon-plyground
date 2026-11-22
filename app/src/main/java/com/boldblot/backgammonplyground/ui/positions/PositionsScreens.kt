@@ -1224,7 +1224,7 @@ fun SaveAllToPositionsDialog(app: PlyGroundApp, positions: List<SavedPosition>, 
     CategoriesDialog(app, initial = emptySet(), positionId = null, title = "Save ${positions.size} to My positions", onDismiss = onDismiss) { ids, _ ->
         onDismiss()
         app.appScope.launch {
-            positions.forEach { app.positions.save(it.position, source, "", ids, analysis = it.analysis) }
+            positions.forEach { app.positions.save(it.position, source, "", ids, analysis = it.analysis, played = it.played) }
         }
         Toast.makeText(context, "Saved ${positions.size} to My positions", Toast.LENGTH_SHORT).show()
     }

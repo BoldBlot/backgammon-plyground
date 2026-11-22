@@ -75,4 +75,43 @@ class PositionSeriesTest {
             assertEquals(id, p, StudyPosition.parse(PositionSeries.analyzeId(stored)))
         }
     }
+
+    // ---- the move played (extra.PLAYED) ----
+
+    private fun start() = IntArray(25).also { it[23] = 2; it[12] = 5; it[7] = 3; it[5] = 5 }
+
+    private fun xgid(me: IntArray, opp: IntArray, d1: Int, d2: Int): String =
+        PositionIds.toXgid(PositionSetup(Board.fromSides(me, opp), Player.HUMAN, Dice(d1, d2), matchLength = 7, format = "XGID"))
+
+    @Test
+    fun playedMovesComeWithThePositionsWhereLegal() {
+        val opening = xgid(start(), start(), 6, 4)
+        // The opponent's blot on your 18 point (one of their 13-point checkers).
+        val blotOpp = start().also { it[12] = 4; it[6] = 1 }
+        val hit = xgid(start(), blotOpp, 6, 4)
+        val doubles = xgid(start(), start(), 3, 3)
+        val onBar = xgid(start().also { it[23] = 1; it[24] = 1 }, start(), 6, 4)
+        val home = xgid(IntArray(25).also { it[5] = 5; it[4] = 5; it[3] = 5 }, start(), 6, 4)
+        val lines = listOf(opening, opening, hit, doubles, onBar, home, opening, opening)
+        val played = listOf("24/18 13/9", "24/18/14", "24/18* 13/9", "8/5(2) 6/3(2)", "bar/21 24/18", "6/off 4/off", "", "13/7 8/7")
+        val p = PositionSeries.read(lines.joinToString("\n"), played = played)
+        assertEquals(8, p.items.size)
+        assertEquals(6, p.withPlayed)
+        val made = p.items.map { it.played?.let { m -> MoveNotation.format(it.position.board, Player.HUMAN, m) } }
+        assertEquals("24/18 13/9", made[0])
+        assertTrue(made[1] != null) // 24/18/14 is the play 24/14
+        assertTrue(made[2]!!.contains("*"))
+        assertNull(made[6]) // not known
+        assertNull(made[7]) // not a legal play with 64
+    }
+
+    @Test
+    fun anotherCountOfPlayedMovesIsIgnored() {
+        val opening = xgid(start(), start(), 6, 4)
+        val p = PositionSeries.read("$opening\n\n$opening", played = listOf("24/18 13/9"))
+        assertEquals(2, p.items.size)
+        assertEquals(0, p.withPlayed)
+        // Blank lines are not counted: two entries for two IDs.
+        assertEquals(2, PositionSeries.read("$opening\n\n$opening", played = listOf("24/18 13/9", "8/2 6/2")).withPlayed)
+    }
 }

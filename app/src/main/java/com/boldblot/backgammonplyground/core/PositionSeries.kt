@@ -8,7 +8,8 @@ package com.boldblot.backgammonplyground.core
  */
 object PositionSeries {
 
-    class Item(val position: StudyPosition, val bottomDecides: Boolean)
+    /** One position; [played]: the move played there, when the sender knew it (a legal play of the decider). */
+    class Item(val position: StudyPosition, val bottomDecides: Boolean, val played: Move? = null)
 
     class Preview(
         val items: List<Item>,
@@ -17,14 +18,40 @@ object PositionSeries {
     ) {
         /** The match length all the positions share (0 = money), or null when they differ or there are none. */
         val matchLength: Int? get() = items.map { it.position.setup.matchLength }.distinct().singleOrNull()
+
+        /** How many come with the move played. */
+        val withPlayed: Int get() = items.count { it.played != null }
     }
 
-    fun read(text: String, beavers: Boolean = false): Preview {
+    /**
+     * The positions of [text], one ID per non-blank line; [played], when it has one entry per such line, gives the move
+     * played in each ("13/7 8/7", "" when not known). An entry that is not a legal play there is left out; another
+     * count of entries is ignored altogether.
+     */
+    fun read(text: String, beavers: Boolean = false, played: List<String>? = null): Preview {
         var skipped = 0
-        val items = text.lines().filter { it.isNotBlank() }.mapNotNull { line ->
-            runCatching { item(line, beavers) }.getOrNull() ?: run { skipped++; null }
+        val lines = text.lines().filter { it.isNotBlank() }
+        val moves = played?.takeIf { it.size == lines.size }
+        val items = lines.mapIndexedNotNull { i, line ->
+            val it = runCatching { item(line, beavers) }.getOrNull() ?: run { skipped++; return@mapIndexedNotNull null }
+            val m = moves?.getOrNull(i)?.let { text -> playedMove(text, it.position) }
+            if (m == null) it else Item(it.position, it.bottomDecides, m)
         }
         return Preview(items, skipped)
+    }
+
+    /**
+     * [text] ("13/7 8/7", "8/5(2) 6/5(2)", "bar/22*", "6/off", "24/18/13") as the legal play of [p]'s decider it is (plays
+     * are matched by the position they leave), or null.
+     */
+    fun playedMove(text: String, p: StudyPosition): Move? {
+        if (text.isBlank()) return null
+        val d = p.dice ?: return null
+        val steps = runCatching { MatImport.steps(text).map { (a, b) -> Step(a - 1, b - 1) } }.getOrNull() ?: return null
+        val target = runCatching { p.board.applyMove(Player.HUMAN, Move(steps)) }.getOrNull() ?: return null
+        return MoveGenerator.legalMoves(p.board, Player.HUMAN, d.d1, d.d2).firstOrNull {
+            !it.isEmpty && runCatching { p.board.applyMove(Player.HUMAN, it) }.getOrNull() == target
+        }
     }
 
     /** One line's position, turned so that its decider is at the bottom. */

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.18 — 2026-11-22 (build 99, internal test)
+
+- Sets: another app can send the move played with each position (com.boldblot.backgammonplyground.extra.PLAYED with
+  action.IMPORT_SET: a string array parallel to the ID lines, "13/7 8/7", "8/5(2) 6/3(2)", "bar/22*", "6/off", ""
+  when not known). The New set dialog counts them ("3 positions, 2 with the move played"); an entry that is not a
+  legal play, or another number of entries, is left out without failing the set. The set's rows show the move played
+  and, once analyzed, what it cost; opening a position in Analyze Position sets it as the decision; the background
+  analysis searches it as deeply as the best play; the quiz shows it with the answer; Save to My positions keeps it.
+  Deep dive from such a position follows it first.
+
 ## 0.9.17 — 2026-11-22 (build 98, internal test)
 
 - Deep dive, the score: Pre-Crawford, Crawford game and Post-Crawford switches under each score range (all on): the

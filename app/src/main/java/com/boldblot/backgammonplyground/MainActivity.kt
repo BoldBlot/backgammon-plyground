@@ -77,6 +77,14 @@ class MainActivity : ComponentActivity() {
          */
         const val ACTION_IMPORT_SET = "com.boldblot.backgammonplyground.action.IMPORT_SET"
         const val EXTRA_BOTTOM_PLAYER = "com.boldblot.backgammonplyground.extra.BOTTOM_PLAYER"
+
+        /**
+         * Optional with [ACTION_IMPORT_SET]: the move played in each position, a String array (or ArrayList) parallel to
+         * the ID lines (blank lines not counted): "13/7 8/7", "8/5(2) 6/5(2)", "bar/22*", "6/off", from the decider's
+         * view; "" when not known. Another count, or an entry that is not a legal play there, is ignored (the position
+         * comes without it).
+         */
+        const val EXTRA_PLAYED = "com.boldblot.backgammonplyground.extra.PLAYED"
         const val EXTRA_TOP_PLAYER = "com.boldblot.backgammonplyground.extra.TOP_PLAYER"
     }
 
@@ -102,6 +110,7 @@ class MainActivity : ComponentActivity() {
             app.pendingSet.value = PendingSet(
                 intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty(), name = intent.getStringExtra(Intent.EXTRA_TITLE)?.takeIf { it.isNotBlank() },
                 bottomName = intent.getStringExtra(EXTRA_BOTTOM_PLAYER)?.takeIf { it.isNotBlank() }, topName = intent.getStringExtra(EXTRA_TOP_PLAYER)?.takeIf { it.isNotBlank() },
+                played = intent.getStringArrayExtra(EXTRA_PLAYED)?.toList() ?: intent.getStringArrayListExtra(EXTRA_PLAYED),
             )
             return
         }
@@ -190,7 +199,7 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(pendingAnalyze) {
             val text = pendingAnalyze ?: return@LaunchedEffect
             app.pendingAnalyze.value = null
-            positionVm.openSent(text)
+            positionVm.openSent(text, played = app.pendingAnalyzePlayed.also { app.pendingAnalyzePlayed = null })
             if (nav.currentDestination?.route != "position") nav.navigate("position")
         }
         val pendingDeepDive by app.pendingDeepDive.collectAsState()

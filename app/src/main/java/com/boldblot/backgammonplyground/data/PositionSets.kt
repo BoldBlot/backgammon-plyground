@@ -29,6 +29,7 @@ class PositionSetsRepository(db: AppDatabase) {
                 SetPositionEntity(
                     setId = 0, number = i + 1, xgid = it.position.xgid, doubled = it.position.doubled, beavers = it.position.beavers,
                     bottomDecides = it.bottomDecides,
+                    played = it.played?.let { m -> AppJson.encodeToString(MyAnswer(move = m)) },
                 )
             },
         )
@@ -61,6 +62,7 @@ class PositionSetsRepository(db: AppDatabase) {
             analysis = e.analysis?.let { runCatching { AppJson.decodeFromString<PositionAnalysis>(it) }.getOrNull() },
             answer = null, labels = emptySet(),
             lastAnswer = e.lastAnswer?.let { runCatching { AppJson.decodeFromString<MyAnswer>(it) }.getOrNull() },
+            played = e.played?.let { runCatching { AppJson.decodeFromString<MyAnswer>(it) }.getOrNull() },
         )
     }.getOrNull()
 

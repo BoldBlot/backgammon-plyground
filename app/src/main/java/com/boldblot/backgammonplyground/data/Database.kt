@@ -473,6 +473,8 @@ data class SetPositionEntity(
     val lastRight: Boolean? = null,
     val lastNeutral: Boolean = false,
     /** JSON of MyAnswer: the last set quiz answer. */
+    /** JSON of MyAnswer: the move played there, when the sender knew it (schema 12). */
+    val played: String? = null,
     val lastAnswer: String? = null,
 )
 
@@ -543,12 +545,12 @@ interface SetDao {
         PositionEntity::class, CategoryEntity::class, PositionCategoryEntity::class, QuizAnswerEntity::class,
         PositionSetEntity::class, SetPositionEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4),
         AutoMigration(from = 4, to = 5, spec = QuizCountsMigration::class), AutoMigration(from = 5, to = 6), AutoMigration(from = 6, to = 7), AutoMigration(from = 7, to = 8), AutoMigration(from = 8, to = 9), AutoMigration(from = 9, to = 10),
-        AutoMigration(from = 10, to = 11),
+        AutoMigration(from = 10, to = 11), AutoMigration(from = 11, to = 12),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -25,8 +25,8 @@ android {
         targetSdk = 36
         // Play's upload code: one more for every bundle uploaded to Play (internal or closed). It is
         // also the build number the app shows, and each upload moves the version's last digit on.
-        versionCode = 98
-        versionName = "0.9.17"
+        versionCode = 99
+        versionName = "0.9.18"
         buildConfigField("String", "BUILD_LABEL", "\"$versionCode\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -302,13 +302,16 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
      * A position another app sent (an XGID): set up as an import, out of "Your play". One that cannot be read
      * leaves an empty board and says why.
      */
-    fun openSent(text: String) {
+    fun openSent(text: String, played: Move? = null) {
         _state.update { it.copy(playMode = false) }
         val error = if (text.isBlank()) "No position came with the request." else import(text.trim())
         if (error != null) {
             clear()
             _state.update { it.copy(message = "The position sent could not be read: $error") }
+            return
         }
+        // A set position's move played: the decision, so the analysis shows its error.
+        if (played != null && _state.value.hasDice) _state.update { it.copy(playMode = true, play = played, steps = played.steps, message = "Played: ${com.boldblot.backgammonplyground.core.MoveNotation.format(it.board, it.onRoll, played)}") }
     }
 
     /** The position as an XGID or a GNU ID ("PositionID:MatchID"), for XG or gnubg. */

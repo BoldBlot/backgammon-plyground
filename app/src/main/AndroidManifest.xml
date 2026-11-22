@@ -24,7 +24,8 @@
                 <action android:name="com.boldblot.backgammonplyground.action.ANALYZE_POSITION" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
-            <!-- Match Library → Sets: another app sends a series of positions (one XGID per line in EXTRA_TEXT) for a new set. -->
+            <!-- Match Library → Sets: another app sends a series of positions (one XGID per line in EXTRA_TEXT) for a new set,
+                 optionally with the move played in each (extra.PLAYED, see MainActivity.EXTRA_PLAYED). -->
             <intent-filter>
                 <action android:name="com.boldblot.backgammonplyground.action.IMPORT_SET" />
                 <category android:name="android.intent.category.DEFAULT" />
