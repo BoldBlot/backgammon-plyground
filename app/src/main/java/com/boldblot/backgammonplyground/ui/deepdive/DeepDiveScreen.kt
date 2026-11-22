@@ -3,8 +3,10 @@ package com.boldblot.backgammonplyground.ui.deepdive
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,13 +25,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -64,9 +72,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.boldblot.backgammonplyground.core.CubeEval
 import com.boldblot.backgammonplyground.core.CubeState
 import com.boldblot.backgammonplyground.core.DecisionKind
 import com.boldblot.backgammonplyground.core.DeepDive
+import com.boldblot.backgammonplyground.core.DeepDive.Tracked
 import com.boldblot.backgammonplyground.core.Player
 import com.boldblot.backgammonplyground.data.ErrorUnit
 import com.boldblot.backgammonplyground.data.Settings
@@ -74,8 +84,10 @@ import com.boldblot.backgammonplyground.ui.board.BoardColors
 import com.boldblot.backgammonplyground.ui.board.BoardView
 import com.boldblot.backgammonplyground.ui.board.DiceView
 import com.boldblot.backgammonplyground.ui.board.PointLabel
+import com.boldblot.backgammonplyground.ui.board.arrowsFor
 import com.boldblot.backgammonplyground.ui.board.boardColorsFor
 import com.boldblot.backgammonplyground.ui.components.LocalErrorUnit
+import com.boldblot.backgammonplyground.ui.components.eq
 import com.boldblot.backgammonplyground.ui.components.err
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -84,33 +96,33 @@ private val BestFill = Color(0xFF1F7A4A)
 private val SmallFill = Color(0xFFD9A925)
 private val BigFill = Color(0xFFC0392B)
 private val GreyFill = Color(0xFF5F5F5F)
+private val ErrorRed = Color(0xFFD32F2F)
 
-private fun fillOf(o: Outcome?): Color = when {
-    o == null || !o.legal || o.loss == null -> GreyFill
-    o.isBest -> BestFill
-    o.loss < com.boldblot.backgammonplyground.core.XgRules.ERROR_THRESHOLD -> SmallFill
+private fun fillOf(l: Loss?): Color = when {
+    l !is Loss.Value -> GreyFill
+    l.best -> BestFill
+    l.v < com.boldblot.backgammonplyground.core.XgRules.ERROR_THRESHOLD -> SmallFill
     else -> BigFill
 }
 
-private fun inkOf(o: Outcome?): Color = if (fillOf(o) == SmallFill) Color.Black else Color.White
+private fun inkOf(l: Loss?): Color = if (fillOf(l) == SmallFill) Color.Black else Color.White
 
-/** The loss as the pills show it: "best", "-0.041" (or "-41.0"), "[!]" where the tracked decision is not legal. */
-private fun lossText(o: Outcome?, unit: ErrorUnit): String = when {
-    o == null -> "…"
-    !o.legal -> "[!]"
-    o.loss == null -> "?"
-    o.isBest -> "best"
-    else -> err(-o.loss, unit)
+/** The loss as the pills show it: "best", "-0.041" (or "-41.0"), "[!]" where the decision cannot be made. */
+private fun lossText(l: Loss?, unit: ErrorUnit): String = when (l) {
+    null, Loss.Pending -> "…"
+    Loss.Illegal -> "[!]"
+    is Loss.Value -> if (l.best) "best" else err(-l.v, unit)
 }
 
 /** Shorter, for the board: "0", ".041" (or "41"). */
-private fun boardText(o: Outcome?, unit: ErrorUnit): String = when {
-    o == null -> "…"
-    !o.legal -> "[!]"
-    o.loss == null -> "?"
-    o.isBest -> "0"
-    unit == ErrorUnit.MEQ -> (o.loss * 1000).roundToInt().toString()
-    else -> String.format(java.util.Locale.US, "%.3f", o.loss).removePrefix("0")
+private fun boardText(l: Loss?, unit: ErrorUnit): String = when (l) {
+    null, Loss.Pending -> "…"
+    Loss.Illegal -> "[!]"
+    is Loss.Value -> when {
+        l.best -> "0"
+        unit == ErrorUnit.MEQ -> (l.v * 1000).roundToInt().toString()
+        else -> String.format(java.util.Locale.US, "%.3f", l.v).removePrefix("0")
+    }
 }
 
 @Composable
@@ -151,26 +163,69 @@ fun DeepDiveScreen(vm: DeepDiveViewModel, onBack: () -> Unit) {
                 }
             }
             if (maxWidth > maxHeight) {
-                val side = minOf(420.dp, maxWidth * 0.45f)
+                // The board a little smaller than elsewhere: the legend fits under it and the chart gets the room.
+                val boardH = maxHeight * 0.74f
+                val boardW = minOf(boardH * 1.38f, maxWidth * 0.52f)
                 Row(Modifier.fillMaxSize().padding(6.dp)) {
-                    Column(Modifier.width(side).fillMaxHeight()) {
+                    Column(Modifier.weight(1f).fillMaxHeight()) {
                         top()
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { Panel(st, vm) }
                     }
                     Spacer(Modifier.width(8.dp))
-                    Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                        DiveBoard(st, vm, colors, settings.mirrorBoard, Modifier.aspectRatio(1.38f))
+                    Column(Modifier.width(boardW).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
+                        DiveBoard(st, vm, colors, settings.mirrorBoard, Modifier.fillMaxWidth().aspectRatio(1.38f))
+                        Legend(st, vm, Modifier.padding(top = 6.dp))
                     }
                 }
             } else {
                 Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
                     top()
                     DiveBoard(st, vm, colors, settings.mirrorBoard, Modifier.fillMaxWidth().aspectRatio(1.38f))
+                    Legend(st, vm, Modifier.padding(vertical = 4.dp))
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { Panel(st, vm) }
                 }
             }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+    }
+}
+
+/** The colour slots: the decisions followed. A tap opens the plays (or cube actions) to pick from. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun Legend(st: DeepDiveState, vm: DeepDiveViewModel, modifier: Modifier = Modifier) {
+    val unit = LocalErrorUnit.current
+    val slots = (0 until DeepDive.MAX_TRACKED).filter { k -> k == 0 || st.tracked[k] != null || st.tracked[k - 1] != null }
+        .take(maxOf(1, st.options.size))
+    FlowRow(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        for (k in slots) {
+            val t = st.tracked[k]
+            var open by remember { mutableStateOf(false) }
+            Box {
+                Row(
+                    Modifier.border(2.dp, TrackColors[k], RoundedCornerShape(10.dp)).clickable { open = true }.padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Box(Modifier.size(12.dp).background(TrackColors[k], CircleShape))
+                    Text(
+                        t?.let { st.text(it) } ?: "+ Add",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = if (t is Tracked.Play) FontFamily.Monospace else FontFamily.Default),
+                        maxLines = 1,
+                    )
+                    if (t != null && st.hasResults) {
+                        val l = st.losses.getOrNull(st.selected)?.getOrNull(k)
+                        Text(lossText(l, unit), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                DropdownMenu(open, onDismissRequest = { open = false }) {
+                    for (o in st.options) DropdownMenuItem(
+                        text = { Text(st.text(o), fontFamily = if (o is Tracked.Play) FontFamily.Monospace else FontFamily.Default) },
+                        onClick = { open = false; vm.setTracked(k, o) },
+                    )
+                    if (k > 0 && t != null) DropdownMenuItem(text = { Text("Remove") }, onClick = { open = false; vm.setTracked(k, null) })
+                }
+            }
+        }
     }
 }
 
@@ -182,51 +237,47 @@ private fun DiveBoard(st: DeepDiveState, vm: DeepDiveViewModel, colors: BoardCol
     val s = p.setup
     val crawford = s.matchLength > 0 && s.crawford
     val setup = !st.hasResults
-    val checkers = st.mode == DiveMode.CHECKER || st.mode == DiveMode.CHECKERS
-    val slot = if (setup && checkers) st.slots.getOrNull(st.editing) else null
+    val editDim = st.dims.getOrNull(st.editDim)
+    val slot = if (setup && editDim?.checkers == true) editDim.slots.getOrNull(st.editing) else null
     fun human(player: Int, i: Int) = if (player == Player.HUMAN) i else 23 - i
+    // Spots of the versions: the checker changes' slots in order; the primary change's start at [offset].
+    val checkerDims = st.dims.withIndex().filter { it.value.checkers }
+    val offset = checkerDims.takeWhile { it.index != st.primary }.sumOf { it.value.slots.size }
+    val primaryDim = st.dims.getOrNull(st.primary)
     val labels: Map<Int, PointLabel> = when {
-        setup || !checkers -> emptyMap()
-        !st.ranked -> st.versions.indices.mapNotNull { i ->
-            val spot = st.versions[i].spots.firstOrNull() ?: return@mapNotNull null
-            val o = st.outcomes.getOrNull(i)
-            spot to PointLabel(boardText(o, unit), fillOf(o), inkOf(o), ring = i == st.selected)
+        setup || checkerDims.isEmpty() -> emptyMap()
+        primaryDim?.checkers == true && primaryDim.slots.size == 1 -> st.row.mapNotNull { i ->
+            if (i == null) return@mapNotNull null
+            val spot = st.versions[i].spots.getOrNull(offset) ?: return@mapNotNull null
+            val l = st.losses.getOrNull(i)?.getOrNull(0)
+            spot to PointLabel(boardText(l, unit), fillOf(l), inkOf(l), ring = i == st.selected)
         }.toMap()
-        // Several checkers: each slot's letter where its checker stands (letters sharing a point together).
-        else -> v?.spots?.withIndex()?.groupBy({ it.value }, { "ABCDEF"[it.index] })
+        // Otherwise each slot's letter where its checkers stand (letters sharing a point together).
+        else -> v?.spots?.withIndex()?.groupBy({ it.value }, { "ABCDEFGH"[it.index] })
             ?.mapValues { (_, letters) -> PointLabel(letters.joinToString(""), Color(0xFFF1EFE9), Color.Black, ring = true) }.orEmpty()
+    }
+    // The followed plays as arrows in their colours, where they can be played.
+    val arrows = st.tracked.withIndex().flatMap { (k, t) ->
+        if (t is Tracked.Play && DeepDive.isLegal(p, t)) arrowsFor(Player.HUMAN, t.move, TrackColors[k]) else emptyList()
     }
     BoardView(
         board = p.board, modifier = modifier, colors = colors, mirrored = mirrored,
         dice = p.dice?.let { listOf(DiceView(Player.HUMAN, it.highFirst)) } ?: emptyList(),
         cube = if (crawford) CubeState() else s.cube, cubeOffered = p.doubled, crawford = crawford,
         pips = listOf(p.board.pipCount(Player.HUMAN), p.board.pipCount(Player.CPU)),
+        arrows = if (slot != null) emptyList() else arrows,
         movable = slot?.let { setOf(human(it.player, it.from)) } ?: emptySet(),
         selected = slot?.let { human(it.player, it.from) },
         destinations = slot?.let { sl -> sl.targets.filter { it != sl.from }.map { human(sl.player, it) }.toSet() } ?: emptySet(),
         dragPlayer = slot?.player ?: Player.HUMAN,
-        onTap = if (setup && checkers) vm::tapPoint else null,
+        onTap = if (setup && editDim?.checkers == true) vm::tapPoint else null,
         pointLabels = labels,
     )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Panel(st: DeepDiveState, vm: DeepDiveViewModel) {
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Following", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        val t = st.tracked
-        if (t is DeepDive.Tracked.Cube && !st.hasResults) {
-            val options = if (st.base.doubled) listOf(DecisionKind.TAKE, DecisionKind.PASS) else listOf(DecisionKind.NO_DOUBLE, DecisionKind.DOUBLE)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                for (k in options) FilterChip(
-                    selected = t.kind == k, onClick = { vm.setTracked(k) },
-                    label = { Text(com.boldblot.backgammonplyground.ui.components.describeAction(k, st.board, Player.HUMAN, null)) },
-                )
-            }
-        } else {
-            Text(st.trackedText, style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace))
-        }
         if (!st.hasResults) Setup(st, vm) else Results(st, vm)
     }
 }
@@ -234,33 +285,46 @@ private fun Panel(st: DeepDiveState, vm: DeepDiveViewModel) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Setup(st: DeepDiveState, vm: DeepDiveViewModel) {
-    Text("What to change", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (m in DiveMode.entries) FilterChip(selected = st.mode == m, onClick = { vm.setMode(m) }, label = { Text(m.label) })
-    }
-    when (st.mode) {
-        DiveMode.CHECKER, DiveMode.CHECKERS -> SlotsEditor(st, vm)
-        DiveMode.SCORE -> {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(selected = st.scorePlayer == Player.CPU, onClick = { vm.setScorePlayer(Player.CPU) }, label = { Text("Opponent's score") })
-                FilterChip(selected = st.scorePlayer == Player.HUMAN, onClick = { vm.setScorePlayer(Player.HUMAN) }, label = { Text("Your score") })
+    Text(
+        "The decisions followed are under the board: tap a colour to pick another, + Add to follow more.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    st.dims.forEachIndexed { d, dim ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (d == 0) "What to change" else "And", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            if (d == 1) IconButton(onClick = vm::removeDim) { Icon(Icons.Default.Close, "Remove the second change") }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (m in DiveMode.entries) FilterChip(selected = dim.mode == m, onClick = { vm.setMode(d, m) }, label = { Text(m.label) })
+        }
+        when (dim.mode) {
+            DiveMode.CHECKER, DiveMode.CHECKERS -> SlotsEditor(st, vm, d)
+            DiveMode.SCORE -> {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = dim.scorePlayer == Player.CPU, onClick = { vm.setScorePlayer(d, Player.CPU) }, label = { Text("Opponent's score") })
+                    FilterChip(selected = dim.scorePlayer == Player.HUMAN, onClick = { vm.setScorePlayer(d, Player.HUMAN) }, label = { Text("Your score") })
+                }
+                Text(
+                    "From ${st.base.setup.matchLength}-away down to 1-away (Crawford and post-Crawford), then a money game. The other score stays as it is.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Text(
-                "From ${st.base.setup.matchLength}-away down to 1-away (Crawford and post-Crawford), then a money game. The other score stays as it is.",
+            DiveMode.CUBE -> Text(
+                "The cube centred, then owned at 2, 4 and 8 by " + when {
+                    st.base.doubled -> "the doubler."
+                    st.base.dice == null -> "you."
+                    else -> "you and by your opponent."
+                },
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        DiveMode.CUBE -> Text(
-            "The cube centred, then owned at 2, 4 and 8 by " + when {
-                st.base.doubled -> "the doubler."
-                st.base.dice == null -> "you."
-                else -> "you and by your opponent."
-            },
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    }
+    if (st.dims.size == 1) TextButton(onClick = vm::addDim) {
+        Icon(Icons.Default.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Add a second change")
     }
     val problem = st.problem
-    if (problem != null && st.slots.isNotEmpty() || problem != null && st.mode != DiveMode.CHECKER && st.mode != DiveMode.CHECKERS) Text(problem, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+    val tapHint = st.dims.any { it.checkers && it.slots.isEmpty() }
+    if (problem != null && !tapHint) Text(problem, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
     val n = st.planned
     if (n > DeepDive.MAX_VERSIONS) Text("Only the first ${DeepDive.MAX_VERSIONS} are analyzed.", style = MaterialTheme.typography.bodySmall)
     Button(onClick = vm::start, enabled = problem == null && n >= 2, modifier = Modifier.fillMaxWidth()) {
@@ -270,70 +334,96 @@ private fun Setup(st: DeepDiveState, vm: DeepDiveViewModel) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SlotsEditor(st: DeepDiveState, vm: DeepDiveViewModel) {
-    val several = st.mode == DiveMode.CHECKERS
-    st.slots.forEachIndexed { i, s ->
-        val who = if (s.player == Player.HUMAN) "Your checker" else "Opponent's checker"
+private fun SlotsEditor(st: DeepDiveState, vm: DeepDiveViewModel, d: Int) {
+    val dim = st.dims[d]
+    val several = dim.mode == DiveMode.CHECKERS
+    val editingHere = st.editDim == d
+    dim.slots.forEachIndexed { i, s ->
+        val who = if (s.player == Player.HUMAN) "Your" else "Opponent's"
+        val what = if (s.count == 1) "$who checker" else "$who ${s.count} checkers"
         val points = s.targets.sortedDescending().joinToString(", ") { DeepDive.shown(s.player, it).toString() }
         Row(
             Modifier.fillMaxWidth()
-                .background(if (i == st.editing) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent, RoundedCornerShape(10.dp))
-                .clickable { vm.editSlotAt(i) }.padding(start = 10.dp),
+                .background(if (editingHere && i == st.editing) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent, RoundedCornerShape(10.dp))
+                .clickable { vm.editSlotAt(d, i) }.padding(start = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                (if (several) "${"ABCDEF"[i]}  " else "") + "$who on ${DeepDive.shown(s.player, s.from)} → $points",
+                (if (several) "${"ABCDEF"[i]}  " else "") + "$what on ${DeepDive.shown(s.player, s.from)} → $points",
                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
             )
-            IconButton(onClick = { vm.removeSlot(i) }) { Icon(Icons.Default.Close, "Remove") }
+            // How many checkers move together (a stack).
+            IconButton(onClick = { vm.setCount(d, i, s.count - 1) }, enabled = s.count > 1) { Icon(Icons.Default.Remove, "Fewer checkers") }
+            Text("${s.count}", style = MaterialTheme.typography.titleSmall)
+            IconButton(onClick = { vm.setCount(d, i, s.count + 1) }, enabled = s.count < st.board.count(s.player, s.from)) { Icon(Icons.Default.Add, "More checkers") }
+            IconButton(onClick = { vm.removeSlot(d, i) }) { Icon(Icons.Default.Close, "Remove") }
         }
     }
-    val current = st.slots.getOrNull(st.editing)
-    if (current == null) {
-        Text("Tap a checker on the board: yours or your opponent's.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    } else {
-        Text("Tap the points it may stand on.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(onClick = vm::allOpenPoints) { Text("All open points") }
-            TextButton(onClick = vm::clearPoints) { Text("Clear") }
-            if (several && st.slots.size < 3) TextButton(onClick = vm::addSlot) { Text("Add a checker") }
+    val current = if (editingHere) dim.slots.getOrNull(st.editing) else null
+    when {
+        dim.slots.isEmpty() || (editingHere && st.editing == dim.slots.size) -> Text(
+            "Tap a checker on the board: yours or your opponent's.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.clickable { vm.addSlot(d) },
+        )
+        current != null -> {
+            Text("Tap the points the checkers may stand on; − and + set how many move together.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = vm::allOpenPoints) { Text("All open points") }
+                TextButton(onClick = vm::clearPoints) { Text("Clear") }
+                if (several && dim.slots.size < 3) TextButton(onClick = { vm.addSlot(d) }) { Text("Add checkers") }
+            }
         }
+        else -> TextButton(onClick = { vm.editSlotAt(d, maxOf(0, dim.slots.lastIndex)) }) { Text("Edit on the board") }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Results(st: DeepDiveState, vm: DeepDiveViewModel) {
     val unit = LocalErrorUnit.current
     val n = st.versions.size
-    val done = st.outcomes.count { it != null }
+    val done = st.losses.count { row -> row.withIndex().none { (k, l) -> st.tracked[k] != null && l == Loss.Pending } }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        val legal = st.outcomes.count { it?.legal == true }
-        val best = st.outcomes.count { it?.isBest == true }
+        val legal = st.losses.count { it.getOrNull(0) != Loss.Illegal }
+        val best = st.versions.indices.count { st.firstBest(it) }
         Text(
-            if (st.running) "Analyzing: $done of $n" else "${st.trackedText} is best in $best of $legal versions" + if (legal < n) " (not legal in ${n - legal})" else "",
+            if (st.running) "Analyzing: $done of $n" else "${st.firstText} is best in $best of $legal versions" + if (legal < n) " (not legal in ${n - legal})" else "",
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
         )
         if (st.running) TextButton(onClick = vm::stop) { Text("Stop") } else TextButton(onClick = vm::reset) { Text("Change") }
     }
+    val sec = st.secondary
+    if (sec != null) {
+        // Two changes: which one runs along the chart, and the value of the other it shows.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Along the chart: ${st.dims[st.primary].mode.label.lowercase()}",
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = vm::swapAxes) { Icon(Icons.Default.SwapHoriz, null, Modifier.size(18.dp)); Spacer(Modifier.width(4.dp)); Text("Swap") }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            st.axes[sec].forEachIndexed { j, label ->
+                FilterChip(selected = st.slice == j, onClick = { vm.selectSlice(j) }, label = { Text(label, style = MaterialTheme.typography.labelSmall) })
+            }
+        }
+    }
     if (st.ranked) RankedBars(st, vm::select, unit) else LossChart(st, vm::select, unit)
+    if (sec != null) BestGrid(st, vm::select)
     val v = st.versions.getOrNull(st.selected)
     if (v != null) {
-        val o = st.outcomes.getOrNull(st.selected)
         Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
             Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(v.label + if (v.isBase) " (as it is)" else "", style = MaterialTheme.typography.titleSmall)
+                val best = st.bestText(st.selected)
                 Text(
-                    when {
-                        o == null -> "Not analyzed yet"
-                        !o.legal -> "[!] ${st.trackedText} cannot be played here"
-                        else -> "Best: ${o.best}"
-                    },
+                    if (best.isEmpty()) "Not analyzed yet" else "Best: $best",
                     style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                 )
+                st.results.getOrNull(st.selected)?.analysis?.cube?.let { CubeRows(st, it, v.position.doubled) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("${st.trackedText}  ", style = MaterialTheme.typography.bodyMedium)
-                    LossPill(o, unit)
-                    Spacer(Modifier.weight(1f))
+                    Box(Modifier.weight(1f)) { TrackedPills(st, st.selected, unit) }
                     TextButton(onClick = { vm.openInAnalysis(st.selected) }) { Text("Open in analysis") }
                 }
             }
@@ -341,29 +431,69 @@ private fun Results(st: DeepDiveState, vm: DeepDiveViewModel) {
     }
     if (!st.ranked) {
         HorizontalDivider()
-        st.versions.forEachIndexed { i, ver ->
-            val o = st.outcomes.getOrNull(i)
+        for (i in st.row.filterNotNull()) {
+            val ver = st.versions[i]
             Row(
                 Modifier.fillMaxWidth()
                     .background(if (i == st.selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent, RoundedCornerShape(10.dp))
                     .clickable { vm.select(i) }.padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(ver.label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                Text(if (o?.legal == true) o.best else "", style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
-                LossPill(o, unit)
+                Column(Modifier.weight(1f)) {
+                    Text(ver.label, style = MaterialTheme.typography.bodySmall)
+                    Text(st.bestText(i), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TrackedPills(st, i, unit)
             }
         }
     }
 }
 
+/** One pill per followed decision, each after a dot of its colour. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LossPill(o: Outcome?, unit: ErrorUnit) {
-    Surface(shape = RoundedCornerShape(50), color = fillOf(o)) {
-        Text(
-            lossText(o, unit), color = inkOf(o), modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-        )
+private fun TrackedPills(st: DeepDiveState, i: Int, unit: ErrorUnit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        st.tracked.forEachIndexed { k, t ->
+            if (t == null) return@forEachIndexed
+            val l = st.losses.getOrNull(i)?.getOrNull(k)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(8.dp).background(TrackColors[k], CircleShape))
+                Spacer(Modifier.width(3.dp))
+                Surface(shape = RoundedCornerShape(50), color = fillOf(l)) {
+                    Text(
+                        lossText(l, unit), color = inkOf(l), modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp),
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** The cube actions of the version shown, each followed one marked in its colour. */
+@Composable
+private fun CubeRows(st: DeepDiveState, e: CubeEval, doubled: Boolean) {
+    val rows: List<Triple<String, Float, List<DecisionKind>>> = if (doubled) listOf(
+        Triple("Take", -e.doubleTake, listOf(DecisionKind.TAKE)),
+        Triple("Pass", -e.doublePass, listOf(DecisionKind.PASS)),
+    ) else listOf(
+        Triple("No double", e.noDouble, listOf(DecisionKind.NO_DOUBLE)),
+        Triple("Double, take", e.doubleTake, if (e.doubleTake <= e.doublePass) listOf(DecisionKind.DOUBLE) else emptyList()),
+        Triple("Double, pass", e.doublePass, if (e.doublePass < e.doubleTake) listOf(DecisionKind.DOUBLE) else emptyList()),
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        for ((label, value, kinds) in rows) {
+            val k = st.tracked.indexOfFirst { it is Tracked.Cube && it.kind in kinds }
+            val c = if (k >= 0) TrackColors[k] else Color.Transparent
+            Row(
+                Modifier.fillMaxWidth().background(c.copy(alpha = if (k >= 0) 0.18f else 0f), RoundedCornerShape(6.dp))
+                    .border(if (k >= 0) 2.dp else 0.dp, c, RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
+            ) {
+                Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                Text(eq(value), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
+            }
+        }
     }
 }
 
@@ -374,106 +504,167 @@ private fun axisMax(max: Float): Float {
 }
 
 /**
- * The loss of the tracked decision across the versions: 0 (best) at the top, a red band where it is not best, a gap
- * marked [!] where it is not legal. A tap picks the nearest version.
+ * The loss of each followed decision across the primary change (at the slice of the second): 0 (best) at the top, a
+ * line per decision in its colour, broken where it cannot be decided ([!]); with one decision a red band where it is
+ * not best. A tap picks the nearest version.
  */
 @Composable
 private fun LossChart(st: DeepDiveState, onSelect: (Int) -> Unit, unit: ErrorUnit) {
-    val n = st.versions.size
+    val row = st.row
+    val n = row.size
+    val axis = st.axes.getOrNull(st.primary).orEmpty()
     val measurer = rememberTextMeasurer()
     val ink = MaterialTheme.colorScheme.onSurface
     val faint = MaterialTheme.colorScheme.outlineVariant
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    val error = MaterialTheme.colorScheme.error
     val accent = MaterialTheme.colorScheme.primary
-    val losses = st.outcomes.map { o -> if (o?.legal == true) o.loss else null }
-    val yMax = axisMax(losses.filterNotNull().maxOrNull() ?: 0f)
-    Text("Loss of ${st.trackedText}", style = MaterialTheme.typography.labelMedium, color = muted)
+    val ks = st.tracked.indices.filter { st.tracked[it] != null }
+    fun loss(j: Int, k: Int): Loss? = row[j]?.let { st.losses.getOrNull(it)?.getOrNull(k) }
+    val values = ks.flatMap { k -> (0 until n).mapNotNull { j -> (loss(j, k) as? Loss.Value)?.v } }
+    val yMax = axisMax(values.maxOrNull() ?: 0f)
+    val selJ = row.indexOf(st.selected)
+    Text(if (ks.size == 1) "Loss of ${st.firstText}" else "Loss of each play, in its colour", style = MaterialTheme.typography.labelMedium, color = muted)
     Canvas(
-        Modifier.fillMaxWidth().height(190.dp).pointerInput(n) {
+        Modifier.fillMaxWidth().height(200.dp).pointerInput(row) {
             detectTapGestures { pos ->
                 val left = 56.dp.toPx(); val right = size.width - 12.dp.toPx()
                 val step = if (n > 1) (right - left) / (n - 1) else 0f
-                onSelect(if (step == 0f) 0 else ((pos.x - left) / step).roundToInt().coerceIn(0, n - 1))
+                val j = if (step == 0f) 0 else ((pos.x - left) / step).roundToInt().coerceIn(0, n - 1)
+                row.getOrNull(j)?.let(onSelect)
             }
         },
     ) {
+        if (n == 0) return@Canvas
         val left = 56.dp.toPx(); val right = size.width - 12.dp.toPx()
         val top = 18.dp.toPx(); val bottom = size.height - 24.dp.toPx()
         val step = if (n > 1) (right - left) / (n - 1) else 0f
-        fun x(i: Int) = left + i * step
+        fun x(j: Int) = left + j * step
         fun y(v: Float) = top + (v.coerceAtMost(yMax) / yMax) * (bottom - top)
         val small = TextStyle(color = muted, fontSize = 10.sp)
-        // the grid: 0 (best) at the top
-        for (k in 0..2) {
-            val v = yMax * k / 2
-            drawLine(if (k == 0) muted else faint, Offset(left, y(v)), Offset(right, y(v)), strokeWidth = 1f)
-            val label = measurer.measure(if (k == 0) "0" else err(-v, unit), small)
+        for (g in 0..2) {
+            val v = yMax * g / 2
+            drawLine(if (g == 0) muted else faint, Offset(left, y(v)), Offset(right, y(v)), strokeWidth = 1f)
+            val label = measurer.measure(if (g == 0) "0" else err(-v, unit), small)
             drawText(label, topLeft = Offset(left - label.size.width - 12.dp.toPx(), y(v) - label.size.height / 2))
         }
-        // red bands where the tracked decision is not best
-        var i = 0
-        while (i < n) {
-            if ((losses[i] ?: 0f) > DeepDive.TIE) {
-                var j = i
-                while (j + 1 < n && (losses[j + 1] ?: 0f) > DeepDive.TIE) j++
-                val a = if (i == 0) left else x(i) - step / 2
-                val b = if (j == n - 1) right else x(j) + step / 2
-                drawRect(BigFill.copy(alpha = 0.14f), Offset(a, top), Size(b - a, bottom - top))
-                i = j + 1
-            } else i++
+        // One decision: a red band where it is not best.
+        if (ks.size == 1) {
+            var j = 0
+            while (j < n) {
+                val l = loss(j, ks[0])
+                if (l is Loss.Value && !l.best) {
+                    var e = j
+                    while (e + 1 < n && (loss(e + 1, ks[0]) as? Loss.Value)?.best == false) e++
+                    val a = if (j == 0) left else x(j) - step / 2
+                    val b = if (e == n - 1) right else x(e) + step / 2
+                    drawRect(BigFill.copy(alpha = 0.14f), Offset(a, top), Size(b - a, bottom - top))
+                    j = e + 1
+                } else j++
+            }
         }
-        // the selected version
-        drawLine(muted.copy(alpha = 0.6f), Offset(x(st.selected), top), Offset(x(st.selected), bottom), strokeWidth = 1.5f)
-        // the line, broken where there is no loss (not legal, not analyzed yet)
-        for (k in 0 until n - 1) {
-            val a = losses[k] ?: continue
-            val b = losses[k + 1] ?: continue
-            drawLine(ink.copy(alpha = 0.8f), Offset(x(k), y(a)), Offset(x(k + 1), y(b)), strokeWidth = 2.dp.toPx())
+        if (selJ >= 0) drawLine(muted.copy(alpha = 0.6f), Offset(x(selJ), top), Offset(x(selJ), bottom), strokeWidth = 1.5f)
+        for ((slot, k) in ks.withIndex()) {
+            val c = if (ks.size == 1) ink.copy(alpha = 0.8f) else TrackColors[k]
+            for (j in 0 until n - 1) {
+                val a = (loss(j, k) as? Loss.Value)?.v ?: continue
+                val b = (loss(j + 1, k) as? Loss.Value)?.v ?: continue
+                drawLine(c, Offset(x(j), y(a)), Offset(x(j + 1), y(b)), strokeWidth = 2.dp.toPx())
+            }
+            for (j in 0 until n) {
+                when (val l = loss(j, k)) {
+                    Loss.Illegal -> {
+                        val t = measurer.measure("[!]", TextStyle(color = if (ks.size == 1) ErrorRed else TrackColors[k], fontSize = 11.sp, fontWeight = FontWeight.Bold))
+                        drawText(t, topLeft = Offset(x(j) - t.size.width / 2, top + 2.dp.toPx() + slot * 13.dp.toPx()))
+                    }
+                    is Loss.Value -> {
+                        val r = (if (row[j] == st.selected) 5f else 3.5f).dp.toPx()
+                        drawCircle(if (ks.size == 1) fillOf(l) else TrackColors[k], r, Offset(x(j), y(l.v)))
+                        if (row[j] == st.selected) drawCircle(accent, r + 2.dp.toPx(), Offset(x(j), y(l.v)), style = Stroke(width = 1.5f.dp.toPx()))
+                    }
+                    else -> {}
+                }
+            }
         }
         val every = maxOf(1, ceil(n / 12f).toInt())
-        for (k in 0 until n) {
-            val o = st.outcomes.getOrNull(k)
-            val l = losses[k]
-            if (o != null && !o.legal) {
-                val t = measurer.measure("[!]", TextStyle(color = error, fontSize = 11.sp, fontWeight = FontWeight.Bold))
-                drawText(t, topLeft = Offset(x(k) - t.size.width / 2, top + 2.dp.toPx()))
-            } else if (l != null) {
-                val r = (if (k == st.selected) 6 else 4).dp.toPx()
-                drawCircle(fillOf(o), r, Offset(x(k), y(l)))
-                if (k == st.selected) drawCircle(accent, r + 2.dp.toPx(), Offset(x(k), y(l)), style = Stroke(width = 2.dp.toPx()))
-            }
-            if (k % every == 0 || k == st.selected) {
-                val base = st.versions[k].isBase
-                val t = measurer.measure(st.versions[k].short, TextStyle(color = if (k == st.selected || base) ink else muted, fontSize = 10.sp, fontWeight = if (base) FontWeight.Bold else FontWeight.Normal))
-                drawText(t, topLeft = Offset(x(k) - t.size.width / 2, bottom + 4.dp.toPx()))
+        for (j in 0 until n) {
+            if (j % every != 0 && j != selJ) continue
+            val base = row[j]?.let { st.versions[it].isBase } == true
+            val t = measurer.measure(axis.getOrElse(j) { "" }, TextStyle(color = if (j == selJ || base) ink else muted, fontSize = 10.sp, fontWeight = if (base) FontWeight.Bold else FontWeight.Normal))
+            drawText(t, topLeft = Offset(x(j) - t.size.width / 2, bottom + 4.dp.toPx()))
+        }
+    }
+}
+
+/**
+ * Two changes at a glance: the primary across, the second down, each cell in the colour of the followed decision that
+ * is best there (the first such), grey where none is, empty where the version cannot be. A tap shows it.
+ */
+@Composable
+private fun BestGrid(st: DeepDiveState, onSelect: (Int) -> Unit) {
+    val sec = st.secondary ?: return
+    val cols = st.axes[st.primary]
+    val rows = st.axes[sec]
+    val at = HashMap<Pair<Int, Int>, Int>()
+    st.versions.forEachIndexed { i, v -> at[v.coords[st.primary] to v.coords[sec]] = i }
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Text("Which followed play is best (grey: none of them)", style = MaterialTheme.typography.labelMedium, color = muted)
+    Column(Modifier.horizontalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            Spacer(Modifier.width(52.dp))
+            for (c in cols) Text(c, style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1, modifier = Modifier.width(26.dp))
+        }
+        rows.forEachIndexed { r, label ->
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(label, style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1, modifier = Modifier.width(52.dp))
+                cols.indices.forEach { c ->
+                    val i = at[c to r]
+                    val fill = if (i == null) Color.Transparent else {
+                        val ls = st.losses.getOrNull(i).orEmpty()
+                        val k = ls.indices.firstOrNull { st.tracked[it] != null && (ls[it] as? Loss.Value)?.best == true }
+                        when {
+                            k != null -> TrackColors[k]
+                            ls.indices.any { st.tracked[it] != null && ls[it] == Loss.Pending } -> MaterialTheme.colorScheme.surfaceVariant
+                            else -> GreyFill
+                        }
+                    }
+                    Box(
+                        Modifier.size(26.dp).background(fill, RoundedCornerShape(4.dp))
+                            .then(if (i == st.selected) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(4.dp)) else Modifier)
+                            .then(if (i != null) Modifier.clickable { onSelect(i) } else Modifier),
+                    )
+                }
             }
         }
     }
 }
 
-/** Several checkers: no natural order, so the versions ranked by the loss (not legal last). */
+/** Several checkers along the chart: no natural order, so the versions ranked by the first decision's loss. */
 @Composable
 private fun RankedBars(st: DeepDiveState, onSelect: (Int) -> Unit, unit: ErrorUnit) {
-    val order = st.versions.indices.sortedWith(compareBy({ st.outcomes.getOrNull(it)?.legal != true }, { st.outcomes.getOrNull(it)?.loss ?: Float.MAX_VALUE }))
-    val max = axisMax(st.outcomes.mapNotNull { if (it?.legal == true) it.loss else null }.maxOrNull() ?: 0f)
-    Text("Loss of ${st.trackedText}, smallest first", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val ids = st.row.filterNotNull()
+    fun first(i: Int) = st.losses.getOrNull(i)?.getOrNull(0)
+    val order = ids.sortedWith(compareBy({ first(it) !is Loss.Value }, { (first(it) as? Loss.Value)?.v ?: Float.MAX_VALUE }))
+    val max = axisMax(ids.mapNotNull { (first(it) as? Loss.Value)?.v }.maxOrNull() ?: 0f)
+    Text("Loss of ${st.firstText}, smallest first", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         for (i in order) {
-            val o = st.outcomes.getOrNull(i)
+            val l = first(i)
             val v = st.versions[i]
-            Row(
+            Column(
                 Modifier.fillMaxWidth()
                     .background(if (i == st.selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent, RoundedCornerShape(10.dp))
                     .clickable { onSelect(i) }.padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(v.short + if (v.isBase) " (now)" else "", style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), modifier = Modifier.width(130.dp))
-                Box(Modifier.weight(1f).height(10.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(5.dp))) {
-                    val f = ((o?.loss ?: 0f) / max).coerceIn(0.03f, 1f)
-                    if (o?.legal == true && o.loss != null) Box(Modifier.fillMaxWidth(f).fillMaxHeight().background(fillOf(o), RoundedCornerShape(5.dp)))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        st.axes[st.primary].getOrElse(v.coords[st.primary]) { v.short } + if (v.isBase) " (now)" else "",
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), modifier = Modifier.width(130.dp),
+                    )
+                    Box(Modifier.weight(1f).height(10.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(5.dp))) {
+                        if (l is Loss.Value) Box(Modifier.fillMaxWidth((l.v / max).coerceIn(0.03f, 1f)).fillMaxHeight().background(fillOf(l), RoundedCornerShape(5.dp)))
+                    }
                 }
-                LossPill(o, unit)
+                TrackedPills(st, i, unit)
             }
         }
     }
@@ -481,9 +672,9 @@ private fun RankedBars(st: DeepDiveState, onSelect: (Int) -> Unit, unit: ErrorUn
 
 @Composable
 private fun SaveDialog(st: DeepDiveState, onDismiss: () -> Unit, onSave: (String, DeepDiveViewModel.Which) -> Unit) {
-    var name by remember { mutableStateOf("Deep dive: ${st.trackedText} (${st.mode.label.lowercase()})") }
+    var name by remember { mutableStateOf("Deep dive: ${st.firstText} (${st.dims.joinToString(" × ") { it.mode.label.lowercase() }})") }
     var which by remember { mutableStateOf(DeepDiveViewModel.Which.ALL) }
-    val notBest = st.outcomes.count { it?.isBest != true }
+    val notBest = st.versions.indices.count { !st.firstBest(it) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Save to a set") },
@@ -493,7 +684,7 @@ private fun SaveDialog(st: DeepDiveState, onDismiss: () -> Unit, onSave: (String
                 Text("A new set in the Match Library, with the analyses.", style = MaterialTheme.typography.bodySmall)
                 for ((w, label) in listOf(
                     DeepDiveViewModel.Which.ALL to "All ${st.versions.size} versions",
-                    DeepDiveViewModel.Which.NOT_BEST to "Where ${st.trackedText} is not best ($notBest)",
+                    DeepDiveViewModel.Which.NOT_BEST to "Where ${st.firstText} is not best ($notBest)",
                     DeepDiveViewModel.Which.SHOWN to "Only the one shown",
                 )) {
                     Row(

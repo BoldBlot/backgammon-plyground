@@ -758,7 +758,7 @@ private fun ReviewTools(st: ReviewState, vm: ReviewViewModel, modifier: Modifier
         else -> null
     }
     val dive = if (study != null && tracked != null) {
-        { vm.app.pendingDeepDive.value = com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest(study, tracked) }
+        { vm.app.pendingDeepDive.value = com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest(study, tracked, candidates = d.checker?.candidates?.map { it.move }.orEmpty()) }
     } else null
     ReviewViewChips(st.view, d.move != null, vm::setView, { saving = true }.takeIf { study != null }, modifier, onDeepDive = dive)
 }

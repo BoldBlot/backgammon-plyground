@@ -117,4 +117,56 @@ class DeepDiveTest {
         assertEquals(0.1f, DeepDive.cubeLoss(live, DecisionKind.NO_DOUBLE, false)!!, 1e-6f)
         assertEquals(0f, DeepDive.cubeLoss(live, DecisionKind.DOUBLE, false)!!, 1e-6f)
     }
+
+    @Test
+    fun aStackMovesTogether() {
+        val b = base()
+        // Two of the three checkers on 13 tried on 13, 11 and 10.
+        val v = DeepDive.versions(b, Change.Checkers(listOf(Slot(Player.HUMAN, 12, listOf(12, 10, 9), count = 2))))
+        assertEquals(listOf("13", "11", "10"), v.map { it.short })
+        assertEquals("Your 2 checkers on 11", v[1].label)
+        assertEquals(1, v[1].position.board.count(Player.HUMAN, 12))
+        assertEquals(2, v[1].position.board.count(Player.HUMAN, 10))
+        // More than stand there cannot move.
+        assertNull(DeepDive.moveChecker(b.board, Player.HUMAN, 15, 14, 2))
+    }
+
+    @Test
+    fun twoChangesMakeEveryCombinationFirstChangeInnermost() {
+        val b = base()
+        val changes = listOf(Change.Checkers(listOf(Slot(Player.HUMAN, 15, listOf(15, 14)))), Change.Cube)
+        val v = DeepDive.versions(b, changes)
+        assertEquals(2 * 7, v.size)
+        assertEquals(listOf(0, 0), v[0].coords)
+        assertEquals(listOf(1, 0), v[1].coords)
+        assertEquals(listOf(0, 1), v[2].coords)
+        assertEquals("Your checker on 16 · Cube centred", v[0].label)
+        assertTrue(v[0].isBase)
+        assertEquals(CubeState(2, Player.HUMAN), v[2].position.setup.cube)
+        assertEquals(listOf(15), v[2].spots)
+    }
+
+    @Test
+    fun theCrawfordGameHasOnlyTheCentredCube() {
+        val v = DeepDive.versions(base(), listOf(Change.Cube, Change.Score(Player.CPU)))
+        val crawfordRow = DeepDive.steps(base(), Change.Score(Player.CPU)).indexOfFirst { it.short == "1a C" }
+        val inCrawford = v.filter { it.coords[1] == crawfordRow }
+        assertEquals(listOf("C"), inCrawford.map { DeepDive.steps(base(), Change.Cube)[it.coords[0]].short })
+        assertEquals(9 * 7 - 6, v.size)
+    }
+
+    @Test
+    fun playLossIsMatchedByThePositionLeft() {
+        val b = base()
+        val other = Move(listOf(Step(15, 9), Step(15 - 6, 5)))
+        val cands = listOf(
+            Candidate(move = move2414, equity = 0.30f, probs = emptyList(), plies = 1),
+            Candidate(move = Move(listOf(Step(15, 11), Step(11, 5))), equity = 0.25f, probs = emptyList(), plies = 1),
+        )
+        val a = CheckerAnalysis(cands, 0, 0.30f, 0.30f, 0.25f, 2, 1)
+        // 16/10/6 written step by step another way is the same play.
+        assertEquals(0.05f, DeepDive.playLoss(a, b.board, other)!!, 1e-6f)
+        assertEquals(0f, DeepDive.playLoss(a, b.board, move2414)!!, 1e-6f)
+        assertNull(DeepDive.playLoss(a, b.board, Move(listOf(Step(12, 6), Step(12, 8)))))
+    }
 }

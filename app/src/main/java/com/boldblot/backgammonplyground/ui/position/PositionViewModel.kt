@@ -359,7 +359,9 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
             _state.update { it.copy(message = if (st.checker != null) "There is no play to follow with this roll." else "Analyze the position first: the deep dive follows the play you pick in the list.") }
             return
         }
-        app.pendingDeepDive.value = com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest(p, tracked, st.engine, st.checkerDepth, st.cubeDepth)
+        app.pendingDeepDive.value = com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest(
+            p, tracked, candidates = st.checker?.candidates?.map { it.move }.orEmpty(), engine = st.engine, checker = st.checkerDepth, cube = st.cubeDepth,
+        )
     }
 
     /** Switches between setting the position up and entering the decision ("Your play"). */

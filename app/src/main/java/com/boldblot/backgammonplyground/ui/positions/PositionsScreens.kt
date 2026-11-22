@@ -7,6 +7,7 @@ import com.boldblot.backgammonplyground.engine.Waiting
 import androidx.compose.material.icons.filled.Refresh
 import com.boldblot.backgammonplyground.ui.review.ReanalyzeDialog
 import com.boldblot.backgammonplyground.ui.review.ReanalyzeRequest
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.automirrored.filled.NavigateBefore
@@ -838,6 +839,18 @@ fun PositionDetailScreen(
                         IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(
+                                text = { Text("Deep dive…") }, enabled = p != null,
+                                leadingIcon = { Icon(Icons.Default.Layers, null) },
+                                onClick = {
+                                    menu = false
+                                    p?.let { cur ->
+                                        val req = com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest.of(cur.position, cur.analysis, cur.answer?.move, cur.answer?.cube)
+                                        if (req != null) app.pendingDeepDive.value = req
+                                        else Toast.makeText(context, "Analyzing the position; try again when it is done.", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Analyze again") }, enabled = p != null && !analyzing,
                                 leadingIcon = { Icon(Icons.Default.Refresh, null) },
                                 onClick = { menu = false; reanalyzing = true },
@@ -1541,6 +1554,9 @@ private fun QuizResultCard(
                         SharePositionItems(p, r.analysis, answerIndex, r.cube, capture) { sharing = false }
                     }
                 }
+                IconButton(onClick = {
+                    com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest.of(p, r.analysis, r.move, r.cube)?.let { vm.app.pendingDeepDive.value = it }
+                }, icon) { Icon(Icons.Default.Layers, "Deep dive") }
                 if (st.detached || (!r.deleted && r.removed == null)) IconButton(onClick = { filing = true }, icon) { Icon(Icons.Default.Folder, if (st.detached) "Save to My positions" else "Move to folder") }
                 if (!st.detached && !readOnly && !r.deleted && r.removed == null) IconButton(onClick = vm::deleteCurrent, icon) { Icon(Icons.Default.Delete, "Delete from My positions") }
                 if (!readOnly) Button(onClick = vm::next, Modifier.padding(start = 4.dp), contentPadding = PaddingValues(horizontal = 18.dp)) { Text("Next", maxLines = 1, softWrap = false) }

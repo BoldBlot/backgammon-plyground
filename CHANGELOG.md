@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.15 — 2026-11-22 (build 96, internal test)
+
+- Deep dive:
+  - Also from My positions (an opened position's ⋮ → Deep dive…; it follows your answer, else the best play) and from
+    the quiz (the layers button after you answer).
+  - Stacks: − and + beside a checker change set how many checkers on that point move together.
+  - Two changes at once (Add a second change), for example a checker and the score: every combination is analyzed
+    (up to 100). The chart shows the first change for one value of the second, picked with the chips above it; Swap
+    exchanges them. A grid under the chart shows both at once, each cell in the colour of the followed play that is
+    best there (grey: none of them).
+  - Up to four plays (or cube actions) followed at once, each in its colour: tap a coloured slot under the board to
+    pick from the plays, + Add for another. Each gets its own line in the chart and its own arrows on the board; for
+    cube decisions the version's No double / Double, take / Double, pass (or Take / Pass) rows are marked in the
+    colours. Each slot shows its loss in the version shown. A play added after the analysis is filled in for the
+    versions that do not have it yet.
+  - In landscape the board is a little smaller, with the colour slots under it, and the chart gets the room.
+
 ## 0.9.14 — 2026-11-22 (build 95, internal test)
 
 - Deep dive: one position analyzed in versions that differ in one thing, following one decision through them. Open it
