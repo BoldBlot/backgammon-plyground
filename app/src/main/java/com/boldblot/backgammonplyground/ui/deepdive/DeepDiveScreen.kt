@@ -20,6 +20,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -512,6 +515,7 @@ private fun pctText(v: Double) = String.format(java.util.Locale.US, "%.1f%%", v 
  * Under the version tapped: the best decision and each followed one with its equity, loss and match winning chances
  * (match play), the cube actions for a cube decision, and Open in analysis.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun VersionDetails(st: DeepDiveState, vm: DeepDiveViewModel, i: Int, unit: ErrorUnit) {
     val v = st.versions[i]
@@ -520,10 +524,19 @@ private fun VersionDetails(st: DeepDiveState, vm: DeepDiveViewModel, i: Int, uni
         Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             val match = v.position.setup.matchLength > 0
             @Composable
-            fun line(dot: Color?, text: String, equity: Float?, loss: Loss?) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            fun line(dot: Color?, text: String, equity: Float?, loss: Loss?, k: Int = -1) {
+                // A followed play searched less deeply than the best: its depth, and Deepen (or a long press on the line).
+                val shallow = if (k >= 0 && !st.running) vm.shallowDepth(i, k) else null
+                Row(
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = if (k >= 0) Modifier.combinedClickable(onClick = {}, onLongClick = { vm.deepen(i, k) }) else Modifier,
+                ) {
                     if (dot != null) Box(Modifier.size(8.dp).background(dot, CircleShape)) else Spacer(Modifier.width(8.dp))
                     Text(text, style = mono, modifier = Modifier.weight(1f), maxLines = 1)
+                    if (shallow != null) {
+                        Text(com.boldblot.backgammonplyground.core.Depth.of(shallow).label(), style = mono, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                        TextButton(onClick = { vm.deepen(i, k) }, contentPadding = PaddingValues(horizontal = 6.dp), modifier = Modifier.height(28.dp)) { Text("Deepen") }
+                    }
                     if (equity != null) Text(eq(equity), style = mono)
                     if (match && equity != null) DeepDive.mwc(v.position, equity)?.let { Text("MWC ${pctText(it)}", style = mono) }
                     if (loss != null) Surface(shape = RoundedCornerShape(50), color = fillOf(loss)) {
@@ -535,7 +548,7 @@ private fun VersionDetails(st: DeepDiveState, vm: DeepDiveViewModel, i: Int, uni
             if (best.isEmpty()) Text("Not analyzed yet", style = MaterialTheme.typography.bodySmall)
             else line(null, "Best: $best", st.equityOf(i, -1), null)
             st.tracked.forEachIndexed { k, t ->
-                if (t != null) line(TrackColors[k], st.text(t), st.equityOf(i, k), st.losses.getOrNull(i)?.getOrNull(k))
+                if (t != null) line(TrackColors[k], st.text(t), st.equityOf(i, k), st.losses.getOrNull(i)?.getOrNull(k), k)
             }
             st.results.getOrNull(i)?.analysis?.cube?.let { CubeRows(st, it, v) }
             Row {

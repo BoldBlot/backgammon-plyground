@@ -26,6 +26,8 @@ import com.boldblot.backgammonplyground.data.PositionSetsRepository
 import com.boldblot.backgammonplyground.ui.components.bestCubeLabel
 import com.boldblot.backgammonplyground.ui.components.describeAction
 import com.boldblot.backgammonplyground.ui.positions.positionAnalysis
+import com.boldblot.backgammonplyground.ui.positions.deepenPlays
+import com.boldblot.backgammonplyground.ui.positions.searchedDeeply
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -441,7 +443,9 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
         if (legal.isEmpty()) return false
         val a = r?.analysis ?: return true
         val c = a.checker ?: return false
-        return legal.any { t -> t is Tracked.Play && t !in r.kept && DeepDive.playLoss(c, st.versions[i].position.board, t.move) == null }
+        // A followed play missing from the analysis, or in it from a shallower pass than the best (it came up among the
+        // first pass's plays before it was followed), is searched as deeply as the best; each once.
+        return legal.any { t -> t is Tracked.Play && t !in r.kept && !searchedDeeply(st.versions[i].position, c, t.move) }
     }
 
     /** Analyzes, one by one, what the versions still need (a play added to the legend later is filled in). */
@@ -459,8 +463,13 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
                 val match = v.position.setup.matchLength > 0
                 val r = try {
                     val keep = legal.filterIsInstance<Tracked.Play>().map { it.move }
-                    val a = app.engine.run(engine, null, positionAnalysis(v.position, engine, st.checkerDepth ?: s.checkerDepth(match), st.cubeDepth ?: s.cubeDepth(match), keep))
-                    VersionResult(a, legal.toSet())
+                    val checker = st.checkerDepth ?: s.checkerDepth(match)
+                    val cube = st.cubeDepth ?: s.cubeDepth(match)
+                    val had = st.results.getOrNull(i)
+                    // Analyzed already: only the followed plays not searched deeply are searched again.
+                    val a = if (had?.analysis?.checker != null) app.engine.run(engine, null, deepenPlays(v.position, had.analysis, checker, cube, keep))
+                    else app.engine.run(engine, null, positionAnalysis(v.position, engine, checker, cube, keep))
+                    VersionResult(a, legal.toSet() + (had?.kept ?: emptySet()))
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     AppLog.error("Deep dive: version ${v.label} failed", e)
@@ -490,6 +499,26 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
             }
         },
     )
+
+    /** Whether followed play [k] in version [i] was searched less deeply than the best play (its depth, else null). */
+    fun shallowDepth(i: Int, k: Int): Int? {
+        val st = _state.value
+        val t = st.tracked.getOrNull(k) as? Tracked.Play ?: return null
+        val c = st.results.getOrNull(i)?.analysis?.checker ?: return null
+        val p = st.versions[i].position
+        if (searchedDeeply(p, c, t.move)) return null
+        val target = p.board.applyMove(Player.HUMAN, t.move)
+        return c.candidates.firstOrNull { p.board.applyMove(Player.HUMAN, it.move) == target }?.plies
+    }
+
+    /** "Deepen": searches followed play [k] of version [i] as deeply as the best play. */
+    fun deepen(i: Int, k: Int) {
+        val t = _state.value.tracked.getOrNull(k) ?: return
+        _state.update { st ->
+            st.copy(results = st.results.toMutableList().also { l -> l.getOrNull(i)?.let { r -> l[i] = r.copy(kept = r.kept - t) } })
+        }
+        ensure()
+    }
 
     fun stop() {
         job?.cancel()

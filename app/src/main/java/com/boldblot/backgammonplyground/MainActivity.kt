@@ -300,9 +300,22 @@ class MainActivity : ComponentActivity() {
             }
             // A set of the Match Library, and its quiz.
             composable("sets/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
-                com.boldblot.backgammonplyground.ui.sets.SetScreen(app, entry.arguments?.getLong("id") ?: 0L, onBack = { nav.popBackStack() }) { spec ->
+                val setId = entry.arguments?.getLong("id") ?: 0L
+                com.boldblot.backgammonplyground.ui.sets.SetScreen(app, setId, onBack = { nav.popBackStack() }, onOpen = { nav.navigate("sets/$setId/item/$it") }) { spec ->
                     nav.navigate("setquiz/${spec.encode()}")
                 }
+            }
+            // A position of a set, on the page a folder's position opens on.
+            composable(
+                "sets/{set}/item/{id}",
+                arguments = listOf(navArgument("set") { type = NavType.LongType }, navArgument("id") { type = NavType.LongType }),
+            ) { entry ->
+                val setId = entry.arguments?.getLong("set") ?: 0L
+                PositionDetailScreen(
+                    app, entry.arguments?.getLong("id") ?: 0L, onBack = { nav.popBackStack() }, onSettings = { nav.navigate("settings/POSITIONS") },
+                    onStep = { p -> nav.navigate("sets/$setId/item/$p") { popUpTo("sets/{set}/item/{id}") { inclusive = true } } },
+                    setId = setId,
+                )
             }
             composable("setquiz/{spec}") { entry ->
                 val key = entry.arguments?.getString("spec").orEmpty()

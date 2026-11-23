@@ -747,6 +747,8 @@ fun PositionDetailScreen(
     app: PlyGroundApp, id: Long, onBack: () -> Unit, onSettings: () -> Unit = {},
     /** Opens another position of the list this one was opened from ([BrowseList]) in its place. */
     onStep: ((Long) -> Unit)? = null,
+    /** A position of this set of the Match Library ([id] is its card id): no folders, labels or answers of My positions. */
+    setId: Long? = null,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -766,7 +768,9 @@ fun PositionDetailScreen(
     var sharing by remember { mutableStateOf(false) }
     var reanalyzing by remember { mutableStateOf(false) }
     val capture = rememberBoardCapture()
-    LaunchedEffect(id, refresh) { p = app.positions.position(id) }
+    var savingToMine by remember { mutableStateOf(false) }
+    val inSet = setId != null
+    LaunchedEffect(id, refresh) { p = if (setId != null) app.sets.cards(setId).firstOrNull { it.id == id } else app.positions.position(id) }
     /** Analyzes the position with [r]'s engine and depths, or as in Settings → Analysis without [r]. */
     fun analyze(r: ReanalyzeRequest? = null) {
         val cur = p ?: return
@@ -777,7 +781,7 @@ fun PositionDetailScreen(
                 if (r == null) analyzePosition(app, cur.position, s, Waiting.ANALYSIS, keep = keepMoves(cur))
                 else analyzePosition(app, cur.position, r.engine, r.checker, r.cube, Waiting.ANALYSIS, keep = keepMoves(cur))
             }
-                .onSuccess { app.positions.setAnalysis(cur.id, it); refresh++ }
+                .onSuccess { if (setId != null) app.sets.setAnalysis(cur.id, it) else app.positions.setAnalysis(cur.id, it); refresh++ }
                 .onFailure { Toast.makeText(context, "Analysis failed: ${it.message}", Toast.LENGTH_LONG).show() }
             analyzing = false
         }
@@ -860,7 +864,12 @@ fun PositionDetailScreen(
                                 leadingIcon = { Icon(Icons.Default.Settings, null) },
                                 onClick = { menu = false; onSettings() },
                             )
-                            DropdownMenuItem(text = { Text("Remove") }, onClick = { menu = false; removing = true })
+                            if (inSet) DropdownMenuItem(
+                                text = { Text("Save to My positions") }, enabled = p != null,
+                                leadingIcon = { Icon(Icons.Default.Folder, null) },
+                                onClick = { menu = false; savingToMine = true },
+                            )
+                            else DropdownMenuItem(text = { Text("Remove") }, onClick = { menu = false; removing = true })
                         }
                     }
                 },
@@ -899,7 +908,7 @@ fun PositionDetailScreen(
                         "Played in the game: " + (cur.played?.let { answerWithError(sp, a, it, LocalErrorUnit.current) } ?: "not known"),
                         style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = { settingPlayed = true }) { Text(if (cur.played == null) "Set" else "Change") }
+                    if (!inSet) TextButton(onClick = { settingPlayed = true }) { Text(if (cur.played == null) "Set" else "Change") }
                 }
                 cur.answer?.let { Text("★ My answer: ${answerText(sp, it)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp)) }
                 cur.entity.lastRight?.let {
@@ -912,8 +921,8 @@ fun PositionDetailScreen(
                 if (cur.entity.quizRight + cur.entity.quizWrong + cur.entity.quizNeutral > 0) {
                     Text("Quiz answers: ${quizCountText(cur)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                // Chips on one line (they wrap to a second row only with a very large font).
-                FlowRow(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Chips on one line (they wrap to a second row only with a very large font). A set's position has none of them.
+                if (!inSet) FlowRow(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     FilterChip(
                         selected = false, onClick = { answering = true }, enabled = a != null,
                         leadingIcon = { Icon(Icons.Default.Check, null, Modifier.size(18.dp)) },
@@ -1037,6 +1046,7 @@ fun PositionDetailScreen(
         if (reanalyzing) {
             ReanalyzeDialog(settings, gameNumber = null, onDismiss = { reanalyzing = false }, match = (p?.position?.ctx()?.matchLength ?: 0) > 0, onStart = { reanalyzing = false; analyze(it) })
         }
+        if (savingToMine) SaveToPositionsDialog(app, sp, "Set: ${cur.entity.source}", played = cur.played, analysis = cur.analysis) { savingToMine = false }
         if (removing) {
             AlertDialog(
                 onDismissRequest = { removing = false },
@@ -1448,6 +1458,7 @@ private fun QuizContent(st: QuizState, vm: QuizViewModel, header: (@Composable (
             st.busy -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 Text("  Analyzing…")
+                if (st.slow) TextButton(onClick = vm::stopWaiting) { Text("Stop") }
             }
             r != null -> QuizResultCard(st, sp, r, vm, capture, readOnly = past != null, colors = deciderColors)
             // Undo and Done as chips in both orientations, as in a game, centred in the panel.
@@ -1650,8 +1661,10 @@ private fun QuizResultCard(
                     "Analysis: ${r.analysis.shownLabel.ifBlank { UNKNOWN_ENGINE }}",
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f),
                 )
-                if (st.reanalyzing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                else if (!readOnly) TextButton(onClick = { asking = true }) {
+                if (st.reanalyzing) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    if (st.slow && !readOnly) TextButton(onClick = vm::stopWaiting) { Text("Stop") }
+                } else if (!readOnly) TextButton(onClick = { asking = true }) {
                     Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Analyze again")

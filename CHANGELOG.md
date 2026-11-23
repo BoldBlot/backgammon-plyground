@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.20 — 2026-11-23 (build 101, internal test)
+
+- Sets: a position opens on the same page as a position of My positions (board, played move and its cost, last quiz
+  answer, the analysis, Previous / Next through the set, Deep dive, Analyze again), with Save to My positions in the
+  ⋮ menu; folders, labels, notes and Learned stay with My positions.
+- Deep dive: a play followed after the run, which the analysis had only from its first, shallower pass, is now
+  searched as deeply as the best play (before, it kept the shallow value). A followed play that is still shallower
+  shows its depth and Deepen under the row; a long press on its line does the same.
+- Quiz: after "Analyze again" the answer you gave is searched with the rest, so judging it again needs no second
+  search (one that could wait behind other analysis, with the spinner never stopping). After a minute of waiting the
+  card offers Stop. The log now names each card's position ID, Next, and what the engine is busy with when the quiz
+  waits.
+
 ## 0.9.19 — 2026-11-22 (build 100, internal test)
 
 - Match review in landscape: the left panel is wider, so Board, After, Save and Deep dive fit in one row; the board

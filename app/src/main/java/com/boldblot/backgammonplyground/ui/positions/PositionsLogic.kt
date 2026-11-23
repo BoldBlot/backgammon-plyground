@@ -82,16 +82,33 @@ fun positionAnalysis(p: StudyPosition, engine: EngineKind, checker: Depth, cube:
             val c = MatchController(this, DiceSource.secure(), AnalysisSettings(plies = checker.code, cubePlies = cube.code))
             val moves = keep.filter { !it.isEmpty }.distinctBy { p.board.applyMove(Player.HUMAN, it) }
             // The label says what was searched: without the games where they cannot be played, or stopped early.
-            var a = c.analyzeChecker(p.board, p.ctx(), dice, moves.firstOrNull(), checker.code)
-            for (m in moves.drop(1)) {
-                if (searchedDeeply(p, a, m)) continue
-                val other = c.analyzeChecker(p.board, p.ctx(), dice, m, checker.code)
-                other.candidates.getOrNull(other.playedIndex)?.let { a = a.withCandidate(p.board, Player.HUMAN, it) }
-            }
+            val a = deepenIn(c, p, c.analyzeChecker(p.board, p.ctx(), dice, moves.firstOrNull(), checker.code), moves.drop(1), checker.code)
             PositionAnalysis(checker = a, label = "${engine.label} ${Depth.of(a.plies).label()}")
         } else {
             val e = cubeDecision(p.board, p.ctx(), cube.code)
             PositionAnalysis(cube = e, label = "${engine.label} ${Depth.of(e.plies ?: cube.code).label(cube = true)}")
+        }
+    }
+
+/** [a] with each of [moves] not searched as deeply as its best play searched now at [plies] (as the played move is). */
+private fun SearchEngine.deepenIn(c: MatchController, p: StudyPosition, start: CheckerAnalysis, moves: List<Move>, plies: Int): CheckerAnalysis {
+    var a = start
+    for (m in moves) {
+        if (searchedDeeply(p, a, m)) continue
+        val other = c.analyzeChecker(p.board, p.ctx(), p.dice!!, m, plies)
+        other.candidates.getOrNull(other.playedIndex)?.let { a = a.withCandidate(p.board, Player.HUMAN, it) }
+    }
+    return a
+}
+
+/** Analysis [pa] of [p] with [moves] searched as deeply as its best play (only those that were not): the rest is kept. */
+fun deepenPlays(p: StudyPosition, pa: PositionAnalysis, checker: Depth, cube: Depth, moves: List<Move>): SearchEngine.() -> PositionAnalysis =
+    {
+        val a = pa.checker
+        if (a == null || p.dice == null) pa
+        else {
+            val c = MatchController(this, DiceSource.secure(), AnalysisSettings(plies = checker.code, cubePlies = cube.code))
+            pa.copy(checker = deepenIn(c, p, a, moves.filter { !it.isEmpty }.distinctBy { p.board.applyMove(Player.HUMAN, it) }, a.plies))
         }
     }
 

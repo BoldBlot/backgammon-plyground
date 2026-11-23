@@ -255,7 +255,7 @@ fun SetImportDialog(app: PlyGroundApp, pending: PendingSet, onDismiss: () -> Uni
  * to My positions (it stays in the set too).
  */
 @Composable
-fun SetScreen(app: PlyGroundApp, setId: Long, onBack: () -> Unit, onQuiz: (SetQuizSpec) -> Unit) {
+fun SetScreen(app: PlyGroundApp, setId: Long, onBack: () -> Unit, onOpen: (Long) -> Unit, onQuiz: (SetQuizSpec) -> Unit) {
     val settings by app.settings.settings.collectAsState(initial = Settings())
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -347,10 +347,10 @@ fun SetScreen(app: PlyGroundApp, setId: Long, onBack: () -> Unit, onQuiz: (SetQu
                         actions = { RowAction(Icons.Default.Folder, "Save to My positions") { saving = p } },
                         extra = analysisLine(p),
                     ) {
-                        // Analyze Position with the position as the set has it (a take or pass with the double on offer).
+                        // The position's page, as from a folder, with Previous / Next through the set.
                         if (sel != null) toggle() else {
-                            app.pendingAnalyzePlayed = p.played?.move
-                            app.pendingAnalyze.value = PositionSeries.analyzeId(p.position)
+                            com.boldblot.backgammonplyground.ui.positions.BrowseList.ids = list.map { it.id }
+                            onOpen(p.id)
                         }
                     }
                 }

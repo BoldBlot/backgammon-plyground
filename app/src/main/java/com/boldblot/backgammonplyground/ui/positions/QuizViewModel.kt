@@ -113,6 +113,8 @@ data class QuizState(
     val busy: Boolean = false,
     /** "Analyze again" on the result is running. */
     val reanalyzing: Boolean = false,
+    /** [busy] or [reanalyzing] for over a minute: the card offers Stop. */
+    val slow: Boolean = false,
     val result: QuizResult? = null,
     /** After an answer: the board with arrows, bare, or after a move; [candidate] is the play picked in the list. */
     val view: ReviewView = ReviewView.ARROWS,
@@ -290,6 +292,7 @@ class QuizViewModel(
         val d = p.dice
         options = d?.let { MoveOptions(p.board, Player.HUMAN, it.d1, it.d2) }
         val opts = options
+        _state.value.current?.let { AppLog.i("Quiz: card ${it.id} shown, ${p.xgid}") }
         _state.value.current?.let { refreshAnalysis(it, _state.value.settings) }
         _state.update {
             it.copy(
@@ -419,9 +422,10 @@ class QuizViewModel(
         val sp = _state.value.current ?: return
         val p = sp.position
         val s = _state.value.settings
-        _state.update { it.copy(busy = true) }
-        viewModelScope.launch {
+        _state.update { it.copy(busy = true, slow = false) }
+        work = viewModelScope.launch {
             val t0 = android.os.SystemClock.elapsedRealtime()
+            val dog = watchdog("answer to position ${sp.id} (${p.xgid})")
             AppLog.i("Quiz: answer to position ${sp.id}" + if (sp.analysis == null) ", analyzing it first" else ", saved analysis ${sp.analysis?.label}")
             try {
                 // A position saved without analysis (or imported) is analyzed now, and keeps it.
@@ -484,8 +488,30 @@ class QuizViewModel(
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 AppLog.error("Quiz analysis failed", e)
                 _state.update { it.copy(busy = false, message = "Analysis failed: ${e.message}") }
+            } finally {
+                dog.cancel()
+                _state.update { it.copy(slow = false) }
             }
         }
+    }
+
+    /** The answer or "Analyze again" running now (Stop cancels it). */
+    private var work: kotlinx.coroutines.Job? = null
+
+    /** After a minute of [what]: the log says what the engine is busy with, and the card offers Stop. */
+    private fun watchdog(what: String) = viewModelScope.launch {
+        kotlinx.coroutines.delay(60_000)
+        AppLog.i("Quiz: still waiting after 60 s: $what; engine calls running or queued: ${app.engine.activity.value.joinToString { it.kind.name }.ifEmpty { "none" }}")
+        _state.update { it.copy(slow = true) }
+    }
+
+    /** Stop on a card that waits too long: the search is stopped and the card goes back to where it was. */
+    fun stopWaiting() {
+        AppLog.i("Quiz: stopped by the user after waiting")
+        app.engine.stopSearch()
+        work?.cancel()
+        work = null
+        _state.update { it.copy(busy = false, reanalyzing = false, slow = false, message = "Stopped.") }
     }
 
     /**
@@ -534,7 +560,7 @@ class QuizViewModel(
 
     /** [move]'s equity by [c]: from its candidates, else analyzed now with [engine] at [c]'s depth (null without candidates). */
     private suspend fun playedEquity(p: StudyPosition, c: com.boldblot.backgammonplyground.core.CheckerAnalysis, move: Move, s: Settings, engine: EngineKind?): Float? =
-        equityOf(p, c, move) ?: if (c.candidates.isEmpty()) null else app.engine.run(engine) {
+        equityOf(p, c, move) ?: if (c.candidates.isEmpty()) null else app.engine.run(engine, Waiting.ANALYSIS) {
             MatchController(this, DiceSource.secure(), AnalysisSettings(plies = c.plies, cubePlies = s.cubeDepth.code))
                 .analyzeChecker(p.board, p.ctx(), p.dice!!, move, c.plies).playedEquity
         }
@@ -585,13 +611,15 @@ class QuizViewModel(
         if (st.reanalyzing) return
         val s = st.settings
         val token = cardToken
-        _state.update { it.copy(reanalyzing = true, message = null) }
-        viewModelScope.launch {
+        _state.update { it.copy(reanalyzing = true, slow = false, message = null) }
+        work = viewModelScope.launch {
             val t0 = android.os.SystemClock.elapsedRealtime()
-            AppLog.i("Quiz: analyze again, position ${sp.id}, ${r.engine.label} ${r.checker.label()} / ${r.cube.label(cube = true)}")
+            val dog = watchdog("analyze again of position ${sp.id} (${sp.position.xgid})")
+            AppLog.i("Quiz: analyze again, position ${sp.id}, ${r.engine.label} ${r.checker.label()} / ${r.cube.label(cube = true)}, ${sp.position.xgid}")
             try {
                 val p = sp.position
-                val a = analyzePosition(app, p, r.engine, r.checker, r.cube, Waiting.ANALYSIS, keep = keepMoves(sp))
+                // The answer just given is searched with the rest, so judging it again needs no second search.
+                val a = analyzePosition(app, p, r.engine, r.checker, r.cube, Waiting.ANALYSIS, keep = keepMoves(sp) + listOfNotNull(old.move))
                 AppLog.i("Quiz: analyze again of position ${sp.id} done in ${android.os.SystemClock.elapsedRealtime() - t0} ms" + if (token != cardToken) " (the quiz had moved on)" else "")
                 val kept = !old.deleted && old.removed == null && !detached
                 if (kept) app.positions.setAnalysis(sp.id, a)
@@ -604,10 +632,14 @@ class QuizViewModel(
                     else SavedAnswerNote(answerText(p, mine), cost / factorOf(p))
                 }
                 rejudge(sp, a, old, r.engine, "Analyzed again: ${a.label}.", note, token)
+                AppLog.i("Quiz: position ${sp.id} judged again")
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 AppLog.error("Quiz analysis failed", e)
                 if (token == cardToken) _state.update { it.copy(reanalyzing = false, message = "Analysis failed: ${e.message}") }
+            } finally {
+                dog.cancel()
+                _state.update { it.copy(slow = false) }
             }
         }
     }
@@ -697,8 +729,9 @@ class QuizViewModel(
         val cur = st.current ?: return
         val again = r.verdict == QuizVerdict.WRONG && st.settings.quizRepeat && !r.deleted && r.removed == null
         val rest = st.queue.drop(1) + if (again) listOf(cur) else emptyList()
+        AppLog.i("Quiz: next after position ${cur.id}" + if (st.reanalyzing) " (analyze again still running)" else "")
         cardToken++
-        _state.update { it.copy(queue = rest, result = null, finished = rest.isEmpty(), history = it.history + QuizCard(cur, r), viewing = null, reanalyzing = false) }
+        _state.update { it.copy(queue = rest, result = null, finished = rest.isEmpty(), history = it.history + QuizCard(cur, r), viewing = null, reanalyzing = false, slow = false) }
         if (rest.isNotEmpty()) show()
     }
 
