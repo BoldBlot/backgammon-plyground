@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.20 — 2026-11-23 (build 101, internal test)
+## 0.9.20 — 2026-11-23 (build 101)
 
 - Sets: a position opens on the same page as a position of My positions (board, played move and its cost, last quiz
   answer, the analysis, Previous / Next through the set, Deep dive, Analyze again), with Save to My positions in the
