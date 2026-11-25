@@ -123,7 +123,9 @@ class SetAnalysis(private val app: PlyGroundApp) {
                     if (setId !in names) { names[setId] = app.sets.set(setId)?.name ?: "Set"; publish() }
                     // The move played (when the set has it) is searched as deeply as the best play.
                     val played = e.played?.let { runCatching { com.boldblot.backgammonplyground.data.AppJson.decodeFromString<com.boldblot.backgammonplyground.core.MyAnswer>(it) }.getOrNull()?.move }
-                    val a = analyzeInBackground(app, StudyPosition.stored(e.xgid, e.doubled, e.beavers), s, listOfNotNull(played))
+                    val a = kotlinx.coroutines.withContext(com.boldblot.backgammonplyground.engine.EngineLabel("Set analysis: position $id", owned = true)) {
+                        analyzeInBackground(app, StudyPosition.stored(e.xgid, e.doubled, e.beavers), s, listOfNotNull(played))
+                    }
                     app.sets.setAnalysis(PositionSetsRepository.cardId(id), a)
                     val ms = (android.os.SystemClock.elapsedRealtime() - t0).toDouble()
                     avgMs = if (timed == 0) ms else avgMs * 0.8 + ms * 0.2

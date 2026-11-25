@@ -230,7 +230,7 @@ class QuizViewModel(
         if (!staleAnalysis(sp, s)) return
         AppLog.i("Quiz: position ${sp.id} is below the standard (${sp.analysis?.shownLabel}), analyzing it again")
         refreshed[sp.id] = viewModelScope.async {
-            runCatching { analyzeForQuiz(app, sp.position, s, keep = keepMoves(sp)) }
+            runCatching { kotlinx.coroutines.withContext(com.boldblot.backgammonplyground.engine.EngineLabel("Quiz: card ${sp.id} analyzed again")) { analyzeForQuiz(app, sp.position, s, keep = keepMoves(sp)) } }
                 .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it; AppLog.error("Quiz: analyzing again failed", it) }
                 .getOrNull()
         }
@@ -310,7 +310,7 @@ class QuizViewModel(
             val s = _state.value.settings
             val t0 = android.os.SystemClock.elapsedRealtime()
             val a = try {
-                analyzeForQuizInBackground(app, sp.position, s, keep = keepMoves(sp))
+                kotlinx.coroutines.withContext(com.boldblot.backgammonplyground.engine.EngineLabel("Quiz look-ahead: card ${sp.id}", owned = true)) { analyzeForQuizInBackground(app, sp.position, s, keep = keepMoves(sp)) }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) { d.complete(null); throw e }
                 AppLog.error("Quiz look-ahead: card ${sp.id} (${sp.position.xgid}) failed", e)
@@ -520,7 +520,7 @@ class QuizViewModel(
                 // A position saved without analysis (or imported) is analyzed now, and keeps it.
                 refreshAnalysis(sp, s)
                 val fresh = refreshed[sp.id]?.await()?.also { keepAnalysis(sp.id, it) }
-                val a = fresh ?: sp.analysis ?: analyzeForQuiz(app, p, s, keep = keepMoves(sp)).also { keepAnalysis(sp.id, it) }
+                val a = fresh ?: sp.analysis ?: kotlinx.coroutines.withContext(com.boldblot.backgammonplyground.engine.EngineLabel("Quiz: analyzing card ${sp.id} for your answer")) { analyzeForQuiz(app, p, s, keep = keepMoves(sp)) }.also { keepAnalysis(sp.id, it) }
                 AppLog.i("Quiz: position ${sp.id} analyzed in ${android.os.SystemClock.elapsedRealtime() - t0} ms")
                 val factor = factorOf(p)
                 val asked = cubeAnswer?.let { if (partial) withBestResponse(p, a, it.double) else it }

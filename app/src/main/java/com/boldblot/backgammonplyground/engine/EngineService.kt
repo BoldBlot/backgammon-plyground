@@ -34,7 +34,25 @@ enum class Waiting { ANALYSIS, PLAY }
 enum class ActivityKind { PLAY, ANALYSIS, BACKGROUND }
 
 /** One call into the engine that has not returned: running, or waiting its turn on the engine thread. */
-data class EngineActivity(val id: Long, val kind: ActivityKind)
+class EngineActivity(
+    val id: Long, val kind: ActivityKind,
+    /** What it is, for Data and help ("Deep dive: version 5 of 12"); from the caller's [EngineLabel]. */
+    val what: String,
+    /** Shown in Data and help as part of a [WorkItem] (with its own Stop), not on a line of its own. */
+    val owned: Boolean,
+) {
+    /** The engine searching for it once it runs (null while it waits its turn). */
+    @Volatile var engine: SearchEngine? = null
+}
+
+/** The name of the engine calls made under it ([kotlinx.coroutines.withContext]), and whether a [WorkItem] stands for them. */
+class EngineLabel(val what: String, val owned: Boolean = false) : kotlin.coroutines.AbstractCoroutineContextElement(EngineLabel) {
+    companion object Key : kotlin.coroutines.CoroutineContext.Key<EngineLabel>
+}
+
+private class ActivityElement(val a: EngineActivity) : kotlin.coroutines.AbstractCoroutineContextElement(ActivityElement) {
+    companion object Key : kotlin.coroutines.CoroutineContext.Key<ActivityElement>
+}
 
 /**
  * A search someone waits for, as the screen shows it: what it is doing, [done] of [total] steps (0 of 0: not
@@ -220,9 +238,11 @@ class EngineService(private val context: Context) {
     private var activityId = 0L
 
     private suspend fun <T> tracked(kind: ActivityKind, block: suspend () -> T): T {
-        val a = synchronized(this) { EngineActivity(++activityId, kind) }
+        val label = kotlinx.coroutines.currentCoroutineContext()[EngineLabel]
+        val what = label?.what ?: when (kind) { ActivityKind.PLAY -> "The computer's move"; ActivityKind.ANALYSIS -> "Analysis"; ActivityKind.BACKGROUND -> "Background search" }
+        val a = synchronized(this) { EngineActivity(++activityId, kind, what, label?.owned == true) }
         _activity.update { it + a }
-        try { return block() } finally { _activity.update { it - a } }
+        try { return withContext(ActivityElement(a)) { block() } } finally { _activity.update { it - a } }
     }
 
     private val _progress = MutableStateFlow<SearchProgress?>(null)
@@ -243,9 +263,31 @@ class EngineService(private val context: Context) {
      */
     fun stopBackground() { synchronized(unwatched) { unwatched.toList() }.forEach { it.stopNow() } }
 
-    private fun <T> unwatchedRun(e: SearchEngine, block: SearchEngine.() -> T): T {
+    /**
+     * Runs a search nobody watches. When its caller is cancelled (left the screen, Stop on a job) the search stops at once
+     * instead of running to its end unseen.
+     */
+    private suspend fun <T> unwatchedRun(e: SearchEngine, block: SearchEngine.() -> T): T {
+        val a = kotlinx.coroutines.currentCoroutineContext()[ActivityElement]?.a
+        a?.engine = e
         unwatched += e
-        try { return e.block() } finally { unwatched -= e }
+        try {
+            return coroutineScope {
+                var finished = false
+                val guard = launch(Dispatchers.Default) {
+                    try { kotlinx.coroutines.awaitCancellation() } finally {
+                        if (!finished) { AppLog.i("Search stopped: its caller went away (${a?.what ?: "background search"})"); e.stopNow() }
+                    }
+                }
+                try { e.block() } finally { finished = true; guard.cancel() }
+            }
+        } finally { unwatched -= e; a?.engine = null }
+    }
+
+    /** Stop on a line of Data and help: that search returns at once with what it has (the watched one as [stopSearch]). */
+    fun stopActivity(a: EngineActivity) {
+        AppLog.i("Data and help: Stop on \"${a.what}\" (${a.kind})")
+        if (a.kind == ActivityKind.BACKGROUND) a.engine?.stopNow() else stopSearch()
     }
 
     /** The background analysis has its own slot (only PureTD can have a second copy). */

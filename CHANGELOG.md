@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.23 — 2026-11-25 (build 104, internal test)
+
+- Data and help, Being analyzed now: every search is named ("Deep dive: version 5", "Quiz: card 412 analyzed again",
+  "Review: game 2, decision 14") and has its own Stop; a deep dive and Analyze again (review, game quiz) show as jobs whose
+  Stop ends the whole run. Before, some showed only as "Background analysis" with no way to stop them.
+- A background search whose screen is closed (a deep dive left mid-run, for example) now stops at once instead of running on
+  unseen to its end.
+
 ## 0.9.22 — 2026-11-25 (build 103, internal test)
 
 - My positions lists: the delete button (and the quiz mark) sit in the bottom right corner, and the tags wrap before them.

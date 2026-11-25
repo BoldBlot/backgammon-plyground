@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 /** What a background job is doing now, for Data and help and the top label. */
-enum class WorkKind { MATCH, SET, QUIZ }
+enum class WorkKind { MATCH, SET, QUIZ, DEEP_DIVE, REANALYSIS }
 
 /**
  * One background job: "Match against Club Champion: 23 decisions left", with the time left ([etaMs], null until it can be

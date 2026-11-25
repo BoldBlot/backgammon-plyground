@@ -1420,7 +1420,9 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             val work: com.boldblot.backgammonplyground.engine.SearchEngine.() -> DecisionRecord = {
                 Reanalysis(this, s.checkerCode, s.cubeCode, shortcut = true).decision(p.decision, p.matchLength, p.jacoby)
             }
-            (if (engineService.twoSlots) engineService.runBackground(work) else engineService.run(block = work)).also {
+            kotlinx.coroutines.withContext(com.boldblot.backgammonplyground.engine.EngineLabel("Match analysis: game ${p.gameNumber}, decision ${p.index}", owned = true)) {
+                if (engineService.twoSlots) engineService.runBackground(work) else engineService.run(block = work)
+            }.also {
                 val ms = (android.os.SystemClock.elapsedRealtime() - started).toDouble()
                 analysisMillis = if (analysisMillis == 0.0) ms else analysisMillis * 0.8 + ms * 0.2
                 analysisTimed++

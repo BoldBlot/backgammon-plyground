@@ -36,7 +36,7 @@ import kotlinx.coroutines.delay
 
 /** "Your match: 23 decisions left of 40, about 1 min". */
 fun workLine(w: WorkItem): String {
-    val unit = when (w.kind) { WorkKind.MATCH -> "decisions"; WorkKind.SET, WorkKind.QUIZ -> "positions" }
+    val unit = when (w.kind) { WorkKind.MATCH, WorkKind.REANALYSIS -> "decisions"; WorkKind.SET, WorkKind.QUIZ -> "positions"; WorkKind.DEEP_DIVE -> "versions" }
     val of = if (w.total > w.left) " of ${w.total}" else ""
     return "${w.label}: ${w.left} $unit left$of" + (w.etaMs?.let { ", ${BackgroundWork.eta(it)}" } ?: "")
 }
@@ -54,25 +54,28 @@ fun AnalysisNowSection(app: PlyGroundApp) {
     LaunchedEffect(Unit) { while (true) { now = android.os.SystemClock.elapsedRealtime(); delay(500) } }
     Column(Modifier.fillMaxWidth().padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("Being analyzed now", style = MaterialTheme.typography.titleSmall)
+        // Read every half second, so a call that starts searching gets its Stop.
+        if (now < 0) return@Column
         val jobs = items.values.sortedBy { it.kind.ordinal }
         val p = progress
-        val other = activity.count { it.kind != ActivityKind.BACKGROUND }
-        if (jobs.isEmpty() && p == null && activity.isEmpty()) {
+        // Engine calls no job stands for, each with its name and Stop (the watched search shows as [p] instead).
+        val loose = activity.filter { !it.owned && (it.kind == ActivityKind.BACKGROUND || p == null) }
+        if (jobs.isEmpty() && p == null && loose.isEmpty()) {
             Text("Nothing being analyzed.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             return@Column
         }
         if (p != null) WorkRow(searchLine(p, now - p.startedAt)) { AppLog.i("Data and help: Stop on the search \"${p.what}\""); app.engine.stopSearch() }
-        else if (other > 0) WorkRow(if (other == 1) "The engine is searching (play or analysis)" else "$other searches", null)
         jobs.forEach { w ->
             WorkRow(workLine(w) + if (w.kind == WorkKind.MATCH && app.engine.gpuWithBackground) " · GPU" else "") {
                 AppLog.i("Data and help: Stop on \"${w.label}\" (${w.left} left)")
                 w.stop()
             }
         }
-        if (jobs.isEmpty() && p == null && other == 0) WorkRow("Background analysis", null)
-        if (jobs.size + (if (p != null) 1 else 0) > 1) {
+        // A call still waiting for the engine has nothing to stop yet; Stop appears once it searches.
+        loose.forEach { a -> WorkRow(a.what + if (a.engine == null) " (waiting its turn)" else "", if (a.engine == null) null else { { app.engine.stopActivity(a) } }) }
+        if (jobs.size + loose.size + (if (p != null) 1 else 0) > 1) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = { app.work.stopAll(); app.engine.stopSearch() }) { Text("Stop all") }
+                TextButton(onClick = { app.work.stopAll(); loose.forEach { app.engine.stopActivity(it) }; app.engine.stopSearch() }) { Text("Stop all") }
             }
         }
     }

@@ -216,7 +216,8 @@ fun GameQuizMenuScreen(app: PlyGroundApp, matchId: Long?, onBack: () -> Unit, on
                     val ds2 = g.decisions.toMutableList()
                     for ((k, d) in g.decisions.withIndex()) {
                         if (!wanted(d)) continue
-                        ds2[k] = app.engine.run(engine) { re.decision(d, mm.length, mm.jacoby) }
+                        app.work.put(com.boldblot.backgammonplyground.engine.WorkItem("gamequiz", com.boldblot.backgammonplyground.engine.WorkKind.REANALYSIS, "Match analysis for the game quiz", total - done, total, stop = { com.boldblot.backgammonplyground.AppLog.i("Game quiz analysis stopped from Data and help"); reviewJob?.cancel() }))
+                        ds2[k] = kotlinx.coroutines.withContext(com.boldblot.backgammonplyground.engine.EngineLabel("Game quiz: decision ${k + 1}", owned = true)) { app.engine.run(engine) { re.decision(d, mm.length, mm.jacoby) } }
                         done++
                         progress = done to total
                     }
@@ -231,6 +232,7 @@ fun GameQuizMenuScreen(app: PlyGroundApp, matchId: Long?, onBack: () -> Unit, on
                 reviewMessage = "Analysis failed: ${t.message}"
             } finally {
                 progress = null
+                app.work.remove("gamequiz")
             }
         }
     }

@@ -563,14 +563,18 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
                 val v = st.versions[i]
                 val legal = legalIn(st, i)
                 val match = v.position.setup.matchLength > 0
+                val todo = st.versions.indices.count { needsWork(st, it) }
+                app.work.put(com.boldblot.backgammonplyground.engine.WorkItem("deepdive", com.boldblot.backgammonplyground.engine.WorkKind.DEEP_DIVE, "Deep dive", todo, maxOf(todo, st.versions.size), stop = { AppLog.i("Deep dive stopped from Data and help"); stop() }))
                 val r = try {
                     val keep = legal.filterIsInstance<Tracked.Play>().map { it.move }
                     val checker = st.checkerDepth ?: s.checkerDepth(match)
                     val cube = st.cubeDepth ?: s.cubeDepth(match)
                     val had = st.results.getOrNull(i)
                     // Analyzed already: only the followed plays not searched deeply are searched again.
-                    val a = if (had?.analysis?.checker != null) app.engine.run(engine, null, deepenPlays(v.position, had.analysis, checker, cube, keep))
-                    else app.engine.run(engine, null, positionAnalysis(v.position, engine, checker, cube, keep))
+                    val a = kotlinx.coroutines.withContext(com.boldblot.backgammonplyground.engine.EngineLabel("Deep dive: version ${v.label}", owned = true)) {
+                        if (had?.analysis?.checker != null) app.engine.run(engine, null, deepenPlays(v.position, had.analysis, checker, cube, keep))
+                        else app.engine.run(engine, null, positionAnalysis(v.position, engine, checker, cube, keep))
+                    }
                     val tries = (had?.tries ?: emptyMap()).toMutableMap().also { m -> legal.forEach { t -> m[t] = (m[t] ?: 0) + 1 } }
                     a.checker?.let { c ->
                         val still = legal.filterIsInstance<Tracked.Play>().filter { !searchedDeeply(v.position, c, it.move) }
@@ -584,6 +588,7 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
                 }
                 _state.update { withLosses(it.copy(results = it.results.toMutableList().also { l -> if (i < l.size) l[i] = r })) }
             }
+            app.work.remove("deepdive")
             AppLog.i("Deep dive: ${_state.value.versions.size} versions done")
             // Settings → Deep dive: the best plays nobody follows go into the free slots (then analyzed where needed).
             if (app.settings.settings.first().deepDiveAutoBest) {
@@ -643,6 +648,7 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
     fun stop() {
         job?.cancel()
         job = null
+        app.work.remove("deepdive")
         _state.update { it.copy(running = false) }
     }
 
@@ -702,6 +708,7 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
     }
 
     override fun onCleared() {
+        app.work.remove("deepdive")
         job?.cancel()
     }
 }

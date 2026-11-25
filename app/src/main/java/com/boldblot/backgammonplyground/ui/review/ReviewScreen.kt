@@ -392,6 +392,7 @@ class ReviewViewModel(
         val re = Reanalysis(app.engine.of(r.engine), r.checker.code, r.cube.code)
         val total = targets.sumOf { i -> s.games[i].second.decisions.count { re.wanted(it, r.cpu) } }
         reanalysis = viewModelScope.launch {
+            kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]?.invokeOnCompletion { app.work.remove("review") }
             var done = 0
             var games = 0
             _state.update { it.copy(progress = 0 to total, message = null) }
@@ -401,7 +402,8 @@ class ReviewViewModel(
                     val decisions = g.decisions.toMutableList()
                     for ((k, d) in g.decisions.withIndex()) {
                         if (!re.wanted(d, r.cpu)) continue
-                        decisions[k] = app.engine.run(r.engine) { re.decision(d, match.length, match.jacoby) }
+                        app.work.put(com.boldblot.backgammonplyground.engine.WorkItem("review", com.boldblot.backgammonplyground.engine.WorkKind.REANALYSIS, "Review: analyze again", total - done, total, stop = { com.boldblot.backgammonplyground.AppLog.i("Review: analyze again stopped from Data and help"); stopReanalysis() }))
+                        decisions[k] = kotlinx.coroutines.withContext(com.boldblot.backgammonplyground.engine.EngineLabel("Review: game ${i + 1}, decision ${k + 1}", owned = true)) { app.engine.run(r.engine) { re.decision(d, match.length, match.jacoby) } }
                         done++
                         _state.update { it.copy(progress = done to total) }
                     }
