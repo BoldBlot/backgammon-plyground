@@ -226,6 +226,8 @@ data class Settings(
     val cubeFast: Boolean = false,
     /** T-Roller's games on the GPU (experimental, Advanced engine settings); used only with a passing [gpuCheck]. */
     val gpuGames: Boolean = false,
+    /** During a game the GPU games belong to the background analysis (Advanced engine settings, 0.9.22). */
+    val gpuBackground: Boolean = false,
     /** How long an analysis may take (ms, the welcome screen's budget): the speed test recommends the best search within it. */
     val analysisBudget: Int = 1000,
     /** The analysis budget was asked (welcome screen, 0.9.21): an update from an older version shows it once. */
@@ -597,6 +599,7 @@ class SettingsStore(private val context: Context) {
         val cubePlies = intPreferencesKey("cube_plies")
         val cubeFast = booleanPreferencesKey("cube_fast")
         val gpuGames = booleanPreferencesKey("gpu_games")
+        val gpuBackground = booleanPreferencesKey("gpu_background")
         val analysisBudget = intPreferencesKey("analysis_budget")
         val deepDiveAutoBest = booleanPreferencesKey("deep_dive_auto_best")
         val budgetAsked = booleanPreferencesKey("budget_asked")
@@ -747,6 +750,7 @@ class SettingsStore(private val context: Context) {
             cubePlies = (p[Keys.cubePlies] ?: d.cubePlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
             cubeFast = p[Keys.cubeFast] ?: d.cubeFast,
             gpuGames = p[Keys.gpuGames] ?: d.gpuGames,
+            gpuBackground = p[Keys.gpuBackground] ?: d.gpuBackground,
             analysisBudget = p[Keys.analysisBudget] ?: d.analysisBudget,
             deepDiveAutoBest = p[Keys.deepDiveAutoBest] ?: d.deepDiveAutoBest,
             budgetAsked = p[Keys.budgetAsked] ?: d.budgetAsked,
@@ -893,6 +897,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.cubePlies] = s.cubePlies
             p[Keys.cubeFast] = s.cubeFast
             p[Keys.gpuGames] = s.gpuGames
+            p[Keys.gpuBackground] = s.gpuBackground
             p[Keys.analysisBudget] = s.analysisBudget
             p[Keys.deepDiveAutoBest] = s.deepDiveAutoBest
             p[Keys.budgetAsked] = s.budgetAsked

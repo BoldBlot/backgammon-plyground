@@ -90,12 +90,72 @@ class EngineService(private val context: Context) {
     @Volatile var gpuState: String = "off"
         private set
 
+    /**
+     * Advanced engine settings: during a game ([inGame]) the GPU games belong to the background analysis, and the game's own
+     * searches play their games on the CPU. Outside a game the GPU goes back to the main analysis, once the background
+     * position in progress is done: one engine holds the GPU at a time, never both.
+     */
+    @Volatile var gpuToBackground: Boolean = false
+        set(v) { field = v; settleGpu() }
+    /** The game screen is open with a match in play. */
+    @Volatile var inGame: Boolean = false
+        set(v) { if (field != v) { field = v; settleGpu() } }
+
+    private enum class GpuSlot { MAIN, BACKGROUND }
+    private val gpuLock = Any()
+    private var gpuOwner = GpuSlot.MAIN
+    private var mainBusy = false
+    private var backBusy = false
+    /** The main search ran on the CPU because the background analysis held the GPU (logged once per spell). */
+    private var mainWithoutGpu = false
+    @Volatile private var backEngine: PureTdEngine? = null
+
+    /** The slot that holds the GPU now, for the top label ("GPU" while the background analysis has it). */
+    val gpuWithBackground: Boolean get() = synchronized(gpuLock) { gpuOpen != null && gpuOwner == GpuSlot.BACKGROUND }
+
+    /** Moves the GPU games to the slot that should have them, when the slot holding them is not searching. */
+    private fun settleGpu() = synchronized(gpuLock) {
+        val open = gpuOpen
+        val main = open?.let { ptds[it.first]?.engine }
+        val back = backEngine
+        if (open == null || gpuFailedFor == open.second) {
+            main?.gpu = null; back?.gpu = null
+            return@synchronized
+        }
+        val want = if (gpuToBackground && inGame && twoSlots) GpuSlot.BACKGROUND else GpuSlot.MAIN
+        if (gpuOwner != want && !(if (gpuOwner == GpuSlot.MAIN) mainBusy else backBusy) && (want == GpuSlot.MAIN || back != null)) {
+            gpuOwner = want
+            AppLog.i("GPU games moved to the ${if (want == GpuSlot.MAIN) "main analysis" else "background analysis"} (in game: $inGame, setting: $gpuToBackground)")
+        }
+        main?.gpu = if (gpuOwner == GpuSlot.MAIN) open.third else null
+        back?.gpu = if (gpuOwner == GpuSlot.BACKGROUND) open.third else null
+        if (back != null && back.onGpuFailure == null) back.onGpuFailure = main?.onGpuFailure
+    }
+
+    private fun enterSlot(main: Boolean) = synchronized(gpuLock) {
+        if (main) mainBusy = true else backBusy = true
+        settleGpu()
+        if (main && gpuOpen != null && gpuOwner == GpuSlot.BACKGROUND) {
+            if (!mainWithoutGpu) AppLog.i("GPU games held by the background analysis: the main search plays its games on the CPU until it is done")
+            mainWithoutGpu = true
+        } else if (main) mainWithoutGpu = false
+    }
+
+    private fun exitSlot(main: Boolean) = synchronized(gpuLock) {
+        if (main) mainBusy = false else backBusy = false
+        settleGpu()
+    }
+
     /** Opens, reopens (another net or setting) or closes the GPU games as [gpuWanted] says. On the engine thread. */
     private fun applyGpu() {
         val want = gpuWanted?.takeIf { it != gpuFailedFor }
         val cur = gpuOpen
         if (cur != null && (want == null || cur.first != net || cur.second != want)) {
-            ptds[cur.first]?.engine?.gpu = null
+            synchronized(gpuLock) {
+                ptds[cur.first]?.engine?.gpu = null
+                backEngine?.gpu = null
+                gpuOwner = GpuSlot.MAIN
+            }
             runCatching { cur.third.close() }
             gpuOpen = null
             AppLog.i("GPU games closed (${if (want == null) "off" else "net or setting changed"})")
@@ -113,9 +173,9 @@ class EngineService(private val context: Context) {
         val device = runCatching { VkGamesNative.nativeDevice(vk) }.getOrDefault("?")
         val g = GpuGames(ptdHandle, vk, gameThreads.coerceIn(1, cores))
         val e = engine
-        e.gpu = g
         e.onGpuFailure = { why -> gpuFailedFor = want; gpuState = "failed: $why" }
         gpuOpen = Triple(net, want, g)
+        settleGpu()
         gpuState = "on: $device, fma ${want.fma}, tile ${want.tile}, net ${net.name}"
         AppLog.i("GPU games opened in ${android.os.SystemClock.elapsedRealtime() - t0} ms: $gpuState")
     }
@@ -284,18 +344,24 @@ class EngineService(private val context: Context) {
             val threads = gameThreads.coerceIn(1, cores)
             PureTdNative.nativeSetThreads(ptdHandle, threads)
             runCatching { applyGpu() }.onFailure { AppLog.error("GPU games could not be set up", it) }
+            enterSlot(main = true)
+            try { onEngineThread(kind, waiting, threads, block) } finally { exitSlot(main = true) }
+        }
+    }
+
+    private suspend fun <T> onEngineThread(kind: EngineKind?, waiting: Waiting?, threads: Int, block: SearchEngine.() -> T): T {
             if (sageHandle != 0L) SageNative.nativeSetThreads(sageHandle, threads)
             val e = get(kind ?: analysisKind)
             // The analysis of one position always plays its games out.
             e.gamesOnErrorsOnly = gamesOnErrorsOnly && waiting != Waiting.ANALYSIS
             e.gamesGap = gamesGap
             (e as? PureTdEngine)?.let { it.gameThreads = threads; it.workerInit = { Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT) } }
-            if (waiting == null) return@withContext unwatchedRun(e, block)
+            if (waiting == null) return unwatchedRun(e, block)
             val mon = SearchMonitor()
             val id = ++searchId
             val started = android.os.SystemClock.elapsedRealtime()
             val limit = if (waiting == Waiting.PLAY) playLimitMs else analysisLimitMs
-            coroutineScope {
+            return coroutineScope {
                 var finished = false
                 val ticker = launch(Dispatchers.Default) {
                     try {
@@ -318,7 +384,6 @@ class EngineService(private val context: Context) {
                     _progress.value = null
                 }
             }
-        }
     }
 
     /**
@@ -341,7 +406,9 @@ class EngineService(private val context: Context) {
             b.engine.gameThreads = threads
             val priority = if (backgroundLow) Process.THREAD_PRIORITY_BACKGROUND else Process.THREAD_PRIORITY_DEFAULT
             b.engine.workerInit = { Process.setThreadPriority(priority) }
-            unwatchedRun(b.engine, block)
+            if (backEngine !== b.engine) { synchronized(gpuLock) { backEngine?.gpu = null; backEngine = b.engine } }
+            enterSlot(main = false)
+            try { unwatchedRun(b.engine, block) } finally { exitSlot(main = false) }
         }
     }
 

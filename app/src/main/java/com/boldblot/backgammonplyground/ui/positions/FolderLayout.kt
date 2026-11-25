@@ -170,7 +170,8 @@ fun listBoardModifier(): Modifier = Modifier.width(if (isLandscape()) 160.dp els
 
 /**
  * One row of a list of My positions (a folder, New errors, New Marked, Learned): the board at the left, the [title]
- * (the play) with its error [pill], the [lines] under it; the [actions] (small icon buttons) pinned to the bottom
+ * (the play) with its error [pill], the [lines] under it; the [footer]'s tags at the bottom, wrapping before
+ * the [trailing] mark (a quiz verdict) and the [actions] (small icon buttons) pinned to the bottom
  * right corner, hidden while selecting ([selected] not null).
  */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -198,14 +199,15 @@ fun ListRow(
                         pill?.invoke()
                     }
                     lines()
-                    // Room for the buttons, so the text never runs under them.
-                    if (showActions) Spacer(Modifier.height(ROW_BUTTON))
                 }
-                trailing?.let { Box(Modifier.align(Alignment.CenterVertically)) { it() } }
             }
-            if (showActions) Row(Modifier.align(Alignment.BottomEnd).padding(end = 4.dp, bottom = 4.dp), content = actions!!)
         }
-        footer?.let { Box(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp)) { it() } }
+        // The tags across the row, wrapping before the [trailing] mark and the [actions] in the bottom right corner.
+        if (footer != null || trailing != null || showActions) Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
+            Box(Modifier.weight(1f).padding(bottom = 4.dp)) { footer?.invoke() }
+            trailing?.invoke()
+            if (showActions) Row(content = actions!!)
+        }
         }
     }
 }

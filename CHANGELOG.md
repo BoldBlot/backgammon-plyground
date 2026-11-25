@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.22 — 2026-11-25 (build 103, internal test)
+
+- My positions lists: the delete button (and the quiz mark) sit in the bottom right corner, and the tags wrap before them.
+- Settings → Data and help: "Being analyzed now" at the bottom, each background job (a match, a set, the quiz's look-ahead)
+  with what is left, the time left once three are done, and Stop; the search being waited for too. Stopping a match's
+  analysis during play leaves its decisions unanalyzed (Analyze again in the review finishes them).
+- Advanced engine settings, GPU games: during a game the GPU can go to the background analysis (T-Roller), the game's own
+  searches using the processor; out of the game it returns to the analysis you open once the background position in
+  progress is done. With it, a recommended number of background analysis threads (half the cores) and Use it.
+- A label at the top of the screen while a match is still being analyzed after you leave the game: decisions and time left,
+  "GPU" while the background analysis holds it. Tap: Data and help.
+- Quiz: the current card and the next 10 are analyzed ahead in the background (those with no analysis, or an obsolete or
+  below-standard one), one at a time; an answer uses that analysis instead of waiting for a new one.
+
 ## 0.9.21 — 2026-11-25 (build 102, internal test)
 
 - Analysis depths: 1 to 4 plies, each from 2-ply in three versions: Standard (every move), Pruned and Fast (a funnel: each

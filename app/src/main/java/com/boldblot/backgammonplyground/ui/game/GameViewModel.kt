@@ -768,7 +768,11 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             d.player == Player.HUMAN && !d.auto && XgRules.severity((d.scoredError ?: 0f) * factor).atLeast(Severity.ERROR)
         }
         repo.saveFinishedGame(m, summary)
-        if (m.game.decisions.any { it.pending }) {
+        if (m.id == stoppedLive && m.game.decisions.any { it.pending }) {
+            // Stopped from Data and help: the game's decisions stay unanalyzed (Analyze again in the review finishes them).
+            val dropped = repo.dropPending(m.id)
+            AppLog.i("Background analysis: game ${m.gameNumber} of the stopped match saved with $dropped decisions unanalyzed")
+        } else if (m.game.decisions.any { it.pending }) {
             pendingGames += GameKey(m.id, m.gameNumber)
             startBackgroundAnalysis()
         }
@@ -1390,6 +1394,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             )
         }
         val m = _state.value.match ?: return null
+        if (m.id == stoppedLive) return null
         // A finished game's decisions are taken from its saved record (handleGameOver).
         if (m.game.phase == Phase.OVER) return null
         val i = m.game.decisions.indices.firstOrNull { m.game.decisions[it].pending && (m.gameNumber to it) !in analyzedNow } ?: return null
@@ -1418,6 +1423,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             (if (engineService.twoSlots) engineService.runBackground(work) else engineService.run(block = work)).also {
                 val ms = (android.os.SystemClock.elapsedRealtime() - started).toDouble()
                 analysisMillis = if (analysisMillis == 0.0) ms else analysisMillis * 0.8 + ms * 0.2
+                analysisTimed++
                 AppLog.i("Analyzed ${p.decision.kind} in ${ms.toLong()} ms (game ${p.gameNumber}, decision ${p.index}): ${analysisSummary(it)}")
             }
         } catch (e: Exception) {
@@ -1478,11 +1484,51 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
             for (key in pendingGames.filter { it.matchId == id }) {
                 n += repo.savedGame(key.matchId, key.number)?.second?.decisions?.count { it.pending } ?: 0
             }
-            st.match?.takeIf { it.id == id && it.game.phase != Phase.OVER }?.let { m ->
+            st.match?.takeIf { it.id == id && it.id != stoppedLive && it.game.phase != Phase.OVER }?.let { m ->
                 n += m.game.decisions.indices.count { m.game.decisions[it].pending && (m.gameNumber to it) !in analyzedNow }
             }
         }
         _state.update { it.copy(analysisLeft = n, analysisEta = if (n > 0 && analysisMillis > 0) (analysisMillis * n).toLong() else null) }
+        publishWork()
+    }
+
+    /** The match whose analysis during play was stopped from Data and help: its games' decisions are left unanalyzed. */
+    private var stoppedLive: Long? = null
+    /** Decisions timed by the background analysis (the time left is shown from the third on). */
+    private var analysisTimed = 0
+    /** The most decisions each match had waiting while it was in [PlyGroundApp.work] (its "of N"). */
+    private val workTotals = HashMap<Long, Int>()
+
+    /** Each match in the background analysis as a line of [PlyGroundApp.work] (Data and help, the top label). */
+    private fun publishWork() {
+        val st = _state.value
+        val cur = st.gameOver?.matchId ?: st.match?.id
+        val left = HashMap<Long, Int>()
+        _analysisProgress.value.forEach { (id, p) -> left[id] = p.left }
+        if (cur != null && st.analysisLeft > 0) left[cur] = st.analysisLeft
+        left.values.removeAll { it <= 0 }
+        app.work.items.value.keys.filter { it.startsWith("match-") && it.removePrefix("match-").toLongOrNull() !in left.keys }.forEach {
+            app.work.remove(it)
+            it.removePrefix("match-").toLongOrNull()?.let { id -> workTotals.remove(id) }
+        }
+        for ((id, n) in left) {
+            val total = maxOf(workTotals[id] ?: 0, n, _analysisProgress.value[id]?.total ?: 0).also { workTotals[id] = it }
+            app.work.put(
+                com.boldblot.backgammonplyground.engine.WorkItem(
+                    "match-$id", com.boldblot.backgammonplyground.engine.WorkKind.MATCH,
+                    if (id == cur) "Your match" else "A match from the library", n, total,
+                    etaMs = if (analysisTimed >= 3 && analysisMillis > 0) (analysisMillis * n).toLong() else null,
+                    stop = { stopFromDataAndHelp(id) },
+                ),
+            )
+        }
+    }
+
+    /** Stop in Data and help: match [matchId]'s analysis ends, including the decisions of the game being played. */
+    private fun stopFromDataAndHelp(matchId: Long) {
+        AppLog.i("Background analysis of match $matchId stopped from Data and help")
+        if (_state.value.match?.id == matchId) stoppedLive = matchId
+        stopAnalysis(matchId)
     }
 
     /**
@@ -1521,6 +1567,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     /** Games of an imported match: their decisions go to the background analysis. */
     fun queueAnalysis(games: List<GameKey>) {
         viewModelScope.launch {
+            if (games.any { it.matchId == stoppedLive }) stoppedLive = null
             enqueue(games)
             startBackgroundAnalysis()
         }
@@ -1529,6 +1576,7 @@ class GameViewModel(val app: PlyGroundApp) : ViewModel() {
     /** "Analyze now" after a match played without analysis: its decisions go to the background analysis. */
     fun analyzeMatchNow(matchId: Long) {
         viewModelScope.launch {
+            if (matchId == stoppedLive) stoppedLive = null
             enqueue(repo.markForAnalysis(matchId, cpu = settings.cpuAnalysis))
             _state.update { st -> st.copy(gameOver = st.gameOver?.copy(offerAnalysis = false)) }
             startBackgroundAnalysis()

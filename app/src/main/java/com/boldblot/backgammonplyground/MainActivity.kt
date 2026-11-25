@@ -459,6 +459,14 @@ class MainActivity : ComponentActivity() {
         }
         // The search someone is waiting for: what it is doing, and past its limit the offer to stop.
         com.boldblot.backgammonplyground.ui.components.SearchOverlay(app.engine, onSettings = { nav.navigate("settings/ANALYSIS") })
+        // The game screen with a match in play: the GPU can go to the background analysis (Advanced engine settings).
+        val route = nav.currentBackStackEntryAsState().value?.destination?.route
+        val playing = route == "game" && gameState.match?.let { it.game.phase != com.boldblot.backgammonplyground.core.Phase.OVER } == true
+        androidx.compose.runtime.LaunchedEffect(playing) { app.engine.inGame = playing }
+        com.boldblot.backgammonplyground.ui.components.BackgroundMatchLabel(app, onGame = route == "game" || route?.startsWith("welcome") == true) {
+            com.boldblot.backgammonplyground.AppLog.i("Top label tapped: opening Data and help")
+            nav.navigate("settings/DATA")
+        }
         val indicator by androidx.compose.runtime.remember { app.settings.settings.map { it.analysisIndicator } }.collectAsState(initial = false)
         if (indicator) {
             val queued = gameVm.analysisProgress.collectAsState().value.values.sumOf { it.left }

@@ -74,6 +74,13 @@ suspend fun analyzeInBackground(app: PlyGroundApp, p: StudyPosition, s: Settings
     return if (app.engine.twoSlots) app.engine.runBackground(block) else app.engine.run(s.analysisEngine, null, block)
 }
 
+/** [analyzeForQuiz] in the background analysis slot (the quiz's look-ahead): the next cards, while the player answers this one. */
+suspend fun analyzeForQuizInBackground(app: PlyGroundApp, p: StudyPosition, s: Settings, keep: List<Move> = emptyList()): PositionAnalysis {
+    val match = p.ctx().matchLength > 0
+    val block = positionAnalysis(p, s.analysisEngine, s.quizCheckerDepth(match), s.quizCubeDepth(match), keep)
+    return if (app.engine.twoSlots) app.engine.runBackground(block) else app.engine.run(s.analysisEngine, null, block)
+}
+
 /** The engine work of [analyzePosition]. */
 fun positionAnalysis(p: StudyPosition, engine: EngineKind, checker: Depth, cube: Depth, keep: List<Move>): SearchEngine.() -> PositionAnalysis =
     {

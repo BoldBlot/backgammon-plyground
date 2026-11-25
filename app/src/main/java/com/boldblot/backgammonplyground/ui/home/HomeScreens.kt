@@ -1728,6 +1728,9 @@ private fun threadsOf(n: Int, cores: Int, background: Boolean): String {
 private fun threadChoices(cores: Int): List<Int> =
     (generateSequence(1) { it * 2 }.takeWhile { it < cores }.toList() + cores).distinct()
 
+/** Background analysis threads when it has the GPU during a game: the largest choice up to half the cores. */
+internal fun recommendedBackgroundThreads(cores: Int): Int = threadChoices(cores).filter { it <= (cores / 2).coerceAtLeast(1) }.max()
+
 /**
  * The phone's cores by top speed, fastest first ("2 at 4.5 GHz, 6 at 3.5 GHz"), read from the
  * kernel's cpufreq files (any app may read them); null where the phone hides them.
@@ -1869,6 +1872,33 @@ private fun GpuGamesSettings(s: Settings, update: (f: (Settings) -> Settings) ->
     }
     Toggle("Use the GPU for T-Roller games", s.gpuGames && setting != null, enabled = setting != null) { v -> update { it.copy(gpuGames = v) } }
     Note("Off, or without a passing check: the processor plays the games (same values, slower on phones where the GPU helps).")
+    if (s.gpuGames && setting != null) {
+        Toggle("During a game, give the GPU to the background analysis", s.gpuBackground) { v ->
+            com.boldblot.backgammonplyground.AppLog.i("Setting: GPU to the background analysis during a game = $v")
+            update { it.copy(gpuBackground = v) }
+        }
+        Note(
+            "For playing with a 3- or 4-ply fast level, which needs no GPU: the background analysis (with T-Roller) plays its games " +
+                "on the GPU while the game's own searches use the processor. When you leave the game, the GPU goes back to the " +
+                "analysis you open, once the position the background analysis is on is done.",
+        )
+        if (s.gpuBackground) {
+            val cores = app.engine.cores
+            val rec = recommendedBackgroundThreads(cores)
+            val now = if (s.backgroundThreads > 0) s.backgroundThreads.coerceAtMost(cores) else EngineService.defaultBackgroundThreads(cores)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                Text(
+                    "Recommended background analysis threads with the GPU: $rec of $cores (now $now).",
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
+                )
+                TextButton(enabled = now != rec, onClick = {
+                    com.boldblot.backgammonplyground.AppLog.i("Setting: background analysis threads set to the GPU recommendation $rec of $cores")
+                    update { it.copy(backgroundThreads = if (rec == EngineService.defaultBackgroundThreads(cores)) 0 else rec) }
+                }) { Text("Use it") }
+            }
+            Note("Half the cores: the GPU plays the games, so the background analysis needs fewer threads, and the game keeps the rest.")
+        }
+    }
     report?.let { r ->
         AlertDialog(
             onDismissRequest = { report = null },
@@ -2000,6 +2030,7 @@ private fun DataSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) 
             "computer's decisions (one colour), analyses you wait for, and background work. The number inside is how " +
             "many decisions wait in the analysis queue.",
     )
+    com.boldblot.backgammonplyground.ui.components.AnalysisNowSection(app)
 }
 
 /** The "clear" actions, offered in Settings and in the Match Library. */

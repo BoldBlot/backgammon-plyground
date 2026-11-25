@@ -30,6 +30,8 @@ class PlyGroundApp : Application() {
     /** The background analysis of sets' positions. */
     val setAnalysis: com.boldblot.backgammonplyground.ui.sets.SetAnalysis by lazy { com.boldblot.backgammonplyground.ui.sets.SetAnalysis(this) }
     val settings: SettingsStore by lazy { SettingsStore(this) }
+    /** The background jobs running now, for Data and help and the top label. */
+    val work = com.boldblot.backgammonplyground.engine.BackgroundWork()
     /** A positions file opened with PlyGround (or picked in My positions), waiting for its import dialog. */
     val pendingImport = MutableStateFlow<String?>(null)
     /** A .mat match file opened with PlyGround, waiting for the Match Library's import dialog. */
@@ -109,6 +111,7 @@ class PlyGroundApp : Application() {
                 engine.backgroundLow = it.backgroundPriority == BackgroundPriority.LOW
                 engine.net = it.puretdNet
                 engine.gpuWanted = if (it.gpuGames) it.gpuSetting() else null
+                engine.gpuToBackground = it.gpuGames && it.gpuBackground
                 engine.cubefulCheckers = it.cubefulCheckers
                 engine.analysisLimitMs = it.analysisLimit * 1000L
                 engine.playLimitMs = it.playLimit * 1000L

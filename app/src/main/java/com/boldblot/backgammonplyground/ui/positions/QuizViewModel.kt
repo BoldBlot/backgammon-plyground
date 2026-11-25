@@ -273,8 +273,96 @@ class QuizViewModel(
         show()
     }
 
+    // ---- look-ahead: the next cards analyzed while this one is answered ---------------------
+
+    private val aheadQueue = ArrayDeque<Pair<SavedPosition, kotlinx.coroutines.CompletableDeferred<PositionAnalysis?>>>()
+    private var aheadJob: kotlinx.coroutines.Job? = null
+    private var aheadTotal = 0
+    private var aheadMs = 0.0
+    private var aheadTimed = 0
+
+    /**
+     * The current card and the next [AHEAD] that have no analysis, or one that is obsolete or below the standard: analyzed in the
+     * background analysis slot, one at a time in quiz order, each kept as soon as it is done. The answer waits for its card's
+     * analysis ([refreshed]) instead of starting another.
+     */
+    private fun lookAhead() {
+        val st = _state.value
+        if (st.finished) return
+        val s = st.settings
+        val next = st.queue.take(AHEAD + 1)
+        val need = next.filter { it.id !in refreshed && (it.analysis == null || staleAnalysis(it, s)) }
+        if (need.isEmpty()) return
+        for (sp in need) {
+            val d = kotlinx.coroutines.CompletableDeferred<PositionAnalysis?>()
+            refreshed[sp.id] = d
+            aheadQueue.addLast(sp to d)
+        }
+        aheadTotal += need.size
+        AppLog.i("Quiz look-ahead: ${need.size} of the next ${next.size} cards to analyze (${need.joinToString { "${it.id}" + if (it.analysis == null) " new" else " ${it.analysis.shownLabel}" }})")
+        publishAhead()
+        if (aheadJob?.isActive != true) aheadJob = viewModelScope.launch { runAhead() }
+    }
+
+    private suspend fun runAhead() {
+        while (true) {
+            val (sp, d) = aheadQueue.firstOrNull() ?: break
+            val s = _state.value.settings
+            val t0 = android.os.SystemClock.elapsedRealtime()
+            val a = try {
+                analyzeForQuizInBackground(app, sp.position, s, keep = keepMoves(sp))
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) { d.complete(null); throw e }
+                AppLog.error("Quiz look-ahead: card ${sp.id} (${sp.position.xgid}) failed", e)
+                null
+            }
+            val ms = android.os.SystemClock.elapsedRealtime() - t0
+            if (a != null) {
+                aheadMs = if (aheadTimed == 0) ms.toDouble() else aheadMs * 0.8 + ms * 0.2
+                aheadTimed++
+                runCatching { keepAnalysis(sp.id, a) }.onFailure { AppLog.error("Quiz look-ahead: keeping card ${sp.id}'s analysis failed", it) }
+                AppLog.i("Quiz look-ahead: card ${sp.id} analyzed in $ms ms: ${a.label}")
+            }
+            d.complete(a)
+            aheadQueue.removeFirstOrNull()
+            publishAhead()
+        }
+        aheadTotal = 0
+        publishAhead()
+    }
+
+    private fun publishAhead() {
+        val left = aheadQueue.size
+        if (left == 0) { app.work.remove(AHEAD_KEY); return }
+        app.work.put(
+            com.boldblot.backgammonplyground.engine.WorkItem(
+                AHEAD_KEY, com.boldblot.backgammonplyground.engine.WorkKind.QUIZ, "Quiz look-ahead", left, maxOf(aheadTotal, left),
+                etaMs = if (aheadTimed >= 3) (aheadMs * left).toLong() else null,
+                stop = { stopAhead("stopped from Data and help") },
+            ),
+        )
+    }
+
+    /** Ends the look-ahead: the cards it did not reach are analyzed when answered, as before. */
+    private fun stopAhead(why: String) {
+        if (aheadQueue.isEmpty() && aheadJob?.isActive != true) return
+        AppLog.i("Quiz look-ahead $why (${aheadQueue.size} cards not reached)")
+        aheadJob?.cancel()
+        aheadJob = null
+        aheadQueue.forEach { (sp, d) -> d.complete(null); refreshed.remove(sp.id) }
+        aheadQueue.clear()
+        aheadTotal = 0
+        publishAhead()
+    }
+
+    override fun onCleared() {
+        stopAhead("ended: the quiz was closed")
+        super.onCleared()
+    }
+
     /** "Finish": ends the round now (an answered card counts) and shows the summary. */
     fun finish() {
+        stopAhead("ended with the round")
         val st = _state.value
         val cur = st.current
         val r = st.result
@@ -294,6 +382,7 @@ class QuizViewModel(
         val opts = options
         _state.value.current?.let { AppLog.i("Quiz: card ${it.id} shown, ${p.xgid}") }
         _state.value.current?.let { refreshAnalysis(it, _state.value.settings) }
+        lookAhead()
         _state.update {
             it.copy(
                 board = p.board, steps = emptyList(), movable = opts?.movableFrom(emptyList()) ?: emptySet(),
@@ -896,3 +985,7 @@ class QuizViewModel(
         }
     }
 }
+
+/** The quiz looks this many cards ahead of the current one for analyses to run in the background. */
+private const val AHEAD = 10
+private const val AHEAD_KEY = "quiz"

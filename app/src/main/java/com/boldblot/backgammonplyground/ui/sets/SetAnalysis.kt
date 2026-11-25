@@ -78,7 +78,7 @@ class SetAnalysis(private val app: PlyGroundApp) {
     @Synchronized
     fun add(setId: Long, positionIds: List<Long>) {
         if (queue.add(setId, positionIds) == 0) return
-        _progress.value = queue.progress()
+        publish()
         // The worker clears [job] under this lock when it finds nothing left, so a position added then starts a new one.
         if (job == null) job = app.appScope.launch { work() }
     }
@@ -86,7 +86,30 @@ class SetAnalysis(private val app: PlyGroundApp) {
     /** Drops what set [setId] still has waiting (the position being analyzed finishes). */
     fun stop(setId: Long) {
         queue.stop(setId)
-        _progress.value = queue.progress()
+        publish()
+    }
+
+    /** Average time per position (ms) and how many were timed: the time left once 3 are done. */
+    private var avgMs = 0.0
+    private var timed = 0
+    private val names = HashMap<Long, String>()
+
+    /** [progress] from the queue, and each set's line in [PlyGroundApp.work]. */
+    private fun publish() {
+        val p = queue.progress()
+        _progress.value = p
+        val shown = app.work.items.value.keys.filter { it.startsWith("set-") }
+        shown.filter { k -> k.removePrefix("set-").toLongOrNull() !in p.keys }.forEach { app.work.remove(it) }
+        for ((id, sp) in p) {
+            if (sp.left <= 0) { app.work.remove("set-$id"); continue }
+            app.work.put(
+                com.boldblot.backgammonplyground.engine.WorkItem(
+                    "set-$id", com.boldblot.backgammonplyground.engine.WorkKind.SET, "Set \u201c${names[id] ?: "…"}\u201d", sp.left, sp.total,
+                    etaMs = if (timed >= 3) (avgMs * sp.left).toLong() else null,
+                    stop = { AppLog.i("Set analysis of set $id stopped from Data and help (${sp.left} left)"); stop(id) },
+                ),
+            )
+        }
     }
 
     private suspend fun work() {
@@ -97,18 +120,22 @@ class SetAnalysis(private val app: PlyGroundApp) {
                 if (e != null) {
                     val s = app.settings.settings.first()
                     val t0 = android.os.SystemClock.elapsedRealtime()
+                    if (setId !in names) { names[setId] = app.sets.set(setId)?.name ?: "Set"; publish() }
                     // The move played (when the set has it) is searched as deeply as the best play.
                     val played = e.played?.let { runCatching { com.boldblot.backgammonplyground.data.AppJson.decodeFromString<com.boldblot.backgammonplyground.core.MyAnswer>(it) }.getOrNull()?.move }
                     val a = analyzeInBackground(app, StudyPosition.stored(e.xgid, e.doubled, e.beavers), s, listOfNotNull(played))
                     app.sets.setAnalysis(PositionSetsRepository.cardId(id), a)
-                    AppLog.i("Set analysis: position $id of set $setId in ${android.os.SystemClock.elapsedRealtime() - t0} ms: ${a.label}")
+                    val ms = (android.os.SystemClock.elapsedRealtime() - t0).toDouble()
+                    avgMs = if (timed == 0) ms else avgMs * 0.8 + ms * 0.2
+                    timed++
+                    AppLog.i("Set analysis: position $id of set $setId in ${ms.toLong()} ms: ${a.label}")
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 AppLog.error("Set analysis of position $id failed", e)
             }
             queue.finished(id)
-            _progress.value = queue.progress()
+            publish()
             _done.update { it + 1 }
         }
     }
