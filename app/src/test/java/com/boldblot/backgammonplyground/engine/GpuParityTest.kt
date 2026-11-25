@@ -17,6 +17,8 @@ import java.io.File
 class GpuParityTest {
     private fun open(): Pair<PureTdEngine, GpuGames>? {
         val e = TestEngine.engine ?: return null
+        // Only when asked (scripts/host-tests.sh asks when the GPU code, the C engine or the games search changed).
+        if (System.getProperty("bg.gputests") != "true") return null
         val lib = System.getProperty("bg.hostlib")?.let { File(File(it).parentFile, "libvkgames.so") }?.takeIf { it.isFile } ?: return null
         if (!VkGamesNative.loadFrom(lib.path)) return null
         val dir = File(File(System.getProperty("bg.datadir")).parentFile, "puretd")

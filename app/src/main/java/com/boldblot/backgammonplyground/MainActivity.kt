@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import kotlinx.coroutines.flow.map
+import com.boldblot.backgammonplyground.data.gpuOffReason
 import kotlinx.coroutines.launch
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -226,6 +227,8 @@ class MainActivity : ComponentActivity() {
         val quickRight by androidx.compose.runtime.remember { app.settings.settings.map { it.quickQuizRight } }.collectAsState(initial = true)
         NavHost(nav, startDestination = "home") {
             composable("home") {
+                // GPU games switched on but stopped by a check that no longer applies (the GPU code, net, Android or phone changed).
+                val gpuOff by androidx.compose.runtime.remember { app.settings.settings.map { s -> s.gpuOffReason()?.takeIf { s.gpuCheck.isNotEmpty() && !it.startsWith("the last check found") } } }.collectAsState(initial = null)
                 HomeScreen(
                     hasMatch = hasMatch,
                     onContinue = { nav.navigate("game") },
@@ -246,6 +249,8 @@ class MainActivity : ComponentActivity() {
                     onHistory = { nav.navigate("history") },
                     onSettings = { nav.navigate("settings") },
                     onAbout = { nav.navigate("about") },
+                    notice = gpuOff?.let { "GPU games are off until you run the GPU check again (Advanced engine settings)." },
+                    onNotice = { nav.navigate("settings/ENGINE") },
                 )
             }
             composable("new") {

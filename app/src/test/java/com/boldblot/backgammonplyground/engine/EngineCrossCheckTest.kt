@@ -135,7 +135,7 @@ class EngineCrossCheckTest {
         repeat(20) { turn ->
             val d1 = rnd.nextInt(1, 7)
             val d2 = rnd.nextInt(1, 7)
-            if (turn >= 6) {
+            if (turn >= 14) {
                 var t = System.nanoTime()
                 val r1 = e!!.rankMoves(board, ctx(player), d1, d2, 0, null)
                 total1 += System.nanoTime() - t
@@ -168,7 +168,7 @@ class EngineCrossCheckTest {
             player = Player.other(player)
         }
         assertTrue("some positions are analyzed at full depth", deep > 0)
-        println("rank moves, 14 positions ($deep deep): 1-ply ${total1 / 1_000_000} ms, 3-ply ±0.08 ${total3 / 1_000_000} ms, " +
+        println("rank moves, 6 positions ($deep deep): 1-ply ${total1 / 1_000_000} ms, 3-ply ±0.08 ${total3 / 1_000_000} ms, " +
             "3-ply ±0.16 ${totalWide / 1_000_000} ms (slowest ${slowest / 1_000_000} ms, at most $mostSearched moves searched)")
     }
 

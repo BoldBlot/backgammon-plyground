@@ -132,6 +132,7 @@ internal)
     BUILD_DIR="$tdir" "$ROOT/scripts/host-tests.sh" >"$LOGS/host-tests.log" 2>&1 || rc=$?
     rm -rf "$tdir"
     test_summary || die "engine tests failed (log: $LOGS/host-tests.log)"
+    grep -m1 "GPU parity tests" "$LOGS/host-tests.log" | sed 's/^/  /' || true
     [ "$rc" = 0 ] || { tail -25 "$LOGS/host-tests.log"; die "host-tests.sh failed (log: $LOGS/host-tests.log)"; }
   fi
 

@@ -186,10 +186,10 @@ class EngineService(private val context: Context) {
         }
         val dir = PureTdNative.files(context)
         VkGamesNative.nativeSetTile(want.tile)
-        val vk = VkGamesNative.nativeOpen(File(dir, net.cubeless).path, File(context.filesDir, "puretd-bearoff.bin").path, gameThreads.coerceIn(1, cores), 16384, -1, want.fma, false)
+        val vk = VkGamesNative.nativeOpen(File(dir, net.cubeless).path, File(context.filesDir, "puretd-bearoff.bin").path, cores, 16384, -1, want.fma, false)
         if (vk == 0L) { gpuFailedFor = want; gpuState = "failed: the GPU could not be opened"; AppLog.error("GPU games: $gpuState (fma ${want.fma}, tile ${want.tile}, net ${net.name})"); return }
         val device = runCatching { VkGamesNative.nativeDevice(vk) }.getOrDefault("?")
-        val g = GpuGames(ptdHandle, vk, gameThreads.coerceIn(1, cores))
+        val g = GpuGames(ptdHandle, vk, cores)
         val e = engine
         e.onGpuFailure = { why -> gpuFailedFor = want; gpuState = "failed: $why" }
         gpuOpen = Triple(net, want, g)
@@ -220,6 +220,7 @@ class EngineService(private val context: Context) {
 
     /** Threads for the game's searches and for the background analysis (Advanced engine settings). */
     @Volatile var gameThreads: Int = cores
+    private var lastThreads = 0
     @Volatile var backgroundThreads: Int = defaultBackgroundThreads(cores)
     /** The background analysis runs at low priority: Android gives the game's searches the cores first. */
     @Volatile var backgroundLow: Boolean = true
@@ -383,7 +384,9 @@ class EngineService(private val context: Context) {
     private suspend fun <T> runTracked(kind: EngineKind?, waiting: Waiting?, block: SearchEngine.() -> T): T {
         start()
         return withContext(dispatcher) {
-            val threads = gameThreads.coerceIn(1, cores)
+            // The limit applies only while a game is in play; everything else gets every core (0.9.24).
+            val threads = (if (inGame) gameThreads else cores).coerceIn(1, cores)
+            if (threads != lastThreads) { lastThreads = threads; AppLog.i("Main searches: $threads threads (${if (inGame) "in a game" else "outside a game"})") }
             PureTdNative.nativeSetThreads(ptdHandle, threads)
             runCatching { applyGpu() }.onFailure { AppLog.error("GPU games could not be set up", it) }
             enterSlot(main = true)

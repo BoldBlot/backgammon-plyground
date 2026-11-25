@@ -41,6 +41,8 @@ class MatchSimulationTest {
     private fun playMatch(
         rules: MatchRules, seed: Int, humanPolicy: String, cpuPlies: Int? = 0, maxGames: Int = 7,
         level: CpuLevel = CpuLevel.EXPERT, mistakes: MistakeRate? = null, opponent: EngineKind = EngineKind.PURETD,
+        /** Checked after each game: true ends the match early (the test has what it needs). */
+        enough: () -> Boolean = { false },
         onGame: (GameState) -> Unit = {},
     ): List<PerformanceTotals> {
         val e = engine!!
@@ -57,7 +59,7 @@ class MatchSimulationTest {
         var m = MatchState(rules = rules, cpuLevel = level, mistakes = mistakes, engine = opponent)
         val totals = MutableList(2) { PerformanceTotals() }
         var games = 0
-        while (!m.isOver && games < maxGames) {
+        while (!m.isOver && games < maxGames && !enough()) {
             m = c.openingRoll(m)
             var guard = 0
             while (m.game.phase != Phase.OVER) {
@@ -133,7 +135,14 @@ class MatchSimulationTest {
     fun beaversAndRaccoonsPlayThroughAndAnalyzeAgain() {
         assumeTrue(engine != null)
         val games = mutableListOf<GameState>()
-        playMatch(MatchRules(length = 0, beavers = true, raccoons = true), seed = 5, humanPolicy = "random", maxGames = 40) { games += it }
+        // Until a beaver has been answered (at most 40 games).
+        fun kindsSeen() = games.flatMap { g -> g.decisions.map { it.kind } }.toSet()
+        playMatch(
+            MatchRules(length = 0, beavers = true, raccoons = true), seed = 5, humanPolicy = "random", maxGames = 40,
+            onGame = { games += it },
+            enough = { kindsSeen().let { k -> DecisionKind.BEAVER in k && (DecisionKind.RACCOON in k || DecisionKind.NO_RACCOON in k) } },
+        )
+        println("beavers: ${games.size} games played")
         val kinds = games.flatMap { g -> g.decisions.map { it.kind } }.toSet()
         println("decision kinds with beavers: $kinds")
         assertTrue("someone beavered", DecisionKind.BEAVER in kinds)
@@ -296,7 +305,8 @@ class MatchSimulationTest {
         assumeTrue(engine != null)
         val e = engine!!
         val rnd = Random(11)
-        val full = Depth(4).code
+        // 3-ply is the shallowest depth the shortcut applies to (it tests the same rule as 4-ply, faster).
+        val full = Depth(3).code
         val c = MatchController(e, DiceSource { rnd.nextInt(1, 7) }, AnalysisSettings(plies = 0, cubePlies = full, cpuPlies = 0), { e })
         var m = c.openingRoll(MatchState(rules = MatchRules(length = 0), cpuLevel = CpuLevel.EXPERT, engine = EngineKind.PURETD))
         var guard = 0

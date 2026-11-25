@@ -290,7 +290,7 @@ class QuizViewModel(
         val st = _state.value
         if (st.finished) return
         val s = st.settings
-        val next = st.queue.take(AHEAD + 1)
+        val next = st.queue.take(aheadLimit() + 1)
         val need = next.filter { it.id !in refreshed && (it.analysis == null || staleAnalysis(it, s)) }
         if (need.isEmpty()) return
         for (sp in need) {
@@ -329,6 +329,50 @@ class QuizViewModel(
         }
         aheadTotal = 0
         publishAhead()
+    }
+
+    /** When the last card was shown, and the average time per card the player takes (ms; 0 = not known yet). */
+    private var shownAt = 0L
+    private var cardMs = 0.0
+    private var limitLogged = AHEAD
+
+    /**
+     * How many cards ahead to analyze: [AHEAD], or [AHEAD_BEHIND] when each analysis takes longer than the player takes per card
+     * (the look-ahead cannot keep up, so it stays close to the card shown).
+     */
+    private fun aheadLimit(): Int {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (shownAt > 0) { val ms = (now - shownAt).toDouble(); cardMs = if (cardMs == 0.0) ms else cardMs * 0.7 + ms * 0.3 }
+        shownAt = now
+        val behind = aheadTimed >= 2 && cardMs > 0 && aheadMs > cardMs
+        val limit = if (behind) AHEAD_BEHIND else AHEAD
+        if (limit != limitLogged) {
+            limitLogged = limit
+            AppLog.i("Quiz look-ahead: ${if (behind) "behind" else "keeping up"} (analysis ${aheadMs.toLong()} ms a card, you ${cardMs.toLong()} ms): $limit cards ahead")
+        }
+        return limit
+    }
+
+    /**
+     * The card shown is still waiting in the look-ahead's queue (not started): it is taken out and analyzed at once in the main
+     * slot (all cores, the GPU), and the answer waits for that instead.
+     */
+    private fun promote(sp: SavedPosition) {
+        val i = aheadQueue.indexOfFirst { it.first.id == sp.id }
+        if (i < 0 || (i == 0 && aheadJob?.isActive == true)) return
+        val (card, d) = aheadQueue.removeAt(i)
+        publishAhead()
+        AppLog.i("Quiz: card ${sp.id} taken from the look-ahead queue to the main analysis")
+        viewModelScope.launch {
+            val s = _state.value.settings
+            val t0 = android.os.SystemClock.elapsedRealtime()
+            val a = runCatching {
+                kotlinx.coroutines.withContext(com.boldblot.backgammonplyground.engine.EngineLabel("Quiz: card ${card.id} (the card shown)")) { analyzeForQuiz(app, card.position, s, keep = keepMoves(card)) }
+            }.onFailure { if (it is kotlinx.coroutines.CancellationException) { d.complete(null); throw it }; AppLog.error("Quiz: card ${card.id} failed", it) }.getOrNull()
+            if (a != null) runCatching { keepAnalysis(card.id, a) }
+            AppLog.i("Quiz: card ${card.id} analyzed in the main slot in ${android.os.SystemClock.elapsedRealtime() - t0} ms: ${a?.label}")
+            d.complete(a)
+        }
     }
 
     private fun publishAhead() {
@@ -381,7 +425,7 @@ class QuizViewModel(
         options = d?.let { MoveOptions(p.board, Player.HUMAN, it.d1, it.d2) }
         val opts = options
         _state.value.current?.let { AppLog.i("Quiz: card ${it.id} shown, ${p.xgid}") }
-        _state.value.current?.let { refreshAnalysis(it, _state.value.settings) }
+        _state.value.current?.let { promote(it); refreshAnalysis(it, _state.value.settings) }
         lookAhead()
         _state.update {
             it.copy(
@@ -988,4 +1032,6 @@ class QuizViewModel(
 
 /** The quiz looks this many cards ahead of the current one for analyses to run in the background. */
 private const val AHEAD = 10
+/** Cards ahead while the look-ahead is slower than the player. */
+private const val AHEAD_BEHIND = 3
 private const val AHEAD_KEY = "quiz"

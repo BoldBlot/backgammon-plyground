@@ -184,6 +184,9 @@ fun HomeScreen(
     onHistory: () -> Unit,
     onSettings: () -> Unit,
     onAbout: () -> Unit,
+    /** A notice under the version ("GPU games are off ..."), tapped: [onNotice]. */
+    notice: String? = null,
+    onNotice: () -> Unit = {},
 ) {
     Scaffold { padding ->
         BoxWithConstraints(Modifier.padding(padding).fillMaxSize()) {
@@ -207,6 +210,13 @@ fun HomeScreen(
                     "Version ${com.boldblot.backgammonplyground.BuildConfig.VERSION_NAME} (build ${com.boldblot.backgammonplyground.BuildConfig.BUILD_LABEL}) · by Bold Blot · boldblot.com",
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                notice?.let { n ->
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        n, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.clickable(onClick = onNotice),
+                    )
+                }
             }
             val buttons: @Composable () -> Unit = {
                 val w = Modifier.widthIn(max = 360.dp).fillMaxWidth()
@@ -1798,10 +1808,14 @@ private fun EngineSettings(s: Settings, update: (f: (Settings) -> Settings) -> U
     fun shown(n: Int, background: Boolean) =
         if (n > 0) n.coerceAtMost(cores) else if (background) EngineService.defaultBackgroundThreads(cores) else cores
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
-    Chips("Game threads", choices, shown(s.gameThreads, false), { if (it == cores) "$it (all)" else "$it" }, enabled = unlocked) { n ->
+    Chips("Threads during a game", choices, shown(s.gameThreads, false), { if (it == cores) "$it (all)" else "$it" }, enabled = unlocked) { n ->
+        com.boldblot.backgammonplyground.AppLog.i("Setting: threads during a game = $n of $cores")
         update { it.copy(gameThreads = if (n == cores) 0 else n) }
     }
-    Note("For the computer's moves, hints and the analysis shown during play. Default: all cores.")
+    Note(
+        "While a game is in play: the computer's moves, hints and every analysis. Outside a game (Analyze Position, quizzes, " +
+            "deep dive, reviews) they use all cores. Default: all cores.",
+    )
     Chips("Background analysis threads", choices, shown(s.backgroundThreads, true), { if (it == cores) "$it (all)" else "$it" }, enabled = unlocked) { n ->
         update { it.copy(backgroundThreads = if (n == EngineService.defaultBackgroundThreads(cores)) 0 else n) }
     }
@@ -1833,7 +1847,7 @@ private fun GpuGamesSettings(s: Settings, update: (f: (Settings) -> Settings) ->
     var running by remember { mutableStateOf(false) }
     var report by remember { mutableStateOf<String?>(null) }
     val setting = s.gpuSetting()
-    val checked = s.gpuCheck.substringAfter('|', "") == com.boldblot.backgammonplyground.data.gpuCheckKey(s.puretdNet)
+    val checked = com.boldblot.backgammonplyground.data.gpuCheckValid(s.gpuCheck.substringAfter('|', ""), s.puretdNet)
     Text("GPU games (experimental)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 16.dp))
     Note(
         "T-Roller's played-out games can run the network on the phone's graphics processor (GPU), with the same values as on the " +

@@ -236,7 +236,7 @@ data class Settings(
     val deepDiveAutoBest: Boolean = false,
     /**
      * The last GPU check: "fma tile|key" when a setting passed ("0 48|..."), "none|key" when none did, "" never run. The key
-     * ([gpuCheckKey]) is the app version, net, Android build and phone: the check must be run again when any of them changes.
+     * ([gpuCheckKey]) is the GPU code, net, Android build and phone: the check must be run again when any of them changes.
      */
     val gpuCheck: String = "",
     /**
@@ -552,14 +552,39 @@ val NEW_INSTALL = Settings(
     matchChecker = Depth(3, MoveFilter.FAST).code, matchCube = Depth(3, MoveFilter.FAST).code,
 )
 
-/** What a GPU check is valid for: this app version, PureTD net, Android build and phone. */
+/**
+ * What a GPU check is valid for: the GPU code (BuildConfig.GPU_CODE, a fingerprint of the shaders, PureTD's C engine and the
+ * games search, so an app update that leaves them alone keeps the check; 0.9.24), PureTD net, Android build and phone.
+ */
 fun gpuCheckKey(net: PureTdNet): String =
-    "${com.boldblot.backgammonplyground.BuildConfig.VERSION_CODE}/${net.name}/${android.os.Build.VERSION.INCREMENTAL}/${android.os.Build.MODEL}"
+    "g${com.boldblot.backgammonplyground.BuildConfig.GPU_CODE}/${net.name}/${android.os.Build.VERSION.INCREMENTAL}/${android.os.Build.MODEL}"
+
+/** The GPU code of builds 102 to 104, whose checks were keyed by the build number: still valid while the code is the same. */
+private const val GPU_CODE_102_104 = "699d23e2258d"
+
+/** Whether a stored check [key] is valid now ([gpuCheckKey], or a build 102-104 key while the GPU code is unchanged). */
+fun gpuCheckValid(key: String, net: PureTdNet): Boolean {
+    if (key == gpuCheckKey(net)) return true
+    val build = key.substringBefore('/').toIntOrNull() ?: return false
+    return build in 102..104 && com.boldblot.backgammonplyground.BuildConfig.GPU_CODE == GPU_CODE_102_104 &&
+        key.substringAfter('/') == gpuCheckKey(net).substringAfter('/')
+}
+
+/** Why the GPU games are off although they are switched on: null when they can run ([gpuSetting] not null) or are off. */
+fun Settings.gpuOffReason(net: PureTdNet = puretdNet): String? {
+    if (!gpuGames || gpuSetting(net) != null) return null
+    val key = gpuCheck.substringAfter('|', "")
+    return when {
+        gpuCheck.isEmpty() -> "never checked"
+        !gpuCheckValid(key, net) -> "the last check was for other GPU code, network, Android build or phone ($key)"
+        else -> "the last check found no exact setting faster than the processor"
+    }
+}
 
 /** The setting the last GPU check chose for [net] here, or null (none passed, never run, or run for another version, net or phone). */
 fun Settings.gpuSetting(net: PureTdNet = puretdNet): com.boldblot.backgammonplyground.engine.EngineService.GpuSetting? {
     val (r, key) = gpuCheck.split('|', limit = 2).takeIf { it.size == 2 } ?: return null
-    if (key != gpuCheckKey(net)) return null
+    if (!gpuCheckValid(key, net)) return null
     val p = r.split(' ').takeIf { it.size == 2 } ?: return null
     return com.boldblot.backgammonplyground.engine.EngineService.GpuSetting(p[0] == "1", p[1])
 }

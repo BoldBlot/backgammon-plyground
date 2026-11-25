@@ -1,3 +1,4 @@
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -5,6 +6,23 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
+}
+
+/**
+ * A fingerprint of the code the GPU games depend on (the shaders and Vulkan code, PureTD's C engine and its JNI bridge, the
+ * games search): a passing GPU check stays valid until it changes, across app updates.
+ */
+val gpuCode: String = run {
+    val root = rootProject.projectDir
+    val src = "app/src/main/java/com/boldblot/backgammonplyground/engine"
+    val files = listOf("engine/vkgames", "engine/puretd", "app/src/main/cpp").flatMap { d ->
+        File(root, d).walkTopDown().filter { f -> f.isFile && "/out/" !in f.path && !f.name.endsWith(".md") && f.name != ".gitignore" }.toList()
+    } + listOf("GpuGames.kt", "VkGamesNative.kt", "GamesSearch.kt").map { File(root, "$src/$it") }
+    val md = MessageDigest.getInstance("SHA-256")
+    files.sortedBy { it.relativeTo(root).invariantSeparatorsPath }.forEach { f ->
+        md.update(f.relativeTo(root).invariantSeparatorsPath.toByteArray()); md.update(f.readBytes())
+    }
+    md.digest().take(6).joinToString("") { "%02x".format(it) }
 }
 
 // Release signing is read from signing.properties (not committed). Without it
@@ -25,9 +43,10 @@ android {
         targetSdk = 36
         // Play's upload code: one more for every bundle uploaded to Play (internal or closed). It is
         // also the build number the app shows, and each upload moves the version's last digit on.
-        versionCode = 104
-        versionName = "0.9.23"
+        versionCode = 105
+        versionName = "0.9.24"
         buildConfigField("String", "BUILD_LABEL", "\"$versionCode\"")
+        buildConfigField("String", "GPU_CODE", "\"$gpuCode\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
@@ -89,6 +108,8 @@ android {
             // Engine-backed unit tests run against a host build of the JNI library
             // (see scripts/host-tests.sh); they are skipped when it is not provided.
             providers.gradleProperty("bgHostLib").orNull?.let { test.systemProperty("bg.hostlib", it) }
+            // The GPU parity tests (GpuParityTest), on when asked: scripts/host-tests.sh decides.
+            providers.gradleProperty("bgGpuTests").orNull?.let { test.systemProperty("bg.gputests", it) }
             test.systemProperty("bg.datadir", file("src/main/assets/puretd").absolutePath)
             // Opponent PR calibration (OpponentPrCalibration): games per opponent, off when unset.
             providers.gradleProperty("bgCalibrateGames").orNull?.let { test.systemProperty("bg.calibrate.games", it) }

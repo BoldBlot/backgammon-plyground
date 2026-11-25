@@ -1,6 +1,7 @@
 package com.boldblot.backgammonplyground
 
 import com.boldblot.backgammonplyground.data.gpuSetting
+import com.boldblot.backgammonplyground.data.gpuOffReason
 import com.boldblot.backgammonplyground.core.NewErrors
 import com.boldblot.backgammonplyground.ui.positions.libraryAverageError
 import android.app.Application
@@ -30,6 +31,7 @@ class PlyGroundApp : Application() {
     /** The background analysis of sets' positions. */
     val setAnalysis: com.boldblot.backgammonplyground.ui.sets.SetAnalysis by lazy { com.boldblot.backgammonplyground.ui.sets.SetAnalysis(this) }
     val settings: SettingsStore by lazy { SettingsStore(this) }
+    private var gpuOffLogged: String? = null
     /** The background jobs running now, for Data and help and the top label. */
     val work = com.boldblot.backgammonplyground.engine.BackgroundWork()
     /** A positions file opened with PlyGround (or picked in My positions), waiting for its import dialog. */
@@ -111,6 +113,9 @@ class PlyGroundApp : Application() {
                 engine.backgroundLow = it.backgroundPriority == BackgroundPriority.LOW
                 engine.net = it.puretdNet
                 engine.gpuWanted = if (it.gpuGames) it.gpuSetting() else null
+                // Logged when it changes: GPU games switched on but not run, and why.
+                val off = it.gpuOffReason()
+                if (off != gpuOffLogged) { gpuOffLogged = off; if (off != null) AppLog.i("GPU games are on in Settings but off: $off") }
                 engine.gpuToBackground = it.gpuGames && it.gpuBackground
                 engine.cubefulCheckers = it.cubefulCheckers
                 engine.analysisLimitMs = it.analysisLimit * 1000L

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.24 — 2026-11-25 (build 105, internal test)
+
+- GPU games: a passing GPU check now stays valid across app updates that leave the GPU code alone (it was tied to the build
+  number, so every update turned the GPU off silently; checks from builds 102 to 104 carry over). When a check no longer
+  applies, the home screen says so (tap: Advanced engine settings), and the log says why.
+- Advanced engine settings: "Threads during a game" (was "Game threads") limits the searches only while a game is in play;
+  Analyze Position, quizzes, deep dive and reviews outside a game use all cores.
+- Quiz look-ahead: the card shown, when still waiting in the look-ahead's queue, is analyzed at once in the main slot; when
+  each analysis takes longer than you take per card, the look-ahead stays 3 cards ahead instead of 10.
+
 ## 0.9.23 — 2026-11-25 (build 104, internal test)
 
 - Data and help, Being analyzed now: every search is named ("Deep dive: version 5", "Quiz: card 412 analyzed again",
