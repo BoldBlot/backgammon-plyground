@@ -235,7 +235,7 @@ private fun Report(r: StatsReport) {
             )
         }
         Text(
-            "Updated after every completed match against the computer (not money sessions, nor matches you left out of the statistics).",
+            "Updated after every completed match against the computer (not unlimited sessions, nor matches you left out of the statistics).",
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -247,8 +247,8 @@ private fun Report(r: StatsReport) {
         Labelled("Backgammons won / lost", "${r.backgammonsWon} / ${r.backgammonsLost}")
         if (r.moneyGames > 0) {
             val net = r.moneyPointsWon - r.moneyPointsLost
-            Labelled("Money points won / lost", "${r.moneyPointsWon} / ${r.moneyPointsLost}")
-            Labelled("Money net per game", fmt(net.toDouble() / r.moneyGames, 3))
+            Labelled("Unlimited: points won / lost", "${r.moneyPointsWon} / ${r.moneyPointsLost}")
+            Labelled("Unlimited: net per game", fmt(net.toDouble() / r.moneyGames, 3))
         }
     }
 

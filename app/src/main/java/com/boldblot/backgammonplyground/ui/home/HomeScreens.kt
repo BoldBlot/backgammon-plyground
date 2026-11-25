@@ -148,6 +148,7 @@ import com.boldblot.backgammonplyground.data.QuizCorrect
 import com.boldblot.backgammonplyground.data.QuizNeutral
 import com.boldblot.backgammonplyground.data.SavedBlunder
 import com.boldblot.backgammonplyground.data.Settings
+import com.boldblot.backgammonplyground.data.gpuSetting
 import com.boldblot.backgammonplyground.data.TrainingMode
 import com.boldblot.backgammonplyground.engine.EngineService
 import com.boldblot.backgammonplyground.ui.components.EngineChips
@@ -334,7 +335,7 @@ fun NewMatchScreen(app: PlyGroundApp, hasMatch: Boolean, onStart: (MatchRules, C
                 modifier = Modifier.padding(vertical = 6.dp),
             ) {
                 LENGTHS.forEach { n ->
-                    FilterChip(selected = length == n, onClick = { length = n; typed = "" }, label = { Text(if (n == 0) "Money" else "$n pt") })
+                    FilterChip(selected = length == n, onClick = { length = n; typed = "" }, label = { Text(if (n == 0) "Unlimited" else "$n pt") })
                 }
             }
             OutlinedTextField(
@@ -978,7 +979,7 @@ private fun HistoryRow(
             if (selection != null) Checkbox(checked = selection, onCheckedChange = { onClick() })
             Column(Modifier.weight(1f)) {
                 Text(
-                    (if (m.favourite) "★ " else "") + "${if (m.length == 0) "Money" else "${m.length}-pt match"} vs $level · $result",
+                    (if (m.favourite) "★ " else "") + "${if (m.length == 0) "Unlimited" else "${m.length}-pt match"} vs $level · $result",
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(
@@ -1030,10 +1031,20 @@ private fun HistoryRow(
     }
 }
 
+/** Settings → Deep dive. */
+@Composable
+private fun DeepDiveSettings(s: Settings, update: (f: (Settings) -> Settings) -> Unit) {
+    Toggle("Follow the best plays automatically", s.deepDiveAutoBest) { v -> update { it.copy(deepDiveAutoBest = v) } }
+    Note(
+        "After a run, the best plays of the versions that no colour slot follows go into the free slots (most often best " +
+            "first) and are analyzed where needed. Off: they are listed under the legend as \"Best elsewhere\"; a tap follows one.",
+    )
+}
+
 /** The pages of Settings, each opened from the Settings list. */
 enum class SettingsGroup(val title: String) {
     TRAINING("Training"), ANALYSIS("Analysis"), ENGINE("Advanced engine settings"), PLAY("Play"), DISPLAY("Display"),
-    QUIZ("Quiz"), POSITIONS("My positions"), DATA("Data and help"),
+    QUIZ("Quiz"), POSITIONS("My positions"), DEEP_DIVE("Deep dive"), DATA("Data and help"),
 }
 
 /** One line under a group's name in the Settings list: its main values. */
@@ -1042,7 +1053,7 @@ private fun SettingsGroup.summary(s: Settings): String = when (this) {
         s.trainingMode.label,
         if (s.quietPlay) "analysis ${s.analysisTiming.label.lowercase()}" else s.feedback.label.lowercase(),
     ).joinToString(" · ")
-    SettingsGroup.ANALYSIS -> "${s.analysisEngine.label} · ${s.checkerPlies}-ply checker play · ${s.cubePlies}-ply cube" +
+    SettingsGroup.ANALYSIS -> "${s.analysisEngine.label} · ${s.checkerDepth.label()} checker play · ${s.cubeDepth.label(cube = true)} cube" +
         if (s.matchChecker >= 0 || s.matchCube >= 0) " · matches ${s.checkerDepth(true).label()}, cube ${s.cubeDepth(true).label(cube = true)}" else ""
     SettingsGroup.ENGINE -> if (s.analysisEngine != EngineKind.PURETD) {
         "Background analysis shares the game's engine (${s.analysisEngine.label})"
@@ -1066,6 +1077,7 @@ private fun SettingsGroup.summary(s: Settings): String = when (this) {
     ).joinToString(" · ")
     SettingsGroup.QUIZ -> "Right answers, cube questions, repeating, Learned"
     SettingsGroup.POSITIONS -> "New errors, labels (${s.labelKeys.size} in use), autofilters"
+    SettingsGroup.DEEP_DIVE -> if (s.deepDiveAutoBest) "Best plays followed automatically" else "Best plays listed under the legend"
     SettingsGroup.DATA -> "Your name in exported files, clearing data, error report"
 }
 
@@ -1105,6 +1117,7 @@ fun SettingsScreen(
                 SettingsGroup.DISPLAY -> DisplaySettings(s, ::update)
                 SettingsGroup.QUIZ -> QuizSettings(app, s, ::update)
                 SettingsGroup.POSITIONS -> PositionsSettings(app, s, ::update) { clear = it }
+                SettingsGroup.DEEP_DIVE -> DeepDiveSettings(s, ::update)
                 SettingsGroup.DATA -> DataSettings(app, s, ::update) { clear = it }
             }
         }
@@ -1311,7 +1324,7 @@ private fun QuizSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) 
             "without analysis is analyzed at them too); games, Analyze Position and My positions keep Settings → Analysis.",
     )
     if (s.quizOwnDepths) {
-        Text("Money games", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+        Text("Unlimited games", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
         Text("Checker play depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
         CheckerDepthPicker(s.quizCheckerDepth(false), false) { d -> update { it.copy(quizChecker = d.code) } }
         Text("Cube decision depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
@@ -1389,7 +1402,7 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
         ErrorsMode.TOP_X -> {
             Chips("Errors per match", listOf(1, 2, 3, 5, 10), s.topX, { "$it" }) { v -> update { it.copy(topX = v) } }
             Note(
-                "At the end of each match (a money session: when you end it) its ${s.topX} biggest errors of at least the " +
+                "At the end of each match (an unlimited session: when you end it) its ${s.topX} biggest errors of at least the " +
                     "minimum go to My positions, checker and cube together.",
             )
         }
@@ -1506,7 +1519,7 @@ private fun PositionsSettings(app: PlyGroundApp, s: Settings, update: (f: (Setti
     Header("My autofilters")
     Note(
         "An autofilter puts every new error that matches all its conditions straight into its own folder, and the " +
-            "error skips New errors. Labels that can't both be true (Checker or Cube, Contact or Race, Money or Match…) " +
+            "error skips New errors. Labels that can't both be true (Checker or Cube, Contact or Race, Unlimited or Match…) " +
             "count as either.",
     )
     var filters by remember { mutableStateOf<List<CategoryCount>>(emptyList()) }
@@ -1634,16 +1647,11 @@ private fun AnalysisSettings(s: Settings, update: (f: (Settings) -> Settings) ->
         "Analyzes your games, hints and positions, and gives PR, errors and luck. The computer plays with " +
             "the engine chosen in New match. Analyze again in the review can use another engine.",
     )
-    Text("Money games", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
-    Chips("Checker play depth", (1..4).toList(), s.checkerPlies, { "$it-ply" }) { n -> update { it.copy(checkerPlies = n) } }
-    if (s.checkerPlies == 4) {
-        Text(FOUR_PLY_CHECKER_NOTE, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-    }
-    if (s.checkerPlies > 1) {
-        Chips("Pruning", PRUNING, s.moveFilter, { if (it == MoveFilter.ALL) "Off" else "On" }) { f -> update { it.copy(moveFilter = f) } }
-        Text(PRUNING_NOTE, style = MaterialTheme.typography.labelSmall)
-    }
-    Chips("Cube decision depth", (1..4).toList(), s.cubePlies, { "$it-ply" }) { n -> update { it.copy(cubePlies = n) } }
+    Text("Unlimited games", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+    Text("Checker play depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+    CheckerDepthPicker(s.checkerDepth, false) { d -> update { it.copy(checkerPlies = d.plies, moveFilter = d.filter) } }
+    Text("Cube decision depth", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+    CubeDepthPicker(s.cubeDepth, false) { d -> update { it.copy(cubePlies = d.plies, cubeFast = d.filter == MoveFilter.FAST) } }
     Note(
         "XG's ply numbering: 1-ply is the network alone, each further ply looks one roll deeper. Deeper is " +
             "stronger but slower; the speed test times each depth on this phone and recommends one.",
@@ -1778,9 +1786,9 @@ private fun EngineSettings(s: Settings, update: (f: (Settings) -> Settings) -> U
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Chips("PureTD network", PureTdNet.entries, s.puretdNet, { it.label }) { v -> update { it.copy(puretdNet = v) } }
     Note(s.puretdNet.note + " Applies to play, hints and every analysis, and is recorded with each analysis.")
-    Toggle("Cubeful checker play (money games)", s.cubefulCheckers) { v -> update { it.copy(cubefulCheckers = v) } }
+    Toggle("Cubeful checker play (unlimited games)", s.cubefulCheckers) { v -> update { it.copy(cubefulCheckers = v) } }
     Note(
-        "On: money checker plays are scored by the opponent's cube-aware search with the cubeful network, so the cube " +
+        "On: checker plays in unlimited games are scored by the opponent's cube-aware search with the cubeful network, so the cube " +
             "is part of the choice (about 25% slower). Off: the cubeless network with a Janowski cube adjustment. Matches always use the latter.",
     )
     val choices = threadChoices(cores)
@@ -1808,6 +1816,67 @@ private fun EngineSettings(s: Settings, update: (f: (Settings) -> Settings) -> U
             "slower cores. Normal: the analysis finishes sooner but competes with the game. Android always keeps the " +
             "phone itself responsive.",
     )
+    GpuGamesSettings(s, update)
+}
+
+/**
+ * T-Roller's games on the GPU (experimental): the GPU check, its report, and the switch (only after a passing check for this
+ * app version, net, Android build and phone).
+ */
+@Composable
+private fun GpuGamesSettings(s: Settings, update: (f: (Settings) -> Settings) -> Unit) {
+    val app = LocalContext.current.applicationContext as com.boldblot.backgammonplyground.PlyGroundApp
+    val scope = rememberCoroutineScope()
+    var running by remember { mutableStateOf(false) }
+    var report by remember { mutableStateOf<String?>(null) }
+    val setting = s.gpuSetting()
+    val checked = s.gpuCheck.substringAfter('|', "") == com.boldblot.backgammonplyground.data.gpuCheckKey(s.puretdNet)
+    Text("GPU games (experimental)", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 16.dp))
+    Note(
+        "T-Roller's played-out games can run the network on the phone's graphics processor (GPU), with the same values as on the " +
+            "processor, faster on some phones. Tested only on a Samsung Galaxy S25 so far. The GPU check (up to a minute) tries " +
+            "every setting against the processor's results and keeps the fastest exact one; it is never run by itself. Run it " +
+            "again after an app update, a change of PureTD's network or an Android update.",
+    )
+    Text(
+        when {
+            setting != null -> "Last check: passed (fma ${if (setting.fma) "on" else "off"}, tile ${setting.tile})."
+            checked -> "Last check: no exact or faster setting on this phone; the games stay on the processor."
+            s.gpuCheck.isNotEmpty() -> "The last check was for another app version, network or Android build: run it again."
+            else -> "Not checked yet."
+        },
+        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp),
+    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Button(enabled = !running, onClick = {
+            running = true
+            scope.launch {
+                com.boldblot.backgammonplyground.AppLog.i("GPU check started (net ${s.puretdNet.name})")
+                val t0 = android.os.SystemClock.elapsedRealtime()
+                val r = app.engine.gpuCheck()
+                val last = r.trim().lines().lastOrNull().orEmpty()
+                val best = Regex("BEST fma=(\\d) tile=(\\d+)").find(last)
+                val result = (if (best != null) "${best.groupValues[1]} ${best.groupValues[2]}" else "none") + "|" + com.boldblot.backgammonplyground.data.gpuCheckKey(s.puretdNet)
+                runCatching { app.gpuCheckFile.writeText(r) }
+                com.boldblot.backgammonplyground.AppLog.i("GPU check done in ${android.os.SystemClock.elapsedRealtime() - t0} ms: $last")
+                update { it.copy(gpuCheck = result, gpuGames = it.gpuGames && best != null) }
+                report = r
+                running = false
+            }
+        }) { Text(if (running) "Checking…" else "Run GPU check") }
+        if (running) androidx.compose.material3.CircularProgressIndicator(Modifier.padding(start = 12.dp).size(20.dp), strokeWidth = 2.dp)
+        else if (app.gpuCheckFile.exists()) TextButton(onClick = { report = runCatching { app.gpuCheckFile.readText() }.getOrNull() }) { Text("Show report") }
+    }
+    Toggle("Use the GPU for T-Roller games", s.gpuGames && setting != null, enabled = setting != null) { v -> update { it.copy(gpuGames = v) } }
+    Note("Off, or without a passing check: the processor plays the games (same values, slower on phones where the GPU helps).")
+    report?.let { r ->
+        AlertDialog(
+            onDismissRequest = { report = null },
+            title = { Text("GPU check") },
+            text = { Text(r, style = MaterialTheme.typography.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace), modifier = Modifier.verticalScroll(rememberScrollState())) },
+            confirmButton = { TextButton(onClick = { report = null }) { Text("Close") } },
+        )
+    }
 }
 
 @Composable

@@ -1,0 +1,88 @@
+#version 450
+// One dense layer of a PureTD network for a block of rows: Y = X * Wt + b (then ReLU on hidden layers).
+// Every output is summed over the inputs in order, starting from the bias, exactly as ptd.c's forward():
+// with USE_FMA off each product is rounded before it is added (no fused multiply-add), which is what the
+// x86-64 build of ptd.c does; on, fma() as the arm64 build does. Raw outputs only: the sigmoid stays on the CPU.
+// A workgroup of 16 x 16 threads computes a tile of 16 TM rows x 16 TN outputs, TM x TN per thread (TM, TN multiples
+// of 4, BK from the build): rows 4 ty + 64 i + j and outputs 4 tx + 64 i + j, read from shared memory 4 at a time. Packed input (first layer): 4 one-byte codes per uint, each code a value in the table at lutoff.
+#ifndef TM
+#define TM 8
+#endif
+#ifndef TN
+#define TN 8
+#endif
+#ifndef BK
+#define BK 8
+#endif
+#define RT (16 * TM)
+#define OT (16 * TN)
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(constant_id = 0) const bool USE_FMA = false;
+layout(std430, set = 0, binding = 0) readonly buffer Wb { float w[]; };
+layout(std430, set = 0, binding = 1) readonly buffer Xb { uint x[]; };
+layout(std430, set = 0, binding = 2) writeonly buffer Yb { float y[]; };
+layout(push_constant) uniform P { uint rows; uint nin; uint nout; uint relu; uint woff; uint boff; uint packed; uint lutoff; } p;
+shared vec4 xs[BK][RT / 4];
+shared vec4 ws[BK][OT / 4];
+
+float xin(uint r, uint k) {
+    if (r >= p.rows || k >= p.nin) return 0.0;
+    if (p.packed != 0u) {
+        uint word = x[r * (p.nin >> 2) + (k >> 2)];
+        return w[p.lutoff + ((word >> (8u * (k & 3u))) & 255u)];
+    }
+    return uintBitsToFloat(x[r * p.nin + k]);
+}
+
+void main() {
+    uint tx = gl_LocalInvocationID.x, ty = gl_LocalInvocationID.y, tid = ty * 16u + tx;
+    uint o0 = gl_WorkGroupID.x * uint(OT), r0 = gl_WorkGroupID.y * uint(RT);
+    precise float acc[TM][TN];
+    for (int c = 0; c < TN; c++) {
+        uint o = o0 + 4u * tx + 64u * uint(c >> 2) + uint(c & 3);
+        float b = o < p.nout ? w[p.boff + o] : 0.0;
+        for (int a = 0; a < TM; a++) acc[a][c] = b;
+    }
+    // The next tiles are read from global memory into registers while this one is summed (latency hidden).
+    const int NX = BK * RT / 256, NW = BK * OT / 256;
+    float xr[NX], wr[NW];
+    for (int q = 0; q < NX; q++) { uint e = tid + 256u * uint(q); xr[q] = xin(r0 + e / uint(BK), e % uint(BK)); }
+    for (int q = 0; q < NW; q++) {
+        uint e = tid + 256u * uint(q), oo = e % uint(OT), kk = e / uint(OT), o = o0 + oo;
+        wr[q] = (kk < p.nin && o < p.nout) ? w[p.woff + kk * p.nout + o] : 0.0;
+    }
+    for (uint k0 = 0u; k0 < p.nin; k0 += uint(BK)) {
+        for (int q = 0; q < NX; q++) { uint e = tid + 256u * uint(q), rr = e / uint(BK); xs[e % uint(BK)][rr >> 2][rr & 3u] = xr[q]; }
+        for (int q = 0; q < NW; q++) { uint e = tid + 256u * uint(q), oo = e % uint(OT); ws[e / uint(OT)][oo >> 2][oo & 3u] = wr[q]; }
+        barrier();
+        uint k1 = k0 + uint(BK);
+        if (k1 < p.nin) {
+            for (int q = 0; q < NX; q++) { uint e = tid + 256u * uint(q); xr[q] = xin(r0 + e / uint(BK), k1 + e % uint(BK)); }
+            for (int q = 0; q < NW; q++) {
+                uint e = tid + 256u * uint(q), oo = e % uint(OT), k = k1 + e / uint(OT), o = o0 + oo;
+                wr[q] = (k < p.nin && o < p.nout) ? w[p.woff + k * p.nout + o] : 0.0;
+            }
+        }
+        // A fixed count (unrolled): past nin both tiles hold +0, and acc + (+0) * (+0) is acc.
+        for (int k = 0; k < BK; k++) {
+            vec4 xv[TM / 4], wv[TN / 4];
+            for (int i = 0; i < TM / 4; i++) xv[i] = xs[k][ty + 16u * uint(i)];
+            for (int i = 0; i < TN / 4; i++) wv[i] = ws[k][tx + 16u * uint(i)];
+            for (int a = 0; a < TM; a++)
+                for (int c = 0; c < TN; c++) {
+                    float xa = xv[a >> 2][a & 3], wc = wv[c >> 2][c & 3];
+                    if (USE_FMA) acc[a][c] = fma(xa, wc, acc[a][c]);
+                    else { precise float t = xa * wc; acc[a][c] = acc[a][c] + t; }
+                }
+        }
+        barrier();
+    }
+    for (int a = 0; a < TM; a++) {
+        uint r = r0 + 4u * ty + 64u * uint(a >> 2) + uint(a & 3);
+        if (r >= p.rows) continue;
+        for (int c = 0; c < TN; c++) {
+            uint o = o0 + 4u * tx + 64u * uint(c >> 2) + uint(c & 3);
+            if (o < p.nout) y[r * p.nout + o] = (p.relu != 0u && acc[a][c] < 0.0) ? 0.0 : acc[a][c];
+        }
+    }
+}

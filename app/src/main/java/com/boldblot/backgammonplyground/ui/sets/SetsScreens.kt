@@ -105,7 +105,7 @@ const val SET_IMPORT_FORMATS = "A set is text with one position per line, in ord
 /** "12 positions · 7-pt match · Anna vs Bob · 21 Nov 2026": a set's line in the list. */
 internal fun setSummary(s: SetCount): String = listOfNotNull(
     "${s.count} position${if (s.count == 1) "" else "s"}",
-    if (!s.fromMatch) null else if (s.matchLength > 0) "${s.matchLength}-pt match" else "money",
+    if (!s.fromMatch) null else if (s.matchLength > 0) "${s.matchLength}-pt match" else "unlimited",
     if (s.fromMatch) "${s.bottomName.ifBlank { "Bottom" }} vs ${s.topName.ifBlank { "Top" }}" else null,
     DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(s.createdAt)),
 ).joinToString(" · ")
@@ -211,7 +211,7 @@ fun SetImportDialog(app: PlyGroundApp, pending: PendingSet, onDismiss: () -> Uni
                         Text(
                             when (length) {
                                 null -> "The positions have different match lengths."
-                                0 -> "Money game: names who decides in each position."
+                                0 -> "Unlimited game: names who decides in each position."
                                 else -> "$length-pt match: names who decides and the score in each position."
                             },
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -306,7 +306,7 @@ fun SetScreen(app: PlyGroundApp, setId: Long, onBack: () -> Unit, onOpen: (Long)
                 progress?.let { AnalysisProgressLine(it) }
                 set?.let { s ->
                     Text(
-                        if (s.fromMatch) "${s.bottomName.ifBlank { "Bottom" }} vs ${s.topName.ifBlank { "Top" }}" + if (s.matchLength > 0) " · ${s.matchLength}-pt match" else " · money"
+                        if (s.fromMatch) "${s.bottomName.ifBlank { "Bottom" }} vs ${s.topName.ifBlank { "Top" }}" + if (s.matchLength > 0) " · ${s.matchLength}-pt match" else " · unlimited"
                         else "Not from one match",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

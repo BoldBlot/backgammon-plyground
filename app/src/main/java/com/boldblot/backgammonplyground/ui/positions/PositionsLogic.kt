@@ -238,7 +238,7 @@ fun answerText(p: StudyPosition, a: MyAnswer): String = when {
 /** The weighted error factor of [p] (×1.5 in a 1-point match, as for PR). */
 fun factorOf(p: StudyPosition): Float = XgRules.errorFactor(p.setup.matchLength)
 
-/** "Money game", "5-point match, 2–3, Crawford" and the cube, for a saved position: the text before the score, the score, the rest. */
+/** "Unlimited game", "5-point match, 2–3, Crawford" and the cube, for a saved position: the text before the score, the score, the rest. */
 fun contextParts(p: StudyPosition): Triple<String, List<Int>?, String> {
     val s = p.setup
     val cube = when {
@@ -251,7 +251,7 @@ fun contextParts(p: StudyPosition): Triple<String, List<Int>?, String> {
         p.doubled -> " · you are doubled"
         else -> " · cube decision"
     }
-    return if (s.matchLength == 0) Triple("Money game", null, cube + what)
+    return if (s.matchLength == 0) Triple("Unlimited game", null, cube + what)
     else Triple("${s.matchLength}-point match, ", s.score.toList(), (if (s.crawford) ", Crawford" else "") + cube + what)
 }
 
@@ -372,4 +372,28 @@ object FolderAnalysis {
     }
 
     fun stop() { job?.cancel() }
+}
+
+/**
+ * A long press on a play in an analysis list: [move] searched to [a]'s full depth (as the played move is) and joined to [a] in
+ * place of its shallower value; [a] as it was when it is already searched that deeply. [player] decides on [board].
+ */
+suspend fun deepenMove(
+    app: com.boldblot.backgammonplyground.PlyGroundApp, engine: com.boldblot.backgammonplyground.core.EngineKind?,
+    board: com.boldblot.backgammonplyground.core.Board, player: Int, ctx: com.boldblot.backgammonplyground.core.CubeContext,
+    dice: com.boldblot.backgammonplyground.core.Dice, a: CheckerAnalysis, move: Move, cubeCode: Int,
+): CheckerAnalysis {
+    val target = board.applyMove(player, move)
+    val c = a.candidates.firstOrNull { board.applyMove(player, it.move) == target }
+    if (c != null && c.plies == a.candidates.firstOrNull()?.plies) return a
+    val t0 = android.os.SystemClock.elapsedRealtime()
+    val out = app.engine.run(engine, Waiting.ANALYSIS) {
+        val r = MatchController(this, DiceSource.secure(), AnalysisSettings(plies = a.plies, cubePlies = cubeCode)).analyzeChecker(board, ctx, dice, move, a.plies)
+        r.candidates.getOrNull(r.playedIndex)?.let { a.withCandidate(board, player, it) } ?: a
+    }
+    com.boldblot.backgammonplyground.AppLog.i(
+        "Deepen play ${MoveNotation.format(board, player, move)} at ${Depth.of(a.plies).label()} in ${android.os.SystemClock.elapsedRealtime() - t0} ms " +
+            "(${com.boldblot.backgammonplyground.core.PositionIds.toXgid(com.boldblot.backgammonplyground.core.PositionSetup(board, player, dice = dice, matchLength = ctx.matchLength, score = ctx.score, crawford = ctx.crawford, cube = ctx.cube, format = "XGID"))})",
+    )
+    return out
 }

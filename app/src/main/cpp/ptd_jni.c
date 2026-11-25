@@ -23,6 +23,16 @@ typedef struct {
     volatile int stop;          /* nativeSetStop: abandon this handle's running search */
 } handle;
 
+static jfloatArray cube_tree(JNIEnv *env, jlong ptr, jintArray state, jint levels, jfloatArray weights, jintArray statesOut);
+
+static void from_state(const BoardState *s, jint *v)
+{
+    for (int i = 0; i < 24; i++) v[i] = s->points[i];
+    v[24] = s->bar[0]; v[25] = s->bar[1];
+    v[26] = s->off[0]; v[27] = s->off[1];
+    v[28] = s->turn;
+}
+
 static void to_state(const jint *v, BoardState *s)
 {
     for (int i = 0; i < 24; i++) s->points[i] = v[i];
@@ -246,6 +256,18 @@ FN(nativePlay)(JNIEnv *env, jclass cls, jlong ptr, jintArray io, jint d1, jint d
 JNIEXPORT jfloatArray JNICALL
 FN(nativeCubeTree)(JNIEnv *env, jclass cls, jlong ptr, jintArray state, jint levels, jfloatArray weights)
 {
+    return cube_tree(env, ptr, state, levels, weights, NULL);
+}
+
+/* nativeCubeTree, and in statesOut (int[29 x 21^levels]) each live leaf's position (zeros elsewhere). */
+JNIEXPORT jfloatArray JNICALL
+FN(nativeCubeTreeStates)(JNIEnv *env, jclass cls, jlong ptr, jintArray state, jint levels, jfloatArray weights, jintArray statesOut)
+{
+    return cube_tree(env, ptr, state, levels, weights, statesOut);
+}
+
+static jfloatArray cube_tree(JNIEnv *env, jlong ptr, jintArray state, jint levels, jfloatArray weights, jintArray statesOut)
+{
     handle *h = (handle *)(intptr_t)ptr;
     ptd_engine e;
     float w[10];
@@ -259,7 +281,19 @@ FN(nativeCubeTree)(JNIEnv *env, jclass cls, jlong ptr, jintArray state, jint lev
     for (int k = 0; k < levels; k++) { leaves *= 21; nodes += leaves; }
     int *pts = malloc(sizeof(int) * (size_t)nodes);
     float *leaf = malloc(sizeof(float) * 7 * (size_t)leaves);
-    ptd_cube_tree(&e, &s, levels, pts, leaf);
+    BoardState *states = NULL;
+    if (statesOut) {
+        if ((*env)->GetArrayLength(env, statesOut) != STATE_INTS * leaves) { free(pts); free(leaf); return NULL; }
+        states = calloc((size_t)leaves, sizeof(BoardState));
+    }
+    ptd_cube_tree_states(&e, &s, levels, pts, leaf, states);
+    if (states) {
+        jint *sv = malloc(sizeof(jint) * STATE_INTS * (size_t)leaves);
+        for (long i = 0; i < leaves; i++) from_state(&states[i], sv + STATE_INTS * i);
+        (*env)->SetIntArrayRegion(env, statesOut, 0, (jsize)(STATE_INTS * leaves), sv);
+        free(sv);
+        free(states);
+    }
     jfloatArray out = (*env)->NewFloatArray(env, (jsize)(nodes + 7 * leaves));
     if (out) {
         float *buf = malloc(sizeof(float) * (size_t)nodes);

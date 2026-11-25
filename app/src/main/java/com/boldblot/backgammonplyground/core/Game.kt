@@ -61,6 +61,8 @@ data class DecisionRecord(
     val firstTry: FirstTry? = null,
     /** Waiting for the background analysis (see [AnalysisSettings.deferred]); not analyzed or counted yet. */
     val pending: Boolean = false,
+    /** Checker plays: the luck of the roll played (the roller's, normalized equity), when the game measured it (0.9.21). */
+    val luck: Float? = null,
 ) {
     /** The error PR and the mistake lists use: the first try's when the decision was tried again. */
     val scoredError: Float? get() = firstTry?.error ?: error
@@ -221,7 +223,32 @@ data class GameState(
         )
     }
 
-    fun record(decision: DecisionRecord): GameState = copy(decisions = decisions + decision)
+    fun record(decision: DecisionRecord): GameState {
+        // A checker play carries the luck of the roll it plays (the roller's), for the review's markers and the luck labels.
+        val d = if (decision.kind == DecisionKind.CHECKER && decision.luck == null && decision.dice != null) {
+            rolls.lastOrNull()?.takeIf { it.player == decision.player && sameDice(it.dice, decision.dice) }?.luck?.let { decision.copy(luck = it) } ?: decision
+        } else decision
+        return copy(decisions = decisions + d)
+    }
+
+    /**
+     * The luck of the roll behind each decision (the roller's; null for cube decisions or when not known): stored with the
+     * decision since 0.9.21, else paired with the game's rolls in order (each player's checker plays with their rolls).
+     */
+    fun luckOf(): List<Float?> {
+        val next = IntArray(2)
+        return decisions.map { d ->
+            if (d.kind != DecisionKind.CHECKER || d.dice == null) return@map null
+            if (d.luck != null) return@map d.luck
+            var i = next[d.player]
+            while (i < rolls.size && !(rolls[i].player == d.player && sameDice(rolls[i].dice, d.dice))) i++
+            if (i >= rolls.size) return@map null
+            next[d.player] = i + 1
+            rolls[i].luck
+        }
+    }
+
+    private fun sameDice(a: Dice, b: Dice) = (a.d1 == b.d1 && a.d2 == b.d2) || (a.d1 == b.d2 && a.d2 == b.d1)
 
     fun replaceLastDecision(decision: DecisionRecord): GameState =
         copy(decisions = decisions.dropLast(1) + decision)

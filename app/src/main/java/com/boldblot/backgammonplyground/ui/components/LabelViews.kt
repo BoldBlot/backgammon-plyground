@@ -172,15 +172,17 @@ fun LabelTags(labels: Collection<String>, modifier: Modifier = Modifier, onClick
     if (labels.isEmpty()) return
     FlowRow(
         modifier.let { if (onClick != null) it.clickable(onClick = onClick) else it },
-        horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Labels.sorted(labels).forEach { k ->
             val trend = trendStyle(k)
             Surface(shape = RoundedCornerShape(6.dp), color = trend?.second ?: MaterialTheme.colorScheme.secondaryContainer) {
                 Text(
-                    (trend?.first ?: "") + Labels.title(k), style = MaterialTheme.typography.labelSmall,
+                    // Line height as the text's own size: the tags' lines no wider apart than the text around them.
+                    (trend?.first ?: "") + Labels.title(k),
+                    style = MaterialTheme.typography.labelSmall.let { it.copy(lineHeight = it.fontSize * 1.15f) },
                     color = if (trend != null) Color.Black else MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                 )
             }
         }

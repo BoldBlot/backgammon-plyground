@@ -104,7 +104,7 @@ fun ReviewViewChips(view: ReviewView, hasMove: Boolean, onPick: (ReviewView) -> 
         if (onDeepDive != null) {
             AssistChip(
                 onClick = onDeepDive, label = { Text("Deep dive", maxLines = 1, softWrap = false) },
-                leadingIcon = { Icon(Icons.Default.Layers, null, Modifier.size(AssistChipDefaults.IconSize)) },
+                leadingIcon = { com.boldblot.backgammonplyground.ui.components.DeepDiveIcon(null, Modifier.size(AssistChipDefaults.IconSize)) },
             )
         }
     }
@@ -510,7 +510,7 @@ object PositionShare {
 
     /** "5-point match · 2-1", or with [away] "3-away, 4-away" (Settings → Display). */
     private fun scoreHeading(matchLength: Int, score: List<Int>, away: Boolean): String = when {
-        matchLength == 0 -> "Money game"
+        matchLength == 0 -> "Unlimited game"
         away -> "${matchLength - score[0]}-away, ${matchLength - score[1]}-away"
         else -> "$matchLength-point match · ${score[0]}-${score[1]}"
     }
@@ -528,7 +528,7 @@ object PositionShare {
         if (p.doubled) append(" · Doubled")
     }
 
-    /** "5-point match · 2-1 · Cube 2 · Roll 64" (or "Money game"), the heading of a shared picture. */
+    /** "5-point match · 2-1 · Cube 2 · Roll 64" (or "Unlimited game"), the heading of a shared picture. */
     fun title(d: DecisionRecord, matchLength: Int, away: Boolean = false): String = buildString {
         append(scoreHeading(matchLength, d.score, away))
         if (d.crawford) append(" Crawford")

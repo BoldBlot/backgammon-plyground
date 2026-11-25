@@ -106,7 +106,7 @@ object DeepDive {
             else -> null
         }
         is Change.Score -> when {
-            base.setup.matchLength == 0 -> "A money game has no score. Set a match length in Analyze Position."
+            base.setup.matchLength == 0 -> "An unlimited game has no score. Set a match length in Analyze Position."
             steps(base, change).isEmpty() -> "Turn on Pre-Crawford, or reach 1-away with the Crawford game or post-Crawford."
             else -> null
         }
@@ -180,10 +180,10 @@ object DeepDive {
         return changes.fold(1) { n, c -> n * steps(base, if (two && c is Change.Score) c.copy(money = false) else c).size }
     }
 
-    /** "You 1-away, opponent 2-away, Crawford", or "Money game". */
+    /** "You 1-away, opponent 2-away, Crawford", or "Unlimited game". */
     fun scoreLabel(p: StudyPosition): String {
         val s = p.setup
-        if (s.matchLength == 0) return "Money game"
+        if (s.matchLength == 0) return "Unlimited game"
         val a = s.matchLength - s.score[Player.HUMAN]
         val b = s.matchLength - s.score[Player.CPU]
         val tag = when {
@@ -265,7 +265,7 @@ object DeepDive {
                 if (change.post) add(1, false, "1a post")
             }
         }
-        if (change.money) out += Step("Money game", "$", false, emptyList()) { p -> p.copy(setup = p.setup.copy(matchLength = 0, score = listOf(0, 0), crawford = false)) }
+        if (change.money) out += Step("Unlimited game", "$", false, emptyList()) { p -> p.copy(setup = p.setup.copy(matchLength = 0, score = listOf(0, 0), crawford = false)) }
         return out
     }
 
@@ -310,17 +310,24 @@ object DeepDive {
             val crawford = s.matchLength > 0 && s.crawford
             when (t.kind) {
                 DecisionKind.DOUBLE, DecisionKind.NO_DOUBLE -> !p.doubled && s.dice == null && !crawford && s.cube.canBeTurnedBy(Player.HUMAN)
-                DecisionKind.TAKE, DecisionKind.PASS, DecisionKind.BEAVER -> p.doubled && !crawford
+                // On roll, Take and Pass follow "Double, take" and "Double, pass".
+                DecisionKind.TAKE, DecisionKind.PASS -> !crawford && (p.doubled || (s.dice == null && s.cube.canBeTurnedBy(Player.HUMAN)))
+                DecisionKind.BEAVER -> p.doubled && !crawford
                 else -> false
             }
         }
     }
 
     /** The loss of cube action [kind] in [eval] ([beavers] allowed), or null where the cube cannot be turned. */
-    fun cubeLoss(eval: CubeEval, kind: DecisionKind, beavers: Boolean): Float? = when (kind) {
+    fun cubeLoss(eval: CubeEval, kind: DecisionKind, beavers: Boolean, doubled: Boolean = true): Float? = when {
+        // On roll: "Double, take" and "Double, pass" against the best action (nothing lost when the line is better for the doubler).
+        !doubled && (kind == DecisionKind.TAKE || kind == DecisionKind.PASS) ->
+            if (!eval.cubeAvailable) null else (eval.optimal - (if (kind == DecisionKind.TAKE) eval.doubleTake else eval.doublePass)).coerceAtLeast(0f)
+        else -> when (kind) {
         DecisionKind.DOUBLE, DecisionKind.NO_DOUBLE ->
             if (!eval.cubeAvailable) null else DecisionMath.doubleError(eval, doubled = kind == DecisionKind.DOUBLE, beavers = beavers)
         else -> DecisionMath.takeError(eval, kind, beavers)
+        }
     }
 
     private val met by lazy { MatchEquityTable() }

@@ -204,7 +204,13 @@ abstract class SearchEngine : AnalysisEngine {
         val depthOf = Depth.of(plies)
         var stopped = false
         val search = depthOf.search
-        if (depthOf.plies >= 2 && posts.size > 1 && !decided(probs, ctx) && !exactAtOnePly(ctx, posts) && search == null) {
+        // Fast depths (codes 24, 34, 44): a funnel without games.
+        val fastStages = if (search == null && depthOf.filter == MoveFilter.FAST && depthOf.plies >= 2) when (depthOf.plies) {
+            2 -> listOf(Triple(2, 0.08f, 8))
+            3 -> listOf(Triple(2, 0.16f, 16), Triple(3, 0.08f, 8))
+            else -> listOf(Triple(2, 0.16f, 16), Triple(3, 0.08f, 8), Triple(4, 0.04f, 3))
+        } else null
+        if (fastStages == null && depthOf.plies >= 2 && posts.size > 1 && !decided(probs, ctx) && !exactAtOnePly(ctx, posts) && search == null) {
             val within = depthOf.filter.within
             val best = eq.max()
             // Every move whose 1-ply equity is within the window of the best is searched deeper, and
@@ -229,11 +235,15 @@ abstract class SearchEngine : AnalysisEngine {
                     depth[i] = code
                 }
             }
-        } else if (search != null && posts.size > 1 && !decided(probs, ctx) && !exactAtOnePly(ctx, posts)) {
+        } else if ((search != null || fastStages != null) && posts.size > 1 && !decided(probs, ctx) && !exactAtOnePly(ctx, posts)) {
             // A funnel: fewer and fewer plays at each deeper stage, the last of them by played-out games.
             // The move played goes through every stage. (plies, window, most plays; plies 0 = the games.)
-            val stages = if (search.games == 0) listOf(Triple(2, 0.16f, 16), Triple(3, 0.08f, 8), Triple(search.plies, search.within, search.plays))
+            // T-Roller (blend > 0): 4-ply fast, then games on the plays 4-ply searched, valued half 4-ply, half games.
+            val stages = fastStages ?: if (search!!.games == 0) listOf(Triple(2, 0.16f, 16), Triple(3, 0.08f, 8), Triple(search.plies, search.within, search.plays))
+            else if (search.blend > 0f) listOf(Triple(2, 0.16f, 16), Triple(3, 0.08f, 8), Triple(4, search.within, search.plays), Triple(0, Float.POSITIVE_INFINITY, search.plays))
             else listOf(Triple(search.plies, 0.16f, 16), Triple(0, search.within, search.plays))
+            val blend = search?.blend ?: 0f
+            var ranDeep = true   // T-Roller: games only when the 4-ply stage searched more than one play
             var alive = posts.indices.toList()
             var last = alive
             for ((n, st) in stages.withIndex()) {
@@ -242,8 +252,10 @@ abstract class SearchEngine : AnalysisEngine {
                 // The first stage always takes the best few, as the plain search does: a window alone can drop the right move by a hair.
                 val keep = (byEq.filter { eq[it] >= best - st.second }.take(st.third) + (if (n == 0) byEq.take(MIN_SEARCHED) else emptyList()) +
                     listOfNotNull(playedIdx.takeIf { it >= 0 })).distinct()
+                if (blend > 0f && st.first == 0 && !ranDeep) break
                 last = keep
-                if (keep.size <= 1) continue
+                if (keep.size <= 1) { if (st.first > 0) ranDeep = false; continue }
+                if (st.first > 0) ranDeep = true
                 val final = n == stages.lastIndex
                 val code = if (final) plies else Depth(st.first, MoveFilter.WIDE).code
                 if (st.first > 0) {
@@ -259,10 +271,14 @@ abstract class SearchEngine : AnalysisEngine {
                 } else {
                     // A play that ends the game needs no games: its value is exact, and it is the best there is.
                     val live = keep.filter { posts[it].off(mover) < 15 }
-                    val got = if (live.size == keep.size) gameValues(ctx, live.map { posts[it] }, search) else null
+                    val gs = search!!
+                    val got = if (live.size == keep.size) gameValues(ctx, live.map { posts[it] }, gs) else null
                     if (got == null) { stopped = monitor?.stop == true; if (stopped) break else continue }
-                    val partial = got.second < search.games
-                    keep.forEachIndexed { j, i -> eq[i] = got.first[j]; depth[i] = if (partial) code + Depth.INCOMPLETE else code }
+                    val partial = got.second < gs.games
+                    keep.forEachIndexed { j, i ->
+                        eq[i] = if (blend > 0f) (1 - blend) * eq[i] + blend * got.first[j] else got.first[j]
+                        depth[i] = if (partial) code + Depth.INCOMPLETE else code
+                    }
                     if (partial) { stopped = false; alive = keep; last = emptyList(); break }
                 }
                 alive = keep
@@ -325,12 +341,24 @@ abstract class SearchEngine : AnalysisEngine {
     /** The engine's cube decision for [ctx].onRoll at XG depth [plies] ([cubeDecision] caches it). */
     protected abstract fun computeCube(board: Board, ctx: CubeContext, plies: Int): CubeEval
 
+    /**
+     * Set while [computeCube] runs a 3-ply cube level (plain or fast) of match play: PureTD then decides double / no double with
+     * the 30B leaf cube lives. Not for the 3-ply check of the games searches.
+     */
+    protected var leafLife = false
+
+    /** How close a cube decision is: |min(DT, DP) - ND| when the cube can be turned, and |DT - DP| (the take). */
+    private fun margin(e: CubeEval): Float {
+        val take = abs(e.doubleTake - e.doublePass)
+        return if (e.cubeAvailable) minOf(abs(minOf(e.doubleTake, e.doublePass) - e.noDouble), take) else take
+    }
+
     /** The last cube decision: the computer's own and the analysis of it are often the same evaluation. */
     private var cubeKey: Any? = null
     private var cubeCached: CubeEval? = null
 
     private fun cubeKeyOf(board: Board, ctx: CubeContext, plies: Int) =
-        listOf(board, ctx, Depth.of(codeFor(plies, ctx, cube = true)).let { it.search ?: it.plies }, rankingMode)
+        listOf(board, ctx, Depth.of(codeFor(plies, ctx, cube = true)).let { it.search ?: (it.plies to (it.filter == MoveFilter.FAST)) }, rankingMode)
 
     final override fun cubeDecision(board: Board, ctx: CubeContext, plies: Int): CubeEval {
         cachedCube(board, ctx, plies)?.let { return it }
@@ -338,17 +366,30 @@ abstract class SearchEngine : AnalysisEngine {
         val mon = monitor
         if (mon?.stop != true) clearStop()
         val d = Depth.of(code)
-        // Watched, 4-ply comes after 3-ply: stopped, it still has the 3-ply decision to show.
-        val steps = if (mon != null && d.plies == 4) listOf(3, 4) else listOf(d.plies)
+        val match = ctx.matchLength > 0
+        // Fast (2-4 ply): the shallow stage first, deeper only while the decision is close. Matches: 2-ply, 3-ply if 2-ply is
+        // within 0.04, 4-ply if 3-ply is within 0.02. Unlimited games at 4-ply: 3-ply, then 4-ply if within 0.04.
+        val fast = d.search == null && d.filter == MoveFilter.FAST && d.plies >= 2
+        val stages: List<Pair<Int, Float>> = when {
+            fast && !match && d.plies == 4 -> listOf(3 to 0.04f, 4 to 0f)
+            fast -> listOf(2 to 0.04f, 3 to 0.02f, 4 to 0f).filter { it.first <= d.plies }
+            // Watched, 4-ply comes after 3-ply: stopped, it still has the 3-ply decision to show.
+            mon != null && d.plies == 4 -> listOf(3 to Float.POSITIVE_INFINITY, 4 to 0f)
+            else -> listOf(d.plies to 0f)
+        }
         var res: CubeEval? = null
         var at = 0
         var stopped = false
-        for (n in steps) {
+        for ((i, st) in stages.withIndex()) {
+            val n = st.first
             mon?.report("Cube decision, $n-ply", 0, 0)
-            val e = computeCube(board, ctx, Depth(n).code)
+            // 30B on the 3-ply levels of match play (plain or fast), not on the games searches' 3-ply check.
+            leafLife = match && n == 3 && d.plies == 3 && d.search == null
+            val e = try { computeCube(board, ctx, Depth(n).code) } finally { leafLife = false }
             if (mon?.stop == true) { stopped = true; break }
             res = e
-            at = if (n == d.plies) code else Depth(n).code
+            at = if (n == d.plies) code else Depth(n, if (fast) MoveFilter.FAST else MoveFilter.ALL).code
+            if (fast && i < stages.lastIndex && margin(e) >= st.second) { at = code; break }
         }
         val search = d.search
         if (!stopped && search != null && search.games > 0) {

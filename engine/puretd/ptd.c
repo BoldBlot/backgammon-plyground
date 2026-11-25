@@ -694,7 +694,7 @@ int ptd_play(const ptd_engine *e, const BoardState *s, int d1, int d2, BoardStat
 
 static long level_offset(int k) { long o = 0, n = 21; for (int j = 1; j < k; j++) { o += n; n *= 21; } return o; }
 
-typedef struct { int levels; int *pts; float *leaf; } tree_out;
+typedef struct { int levels; int *pts; float *leaf; BoardState *states; } tree_out;
 
 /* The 21 children (level `level`) of the node `idx` one level up, holding s; dead: below a finished game. */
 static void tree_rec(const ptd_engine *e, scratch *sc, const tree_out *t, const BoardState *s, int level, long idx, int dead) {
@@ -726,6 +726,7 @@ static void tree_rec(const ptd_engine *e, scratch *sc, const tree_out *t, const 
         float *o = out + 7 * at[j];
         memcpy(o, q + 5 * j, 5 * sizeof(float));
         race_and_pips(&live[j], &o[5], &o[6]);
+        if (t->states) t->states[idx * 21 + at[j]] = live[j];
     }
 }
 
@@ -745,13 +746,18 @@ static void tree_task(pool *p, scratch *sc, int r) {
     if (pts) return;
     onroll_probs(p->e, sc, &s1, 1, o);
     race_and_pips(&s1, &o[5], &o[6]);
+    if (t->states) t->states[r] = s1;
+}
+
+void ptd_cube_tree_states(const ptd_engine *e, const BoardState *s, int levels, int *pts, float *leaf, BoardState *states) {
+    if (levels < 1) levels = 1;
+    if (levels > PTD_MAX_PLIES - 1) levels = PTD_MAX_PLIES - 1;
+    tree_pool tp = {.p = {.e = e, .fn = tree_task, .n_tasks = 21, .roots = s}, .t = {levels, pts, leaf, states}};
+    run_pool(&tp.p);
 }
 
 void ptd_cube_tree(const ptd_engine *e, const BoardState *s, int levels, int *pts, float *leaf) {
-    if (levels < 1) levels = 1;
-    if (levels > PTD_MAX_PLIES - 1) levels = PTD_MAX_PLIES - 1;
-    tree_pool tp = {.p = {.e = e, .fn = tree_task, .n_tasks = 21, .roots = s}, .t = {levels, pts, leaf}};
-    run_pool(&tp.p);
+    ptd_cube_tree_states(e, s, levels, pts, leaf, NULL);
 }
 
 /* ── speed test ───────────────────────────────────────────────────── */

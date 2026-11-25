@@ -32,7 +32,7 @@ val AppJson = Json {
     encodeDefaults = true
 }
 
-enum class MatchTypeFilter(val label: String) { ALL("All"), MATCHES("Matches"), MONEY("Money") }
+enum class MatchTypeFilter(val label: String) { ALL("All"), MATCHES("Matches"), MONEY("Unlimited") }
 
 enum class PeriodFilter(val label: String, val days: Int?) {
     ALL("All time", null), DAYS_30("30 days", 30), DAYS_7("7 days", 7)

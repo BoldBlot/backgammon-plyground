@@ -23,6 +23,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.boldblot.backgammonplyground.AppLog
 import java.util.EnumMap
 import java.util.concurrent.Executors
 
@@ -73,6 +74,68 @@ class EngineService(private val context: Context) {
     val engine: PureTdEngine get() = ptd(net).engine
     private val ptdHandle: Long get() = ptd(net).handle
     private var sageHandle = 0L
+
+    /** The GPU check's setting the GPU games run with: the shader's multiply-add mode and tile. */
+    data class GpuSetting(val fma: Boolean, val tile: String)
+
+    /**
+     * T-Roller's games on the GPU (experimental, Advanced engine settings): the setting to use, or null (off, or no passing GPU
+     * check for this app version, net and Android version). Applied on the engine thread before each search.
+     */
+    @Volatile var gpuWanted: GpuSetting? = null
+    private var gpuOpen: Triple<PureTdNet, GpuSetting, GpuGames>? = null
+    /** A setting that failed (opening, or a search): not tried again until the settings change. */
+    @Volatile private var gpuFailedFor: GpuSetting? = null
+    /** What the GPU path is doing, for the error report ("off", "on: Adreno 830 ...", "failed: ..."). */
+    @Volatile var gpuState: String = "off"
+        private set
+
+    /** Opens, reopens (another net or setting) or closes the GPU games as [gpuWanted] says. On the engine thread. */
+    private fun applyGpu() {
+        val want = gpuWanted?.takeIf { it != gpuFailedFor }
+        val cur = gpuOpen
+        if (cur != null && (want == null || cur.first != net || cur.second != want)) {
+            ptds[cur.first]?.engine?.gpu = null
+            runCatching { cur.third.close() }
+            gpuOpen = null
+            AppLog.i("GPU games closed (${if (want == null) "off" else "net or setting changed"})")
+            gpuState = "off"
+        }
+        if (want == null || gpuOpen != null) return
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        if (!VkGamesNative.load()) {
+            gpuFailedFor = want; gpuState = "failed: library not loaded (${VkGamesNative.loadError})"; AppLog.error("GPU games: $gpuState"); return
+        }
+        val dir = PureTdNative.files(context)
+        VkGamesNative.nativeSetTile(want.tile)
+        val vk = VkGamesNative.nativeOpen(File(dir, net.cubeless).path, File(context.filesDir, "puretd-bearoff.bin").path, gameThreads.coerceIn(1, cores), 16384, -1, want.fma, false)
+        if (vk == 0L) { gpuFailedFor = want; gpuState = "failed: the GPU could not be opened"; AppLog.error("GPU games: $gpuState (fma ${want.fma}, tile ${want.tile}, net ${net.name})"); return }
+        val device = runCatching { VkGamesNative.nativeDevice(vk) }.getOrDefault("?")
+        val g = GpuGames(ptdHandle, vk, gameThreads.coerceIn(1, cores))
+        val e = engine
+        e.gpu = g
+        e.onGpuFailure = { why -> gpuFailedFor = want; gpuState = "failed: $why" }
+        gpuOpen = Triple(net, want, g)
+        gpuState = "on: $device, fma ${want.fma}, tile ${want.tile}, net ${net.name}"
+        AppLog.i("GPU games opened in ${android.os.SystemClock.elapsedRealtime() - t0} ms: $gpuState")
+    }
+
+    /**
+     * The GPU check (Advanced engine settings): every shader setting against the CPU code, bit for bit, and its speed, with the
+     * selected net. The report's last line is "BEST fma=F tile=T" or "BEST none (...)". Runs on the engine thread (up to about a
+     * minute); the GPU games are closed first.
+     */
+    suspend fun gpuCheck(): String = withContext(dispatcher) {
+        val keep = gpuWanted
+        gpuWanted = null
+        applyGpu()
+        gpuWanted = keep
+        gpuFailedFor = null
+        if (!VkGamesNative.load()) return@withContext "Library not loaded: ${VkGamesNative.loadError}\nBEST none (no library)"
+        val dir = PureTdNative.files(context)
+        runCatching { VkGamesNative.nativeSelfTest(File(dir, net.cubeless).path, File(context.filesDir, "puretd-bearoff.bin").path, -1) }
+            .getOrElse { "GPU check failed: $it\nBEST none (error)" }
+    }
 
     /** Cores the phone has online (Android tells any app, no permission needed). */
     val cores: Int = Runtime.getRuntime().availableProcessors()
@@ -220,6 +283,7 @@ class EngineService(private val context: Context) {
         return withContext(dispatcher) {
             val threads = gameThreads.coerceIn(1, cores)
             PureTdNative.nativeSetThreads(ptdHandle, threads)
+            runCatching { applyGpu() }.onFailure { AppLog.error("GPU games could not be set up", it) }
             if (sageHandle != 0L) SageNative.nativeSetThreads(sageHandle, threads)
             val e = get(kind ?: analysisKind)
             // The analysis of one position always plays its games out.

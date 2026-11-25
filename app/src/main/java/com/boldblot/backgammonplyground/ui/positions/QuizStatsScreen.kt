@@ -98,7 +98,7 @@ fun QuizStatsBody(app: PlyGroundApp, onOpenFolder: (Long) -> Unit, onOpenLabel: 
             Row2("Checker plays", tallyText(r.checker))
             Row2("Cube decisions", tallyText(r.cube))
             Row2("Match positions", tallyText(r.match))
-            Row2("Money positions", tallyText(r.money))
+            Row2("Unlimited positions", tallyText(r.money))
             val points = r.days.filter { it.tally.answered > 0 }
             if (points.size >= 2) {
                 Text("Right per day", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 10.dp))

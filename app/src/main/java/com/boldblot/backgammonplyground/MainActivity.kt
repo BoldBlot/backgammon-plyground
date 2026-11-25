@@ -217,8 +217,9 @@ class MainActivity : ComponentActivity() {
             info.firstInstallTime == info.lastUpdateTime
         }
         LaunchedEffect(Unit) {
-            val seen = app.settings.settings.first().welcomeSeen
-            if (seen.isEmpty()) nav.navigate("welcome")
+            val s0 = app.settings.settings.first()
+            // An update from before the analysis budget (0.9.21): the budget and the speed test, once.
+            if (s0.welcomeSeen.isEmpty()) nav.navigate("welcome") else if (!s0.budgetAsked) nav.navigate("welcome-again")
         }
 
         val quickScope = androidx.compose.runtime.rememberCoroutineScope()
@@ -437,11 +438,13 @@ class MainActivity : ComponentActivity() {
                     onWelcome = { nav.navigate("welcome-again") },
                 )
             }
-            composable("speedtest") { SpeedTestScreen(app, onBack = { nav.popBackStack() }) }
+            composable("speedtest?auto={auto}", arguments = listOf(navArgument("auto") { type = NavType.BoolType; defaultValue = false })) { entry ->
+                SpeedTestScreen(app, onBack = { nav.popBackStack() }, autoStart = entry.arguments?.getBoolean("auto") == true)
+            }
             composable("welcome") {
                 WelcomeScreen(
                     app, newInstall,
-                    onSpeedTest = { nav.navigate("speedtest") { popUpTo("welcome") { inclusive = true } } },
+                    onSpeedTest = { nav.navigate("speedtest?auto=true") { popUpTo("welcome") { inclusive = true } } },
                     onDone = { nav.popBackStack() },
                 )
             }
@@ -449,7 +452,7 @@ class MainActivity : ComponentActivity() {
             composable("welcome-again") {
                 WelcomeScreen(
                     app, newInstall = false,
-                    onSpeedTest = { nav.navigate("speedtest") { popUpTo("welcome-again") { inclusive = true } } },
+                    onSpeedTest = { nav.navigate("speedtest?auto=true") { popUpTo("welcome-again") { inclusive = true } } },
                     onDone = { nav.popBackStack() },
                 )
             }

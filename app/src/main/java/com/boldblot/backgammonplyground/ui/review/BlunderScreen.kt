@@ -123,7 +123,7 @@ private fun BlunderContext(b: SavedBlunder, colors: BoardColors, style: androidx
         val isMatch = e.matchLength != 0
         Column {
             Text(
-                (if (e.opponent) "Opponent's · " else "") + (if (isMatch) "${e.matchLength}-pt match" else "Money") + " vs $level",
+                (if (e.opponent) "Opponent's · " else "") + (if (isMatch) "${e.matchLength}-pt match" else "Unlimited") + " vs $level",
                 style = style, color = grey, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
             ScoreText(
@@ -134,7 +134,7 @@ private fun BlunderContext(b: SavedBlunder, colors: BoardColors, style: androidx
         }
         return
     }
-    val what = (if (e.opponent) "Opponent's · " else "") + if (e.matchLength == 0) "Money" else "${e.matchLength}-pt match"
+    val what = (if (e.opponent) "Opponent's · " else "") + if (e.matchLength == 0) "Unlimited" else "${e.matchLength}-pt match"
     val match = e.matchLength != 0
     val cube = if (d.cube.value > 1) " · cube ${d.cube.value}" else ""
     val after = (if (match && d.crawford) " Crawford" else "") + "$cube · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(e.playedAt))}"
@@ -363,13 +363,21 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
     }
     // Keep: filed into My positions, the next error shown.
     val onKeep = { vm.keep() }
+    // Deep dive, as from a saved position: the play made first, then the best.
+    val onDive: (() -> Unit)? = study?.let { p ->
+        {
+            val a = com.boldblot.backgammonplyground.core.PositionAnalysis(checker = b.decision.checker, cube = b.decision.cubeEval)
+            com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest.preset(p, a, com.boldblot.backgammonplyground.core.MyAnswer.played(b.decision), null)
+                ?.let { vm.app.pendingDeepDive.value = it }
+        }
+    }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         if (maxWidth > maxHeight) {
             val sideWidth = minOf(440.dp, maxWidth * 0.48f)
             Row(Modifier.fillMaxSize().padding(6.dp)) {
                 Column(Modifier.width(sideWidth).fillMaxHeight()) {
                     TopRow(onBack, share)
-                    ReviewViewChips(st.view, b.decision.move != null, vm::setView, onSave, Modifier.fillMaxWidth().padding(bottom = 4.dp))
+                    ReviewViewChips(st.view, b.decision.move != null, vm::setView, onSave, Modifier.fillMaxWidth().padding(bottom = 4.dp), onDeepDive = onDive)
                     Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { Detail(st, b, vm) }
                 }
                 Spacer(Modifier.width(8.dp))
@@ -377,14 +385,14 @@ private fun BlunderContent(st: BlunderState, b: SavedBlunder, vm: BlunderViewMod
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         Board(st, b.decision, Modifier.aspectRatio(1.38f).then(capture.modifier))
                     }
-                    Bar(st, b.decision, vm, onKeep, onRemove, onSave, landscape = true)
+                    Bar(st, b.decision, vm, onKeep, onRemove, onSave, landscape = true, onDive = onDive)
                 }
             }
         } else {
             Column(Modifier.fillMaxSize().padding(horizontal = 6.dp)) {
                 TopRow(onBack, share)
                 Board(st, b.decision, Modifier.fillMaxWidth().aspectRatio(1.38f).then(capture.modifier))
-                Bar(st, b.decision, vm, onKeep, onRemove, onSave, landscape = false)
+                Bar(st, b.decision, vm, onKeep, onRemove, onSave, landscape = false, onDive = onDive)
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { Detail(st, b, vm) }
             }
         }
@@ -421,7 +429,7 @@ private fun Board(st: BlunderState, d: DecisionRecord, modifier: Modifier) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKeep: () -> Unit, onRemove: () -> Unit, onSave: (() -> Unit)?, landscape: Boolean) {
+private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKeep: () -> Unit, onRemove: () -> Unit, onSave: (() -> Unit)?, landscape: Boolean, onDive: (() -> Unit)? = null) {
     val a = d.checker
     if (a != null && a.candidates.isNotEmpty()) {
         val played = a.candidates.getOrNull(a.playedIndex)
@@ -465,7 +473,7 @@ private fun Bar(st: BlunderState, d: DecisionRecord, vm: BlunderViewModel, onKee
             onClick = onRemove, label = { Text("Delete") }, colors = colors, border = null,
             leadingIcon = { Icon(Icons.Default.Delete, null, Modifier.size(AssistChipDefaults.IconSize)) },
         )
-        if (!landscape) ReviewViewChips(st.view, d.move != null, vm::setView, onSave)
+        if (!landscape) ReviewViewChips(st.view, d.move != null, vm::setView, onSave, onDeepDive = onDive)
     }
 }
 

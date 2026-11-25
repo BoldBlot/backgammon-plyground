@@ -34,7 +34,7 @@ enum class FeedbackLevel(val label: String, val minSeverity: Severity?) {
 enum class TrainingMode(val label: String, val description: String) {
     IMMEDIATE("Show mistakes immediately", "Intuition training: the right play and how much yours cost, straight after each mistake."),
     /** Mistakes are held back until the match ends (a money session: when it is ended). */
-    AFTER_GAME("Show mistakes after the match", "Play the whole match undisturbed, then review your mistakes. In a money session: when you end it."),
+    AFTER_GAME("Show mistakes after the match", "Play the whole match undisturbed, then review your mistakes. In an unlimited session: when you end it."),
     TRY_AGAIN("Try again", "You are told only that it was an error or a blunder. Try the decision again, or show the answer. Your first try counts in PR."),
 }
 
@@ -222,6 +222,21 @@ data class Settings(
     val moveFilter: MoveFilter = MoveFilter.WIDE,
     /** Cube analysis depth (XG plies 1-4); 4-ply halves the cube error of 3-ply against XG. */
     val cubePlies: Int = 4,
+    /** Unlimited games' cube decisions: the fast version of [cubePlies] (3-ply first, deeper only when close). */
+    val cubeFast: Boolean = false,
+    /** T-Roller's games on the GPU (experimental, Advanced engine settings); used only with a passing [gpuCheck]. */
+    val gpuGames: Boolean = false,
+    /** How long an analysis may take (ms, the welcome screen's budget): the speed test recommends the best search within it. */
+    val analysisBudget: Int = 1000,
+    /** The analysis budget was asked (welcome screen, 0.9.21): an update from an older version shows it once. */
+    val budgetAsked: Boolean = false,
+    /** Settings → Deep dive: after a run, the best plays no slot follows go into the free slots. */
+    val deepDiveAutoBest: Boolean = false,
+    /**
+     * The last GPU check: "fma tile|key" when a setting passed ("0 48|..."), "none|key" when none did, "" never run. The key
+     * ([gpuCheckKey]) is the app version, net, Android build and phone: the check must be run again when any of them changes.
+     */
+    val gpuCheck: String = "",
     /**
      * Match play's own depths, as [Depth] codes (plies, or a [GameSearch]); -1 = as money games above, which is
      * where they start. Money games keep [checkerPlies], [moveFilter] and [cubePlies].
@@ -482,7 +497,7 @@ data class Settings(
         (topXFiled.filterNot { it.startsWith("$id:") } + "$id:$count").sortedByDescending { it.substringBefore(':').toLongOrNull() ?: 0L }.take(30).toSet()
 
     val checkerDepth: Depth get() = Depth(checkerPlies, moveFilter)
-    val cubeDepth: Depth get() = Depth(cubePlies)
+    val cubeDepth: Depth get() = Depth(cubePlies, if (cubeFast && cubePlies > 1) MoveFilter.FAST else MoveFilter.ALL)
 
     /** The analysis depths for a match ([match]) or a money game. */
     fun checkerDepth(match: Boolean): Depth = if (match && matchChecker >= 0) Depth.of(matchChecker) else checkerDepth
@@ -530,7 +545,33 @@ data class Settings(
  * The defaults of a new installation (from 0.8.15): PureTD's compact 4L network, and match play analyzed by short
  * played-out games (checker 3/36/7, cube 3/44/7). Installations from before keep [Settings]'s defaults.
  */
-val NEW_INSTALL = Settings(puretdNet = PureTdNet.COMPACT, matchChecker = GameSearch.G36.code, matchCube = GameSearch.C44.code)
+val NEW_INSTALL = Settings(
+    puretdNet = PureTdNet.COMPACT, moveFilter = MoveFilter.FAST, cubeFast = true,
+    matchChecker = Depth(3, MoveFilter.FAST).code, matchCube = Depth(3, MoveFilter.FAST).code,
+)
+
+/** What a GPU check is valid for: this app version, PureTD net, Android build and phone. */
+fun gpuCheckKey(net: PureTdNet): String =
+    "${com.boldblot.backgammonplyground.BuildConfig.VERSION_CODE}/${net.name}/${android.os.Build.VERSION.INCREMENTAL}/${android.os.Build.MODEL}"
+
+/** The setting the last GPU check chose for [net] here, or null (none passed, never run, or run for another version, net or phone). */
+fun Settings.gpuSetting(net: PureTdNet = puretdNet): com.boldblot.backgammonplyground.engine.EngineService.GpuSetting? {
+    val (r, key) = gpuCheck.split('|', limit = 2).takeIf { it.size == 2 } ?: return null
+    if (key != gpuCheckKey(net)) return null
+    val p = r.split(' ').takeIf { it.size == 2 } ?: return null
+    return com.boldblot.backgammonplyground.engine.EngineService.GpuSetting(p[0] == "1", p[1])
+}
+
+/**
+ * A depth setting of 0.9.20 or earlier with a games search that T-Roller replaced (3/36/7 ... 3/288/11): 3-ply fast, quick on
+ * any phone (those searches took 5 to 15 s a move on phones); the budget screen shown once after the update lets the speed test
+ * choose. Other codes (plies, fast, T-Roller, -1 = as for unlimited games) stay as they are.
+ */
+fun successorCode(code: Int): Int {
+    if (code < 0) return code
+    val s = Depth.of(code).search ?: return code
+    return if (GameSearch.isTRoller(s) || s.games == 0) code else Depth(3, MoveFilter.FAST).code
+}
 
 private val Context.dataStore by preferencesDataStore("settings")
 
@@ -554,6 +595,12 @@ class SettingsStore(private val context: Context) {
         val moveFilter = stringPreferencesKey("move_filter")
         val welcomeSeen = stringPreferencesKey("welcome_shown_version")
         val cubePlies = intPreferencesKey("cube_plies")
+        val cubeFast = booleanPreferencesKey("cube_fast")
+        val gpuGames = booleanPreferencesKey("gpu_games")
+        val analysisBudget = intPreferencesKey("analysis_budget")
+        val deepDiveAutoBest = booleanPreferencesKey("deep_dive_auto_best")
+        val budgetAsked = booleanPreferencesKey("budget_asked")
+        val gpuCheck = stringPreferencesKey("gpu_check")
         val matchChecker = intPreferencesKey("match_checker_depth")
         val matchCube = intPreferencesKey("match_cube_depth")
         val quizOwnDepths = booleanPreferencesKey("quiz_own_depths")
@@ -696,16 +743,22 @@ class SettingsStore(private val context: Context) {
             meFirstInFiles = p[Keys.meFirstInFiles] ?: d.meFirstInFiles,
             checkerPlies = (p[Keys.checkerPlies] ?: d.checkerPlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
             // Pruning is on or off now; the older ±0.04 and ±0.08 settings become on.
-            moveFilter = p.enum(Keys.moveFilter, d.moveFilter).let { if (it == MoveFilter.ALL) it else MoveFilter.WIDE },
+            moveFilter = p.enum(Keys.moveFilter, d.moveFilter).let { if (it == MoveFilter.ALL || it == MoveFilter.FAST) it else MoveFilter.WIDE },
             cubePlies = (p[Keys.cubePlies] ?: d.cubePlies).coerceIn(1, Depth.MAX_SEARCH_PLIES),
-            matchChecker = p[Keys.matchChecker] ?: d.matchChecker,
-            matchCube = p[Keys.matchCube] ?: d.matchCube,
+            cubeFast = p[Keys.cubeFast] ?: d.cubeFast,
+            gpuGames = p[Keys.gpuGames] ?: d.gpuGames,
+            analysisBudget = p[Keys.analysisBudget] ?: d.analysisBudget,
+            deepDiveAutoBest = p[Keys.deepDiveAutoBest] ?: d.deepDiveAutoBest,
+            budgetAsked = p[Keys.budgetAsked] ?: d.budgetAsked,
+            gpuCheck = p[Keys.gpuCheck] ?: d.gpuCheck,
+            matchChecker = successorCode(p[Keys.matchChecker] ?: d.matchChecker),
+            matchCube = successorCode(p[Keys.matchCube] ?: d.matchCube),
             quizOwnDepths = p[Keys.quizOwnDepths] ?: d.quizOwnDepths,
             quizChecker = p[Keys.quizChecker] ?: d.quizChecker,
             quizCube = p[Keys.quizCube] ?: d.quizCube,
             searchVersion = p[Keys.searchVersion] ?: d.searchVersion,
-            quizMatchChecker = p[Keys.quizMatchChecker] ?: d.quizMatchChecker,
-            quizMatchCube = p[Keys.quizMatchCube] ?: d.quizMatchCube,
+            quizMatchChecker = successorCode(p[Keys.quizMatchChecker] ?: d.quizMatchChecker),
+            quizMatchCube = successorCode(p[Keys.quizMatchCube] ?: d.quizMatchCube),
             analysisLimit = (p[Keys.analysisLimit] ?: d.analysisLimit).coerceIn(1, 3600),
             playLimit = (p[Keys.playLimit] ?: d.playLimit).coerceIn(1, 3600),
             gamesOnErrorsOnly = p[Keys.gamesOnErrorsOnly] ?: d.gamesOnErrorsOnly,
@@ -838,6 +891,12 @@ class SettingsStore(private val context: Context) {
             p[Keys.moveFilter] = s.moveFilter.name
             p[Keys.welcomeSeen] = s.welcomeSeen
             p[Keys.cubePlies] = s.cubePlies
+            p[Keys.cubeFast] = s.cubeFast
+            p[Keys.gpuGames] = s.gpuGames
+            p[Keys.analysisBudget] = s.analysisBudget
+            p[Keys.deepDiveAutoBest] = s.deepDiveAutoBest
+            p[Keys.budgetAsked] = s.budgetAsked
+            p[Keys.gpuCheck] = s.gpuCheck
             p[Keys.matchChecker] = s.matchChecker
             p[Keys.matchCube] = s.matchCube
             p[Keys.quizOwnDepths] = s.quizOwnDepths

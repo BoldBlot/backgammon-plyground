@@ -86,7 +86,7 @@ object PositionSeries {
             else -> "$decider's cube decision"
         }
         val length = p.setup.matchLength
-        val score = if (length > 0) score(p, bottomDecides).let { (b, t) -> " · $bottom $b, $top $t ($length pt)" } else " · money"
+        val score = if (length > 0) score(p, bottomDecides).let { (b, t) -> " · $bottom $b, $top $t ($length pt)" } else " · unlimited"
         return "$number · $what$score"
     }
 }

@@ -691,6 +691,42 @@ class QuizViewModel(
         }
     }
 
+    /**
+     * A long press on play [i] of the result's analysis: that play searched to the analysis's full depth; the position keeps the
+     * new analysis and the answer is judged again by it.
+     */
+    fun deepenCandidate(i: Int) {
+        val st = _state.value
+        val old = st.result ?: return
+        val sp = st.current ?: return
+        val ch = old.analysis.checker ?: return
+        val c = ch.candidates.getOrNull(i) ?: return
+        val dice = sp.position.dice ?: return
+        if (st.reanalyzing) return
+        if (c.plies == ch.candidates.first().plies) { _state.update { it.copy(message = "That play is already searched to full depth.") }; return }
+        val token = cardToken
+        _state.update { it.copy(reanalyzing = true, slow = false, message = null) }
+        work = viewModelScope.launch {
+            val dog = watchdog("deepening a play of position ${sp.id} (${sp.position.xgid})")
+            try {
+                val p = sp.position
+                val new = deepenMove(app, null, p.board, Player.HUMAN, p.ctx(), dice, ch, c.move, st.settings.cubeDepth(p.setup.matchLength > 0).code)
+                val a = old.analysis.copy(checker = new)
+                val kept = !old.deleted && old.removed == null && !detached
+                if (kept) app.positions.setAnalysis(sp.id, a)
+                if (set != null) app.sets.setAnalysis(sp.id, a)
+                rejudge(sp, a, old, null, "Play searched to full depth.", null, token)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                AppLog.error("Quiz: deepening a play failed", e)
+                if (token == cardToken) _state.update { it.copy(reanalyzing = false, message = "Analysis failed: ${e.message}") }
+            } finally {
+                dog.cancel()
+                _state.update { it.copy(slow = false) }
+            }
+        }
+    }
+
     /** The note after "Analyze again": the saved answer stays as it is. */
     fun keepSavedAnswer() = _state.update { it.copy(result = it.result?.copy(savedNote = null)) }
 

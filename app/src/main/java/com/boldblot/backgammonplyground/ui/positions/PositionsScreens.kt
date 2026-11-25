@@ -705,10 +705,12 @@ internal fun PositionRow(
             }
         },
         actions = actions,
+        // The tags under the board, across the row.
+        footer = settings.visible(p.labels).takeIf { it.isNotEmpty() }?.let { tags -> { LabelTags(tags) } },
     ) {
         val match = s.matchLength != 0
         Text(
-            if (match) "${s.matchLength}-pt match" else "Money",
+            if (match) "${s.matchLength}-pt match" else "Unlimited",
             style = small, color = grey, maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
         val cube = when {
@@ -726,7 +728,6 @@ internal fun PositionRow(
         }
         extra?.let { Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         p.answer?.let { Text("My answer: ${answerText(sp, it)}", style = MaterialTheme.typography.labelSmall) }
-        LabelTags(settings.visible(p.labels), Modifier.padding(top = 2.dp))
         p.entity.lastRight?.let {
             Text(
                 "Last quiz: " + (p.lastAnswer?.let { a -> "${answerText(sp, a)} · " } ?: "") + lastQuizText(p) + lastAnswerErrorText(p, unit),
@@ -844,7 +845,7 @@ fun PositionDetailScreen(
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(
                                 text = { Text("Deep dive…") }, enabled = p != null,
-                                leadingIcon = { Icon(Icons.Default.Layers, null) },
+                                leadingIcon = { com.boldblot.backgammonplyground.ui.components.DeepDiveIcon(null) },
                                 onClick = {
                                     menu = false
                                     p?.let { cur ->
@@ -902,11 +903,19 @@ fun PositionDetailScreen(
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (cur.entity.note.isNotBlank()) Text(cur.entity.note, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+                /** A tap on a play's line shows it on the board (selected in the analysis), as a tap in the list does. */
+                fun show(m: Move?) {
+                    val ch = a?.checker ?: return
+                    val target = m?.let { sp.board.applyMove(Player.HUMAN, it) } ?: return
+                    val i = ch.candidates.indexOfFirst { sp.board.applyMove(Player.HUMAN, it.move) == target }
+                    if (i >= 0) selected = i else Toast.makeText(context, "That play is not in the analysis.", Toast.LENGTH_SHORT).show()
+                }
                 // What was played in the game (set by hand when the position came without it).
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "Played in the game: " + (cur.played?.let { answerWithError(sp, a, it, LocalErrorUnit.current) } ?: "not known"),
-                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f).clickable(enabled = cur.played?.move != null) { show(cur.played?.move) },
                     )
                     if (!inSet) TextButton(onClick = { settingPlayed = true }) { Text(if (cur.played == null) "Set" else "Change") }
                 }
@@ -915,7 +924,7 @@ fun PositionDetailScreen(
                     Text(
                         "Last quiz answer: " + (cur.lastAnswer?.let { answerText(sp, it) + " · " } ?: "") + lastQuizText(cur) + lastAnswerErrorText(cur, LocalErrorUnit.current),
                         style = MaterialTheme.typography.bodyMedium, color = verdictColor(lastVerdict(cur)),
-                        modifier = Modifier.padding(top = 2.dp),
+                        modifier = Modifier.padding(top = 2.dp).clickable(enabled = cur.lastAnswer?.move != null) { show(cur.lastAnswer?.move) },
                     )
                 }
                 if (cur.entity.quizRight + cur.entity.quizWrong + cur.entity.quizNeutral > 0) {
@@ -982,6 +991,21 @@ fun PositionDetailScreen(
                             highlightIndex = played?.takeIf { it >= 0 }, maxRows = 10, selectedIndex = selected, detailed = true,
                             moverColor = colors.human, opponentColor = colors.cpu, moverRim = colors.humanRim, opponentRim = colors.cpuRim, onSelect = { i, _ -> selected = i },
                             checkIndex = mine?.takeIf { it >= 0 }, playedLabel = "played",
+                            onDeepen = { _, c ->
+                                if (c.plies == a.checker.candidates.first().plies) Toast.makeText(context, "That play is already searched to full depth.", Toast.LENGTH_SHORT).show()
+                                else if (!analyzing) {
+                                    analyzing = true
+                                    scope.launch {
+                                        runCatching {
+                                            val new = deepenMove(app, null, sp.board, Player.HUMAN, sp.ctx(), sp.dice!!, a.checker, c.move, settings.cubeDepth(sp.setup.matchLength > 0).code)
+                                            val pa = a.copy(checker = new)
+                                            if (setId != null) app.sets.setAnalysis(cur.id, pa) else app.positions.setAnalysis(cur.id, pa)
+                                        }.onFailure { Toast.makeText(context, "Analysis failed: ${it.message}", Toast.LENGTH_LONG).show() }
+                                        analyzing = false
+                                        refresh++
+                                    }
+                                }
+                            },
                         )
                     }
                     a?.cube != null -> CubeTable(a.cube, if (sp.doubled) DecisionKind.TAKE else null, factorOf(sp), sp.beavers, mine = cur.answer?.cube, played = cur.played?.cube, colors = colors, rollerHuman = !sp.doubled, mineAnswer = cur.answer?.expect, playedAnswer = cur.played?.expect)
@@ -1567,7 +1591,7 @@ private fun QuizResultCard(
                 }
                 IconButton(onClick = {
                     com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest.preset(p, r.analysis, sp.played, sp.lastAnswer)?.let { vm.app.pendingDeepDive.value = it }
-                }, icon) { Icon(Icons.Default.Layers, "Deep dive") }
+                }, icon) { com.boldblot.backgammonplyground.ui.components.DeepDiveIcon("Deep dive") }
                 if (st.detached || (!r.deleted && r.removed == null)) IconButton(onClick = { filing = true }, icon) { Icon(Icons.Default.Folder, if (st.detached) "Save to My positions" else "Move to folder") }
                 if (!st.detached && !readOnly && !r.deleted && r.removed == null) IconButton(onClick = vm::deleteCurrent, icon) { Icon(Icons.Default.Delete, "Delete from My positions") }
                 if (!readOnly) Button(onClick = vm::next, Modifier.padding(start = 4.dp), contentPadding = PaddingValues(horizontal = 18.dp)) { Text("Next", maxLines = 1, softWrap = false) }
@@ -1680,6 +1704,7 @@ private fun QuizResultCard(
                     detailed = true,
                     moverColor = colors.human, opponentColor = colors.cpu, moverRim = colors.humanRim, opponentRim = colors.cpuRim,
                     onSelect = { i, _ -> vm.selectCandidate(if (st.candidate == i) null else i) },
+                    onDeepen = if (readOnly) null else { i, _ -> vm.deepenCandidate(i) },
                 )
             }
         }

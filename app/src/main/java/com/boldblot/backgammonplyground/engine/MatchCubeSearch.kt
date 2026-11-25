@@ -17,6 +17,8 @@ import com.boldblot.backgammonplyground.core.MatchEquityTable
 class MatchCubeSearch(
     private val met: MatchEquityTable, private val tree: FloatArray, private val levels: Int,
     private val a: Int, private val b: Int, private val crawford: Boolean,
+    /** 30B: per leaf, the cube life of each cube state (centred, mine, theirs) of the side on roll there; null = the fixed life. */
+    private val xs: Array<DoubleArray?>? = null,
 ) {
     /** Where each level's nodes start in [tree] (level k at offsets[k]); the leaves' data follow the last level. */
     private val offsets = LongArray(levels + 2).also { o -> for (k in 2..levels + 1) o[k] = o[k - 1] + pow21(k - 1) }
@@ -42,6 +44,16 @@ class MatchCubeSearch(
             // Cube life as in core.cubeLife: 0.68 in contact, by the average pip count in a race.
             val x = if (tree[o + 5] == 0f) 0.68 else (0.55 + 0.00125 * pips).coerceIn(0.6, 0.7)
             MatchCube(met, probs, me, them, crawford, x).also { leaves[idx.toInt()] = it }
+        }
+        val x = xs?.get(idx.toInt())
+        if (x != null) {
+            // 30B: each cube state at its own life: no double at the current state's, double/take at the opponent-owned one's.
+            val probs = List(5) { tree[leafStart + 7 * idx.toInt() + it] }
+            val mo = MatchCube(met, probs, me, them, crawford, x[owner.ordinal])
+            if (!canDouble(owner, v, me)) return mo.cubeful(owner, v)
+            val (nd, _, dp) = mo.decision(owner, v)
+            val dt = MatchCube(met, probs, me, them, crawford, x[2]).decision(owner, v).second
+            return if (minOf(dt, dp) > nd) minOf(dt, dp) else nd
         }
         if (!canDouble(owner, v, me)) return mc.cubeful(owner, v)
         val (nd, dt, dp) = mc.decision(owner, v)

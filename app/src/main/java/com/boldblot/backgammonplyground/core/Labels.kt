@@ -7,7 +7,7 @@ enum class LabelGroup(val title: String, val allOf: Boolean = false) {
     ID("ID#"),
     DECISION("Decision"), CUBE_SIDE("Cube side"), POSITION("Position"), GAME("Game"), SIZE("Size"),
     MISSED("Missed", true),
-    STAGE("Stage", true), STAKES("Stakes", true), WHOSE("Whose"), MARKED("Marked"),
+    STAGE("Stage", true), STAKES("Stakes", true), LUCK("Luck"), WHOSE("Whose"), MARKED("Marked"),
     THEMES("Themes (rule of thumb)", true),
     /** How the last quiz answer compares with the one before; worked out at each answer, never stored as a label. */
     TREND("Quiz trend"),
@@ -27,7 +27,7 @@ enum class AutoLabel(val title: String, val group: LabelGroup, val description: 
     CONTACT("Contact", LabelGroup.POSITION, "The two sides can still hit each other."),
     RACE("Race", LabelGroup.POSITION, "The two sides can no longer hit each other."),
     BEAR_OFF("Bear-off", LabelGroup.POSITION, "All the deciding player's checkers are in their home board."),
-    MONEY("Money", LabelGroup.GAME, "A money game."),
+    MONEY("Unlimited", LabelGroup.GAME, "An unlimited game."),
     MATCH("Match", LabelGroup.GAME, "A match game."),
     CRAWFORD("Crawford", LabelGroup.GAME, "The Crawford game."),
     POST_CRAWFORD("Post-Crawford", LabelGroup.GAME, "After the Crawford game: a player needs one point."),
@@ -39,6 +39,8 @@ enum class AutoLabel(val title: String, val group: LabelGroup, val description: 
     MISSED_HIT("Missed hit", LabelGroup.MISSED, "A blunder that did not hit when the best play hit, and no play without a hit was acceptable."),
     MISSED_POINT("Missed point", LabelGroup.MISSED, "A blunder that did not make a point when the best play made one, and no play without a point was acceptable."),
     MISSED_RUNNING("Missed running", LabelGroup.MISSED, "A blunder that left the checkers in the opponent's home board when the best play moved one out, and no play that stays was acceptable."),
+    LUCKY("Lucky", LabelGroup.LUCK, "The roll played was lucky for the player who rolled it (0.10 or more better than an average roll)."),
+    UNLUCKY("Unlucky", LabelGroup.LUCK, "The roll played was unlucky for the player who rolled it (0.10 or more worse than an average roll)."),
     MINE("Mine", LabelGroup.WHOSE, "Your own mistake."),
     OPPONENTS("Opponent's", LabelGroup.WHOSE, "The opponent's mistake (imported matches)."),
     MARKED("Marked", LabelGroup.MARKED, "You marked it while playing."),
@@ -58,6 +60,10 @@ enum class AutoLabel(val title: String, val group: LabelGroup, val description: 
  * A [LabelFilter] is a set of keys: within a group any of them, across groups all of them.
  */
 object Labels {
+    /** A roll at least this lucky (normalized equity, better than an average roll) is lucky; [VERY_LUCKY] very lucky. */
+    const val LUCKY = 0.10f
+    const val VERY_LUCKY = 0.25f
+
     private const val MY = "my:"
     private const val ID = "id:"
 
@@ -94,7 +100,7 @@ object Labels {
 
     /**
      * True if [labels] pass autofilter [filter]: all its labels, except that in a group whose labels
-     * exclude each other (Checker or Cube, Contact or Race, Money or Match…) one of them is enough.
+     * exclude each other (Checker or Cube, Contact or Race, Unlimited or Match…) one of them is enough.
      */
     fun matchesAll(labels: Set<String>, filter: Set<String>): Boolean =
         filter.groupBy { group(it) }.all { (g, keys) -> if (g.allOf) keys.all { it in labels } else keys.any { it in labels } }
@@ -126,6 +132,8 @@ object Labels {
             crawford = d.crawford, moves = listOfNotNull(d.move, best), probs = probs, error = error,
             played = d.reviewMove, analysis = d.checker, factor = XgRules.errorFactor(matchLength),
         ).apply {
+            // The luck of the roll played (the decider's: they rolled it).
+            d.luck?.let { l -> if (l >= LUCKY) add(AutoLabel.LUCKY) else if (l <= -LUCKY) add(AutoLabel.UNLUCKY) }
             when (opponent) {
                 true -> add(AutoLabel.OPPONENTS)
                 false -> add(AutoLabel.MINE)

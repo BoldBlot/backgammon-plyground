@@ -155,7 +155,7 @@ private fun TopRow(vm: PositionViewModel, st: PositionState, capture: com.boldbl
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
         Text("Analyze Position", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
         IconButton(onClick = vm::undo, enabled = canUndo) { Icon(Icons.AutoMirrored.Filled.Undo, "Undo") }
-        IconButton(onClick = vm::deepDive) { Icon(Icons.Default.Layers, "Deep dive") }
+        IconButton(onClick = vm::deepDive) { com.boldblot.backgammonplyground.ui.components.DeepDiveIcon("Deep dive") }
         // Share, as in the review and the quiz: the XGID, the board, or the board with the top 5
         // (analyzed first when there is no analysis yet).
         val context = LocalContext.current
@@ -532,6 +532,7 @@ private fun Results(st: PositionState, vm: PositionViewModel, colors: BoardColor
             moverRim = if (st.onRoll == Player.HUMAN) colors.humanRim else colors.cpuRim,
             opponentRim = if (st.onRoll == Player.HUMAN) colors.cpuRim else colors.humanRim,
             onSelect = { i, _ -> vm.select(i) },
+            onDeepen = { i, _ -> vm.deepen(i) },
         )
     }
     st.cubeEval?.let { e ->
@@ -593,9 +594,9 @@ private fun DiePicker(value: Int?, onPick: (Int?) -> Unit) {
 private fun MatchPicker(length: Int, onPick: (Int) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { open = true }) { Text(if (length == 0) "Money game" else "$length-point match") }
+        OutlinedButton(onClick = { open = true }) { Text(if (length == 0) "Unlimited game" else "$length-point match") }
         DropdownMenu(open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(text = { Text("Money game") }, onClick = { open = false; onPick(0) })
+            DropdownMenuItem(text = { Text("Unlimited game") }, onClick = { open = false; onPick(0) })
             for (n in 1..25) DropdownMenuItem(text = { Text("$n-point match") }, onClick = { open = false; onPick(n) })
         }
     }

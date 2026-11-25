@@ -34,6 +34,7 @@ class GameSearchTest {
     @Test
     fun `depth codes of the game searches`() {
         for (g in GameSearch.entries) {
+            if (g == GameSearch.FAST4) continue   // code 50 reads as 44 (4-ply, fast)
             val d = Depth.of(g.code)
             assertEquals(g, d.search)
             assertEquals(g.code, d.code)
@@ -47,7 +48,15 @@ class GameSearchTest {
         assertEquals(Depth(1), Depth.of(0))
         assertEquals(Depth(3, MoveFilter.WIDE), Depth.of(3))
         assertEquals(Depth(3, MoveFilter.ALL), Depth.of(4))
-        for (plies in 1..4) for (f in MoveFilter.entries) assertEquals(Depth(plies, f), Depth.of(10 * plies + f.ordinal))
+        for (plies in 1..4) for (f in MoveFilter.entries) if (plies > 1 || f != MoveFilter.FAST) assertEquals(Depth(plies, f), Depth.of(10 * plies + f.ordinal))
+        // 4-ply fast: code 50 (0.8.10 to 0.9.20) and 44 are the same search; 44 is written.
+        assertEquals(Depth(4, MoveFilter.FAST), Depth.of(50))
+        assertEquals(44, Depth.of(50).code)
+        assertEquals("4-ply, fast", Depth.of(50).label())
+        assertEquals("3-ply, fast", Depth.of(34).label(cube = true))
+        assertEquals("T-Roller 144, T3", Depth.of(74).label())
+        assertEquals(GameSearch.T288G2, GameSearch.tRoller(288, cube = false, gate = GameSearch.TGate.T2))
+        assertEquals(GameSearch.TC144, GameSearch.tRoller(144, cube = true))
         assertEquals("3-ply, pruned, incomplete", Depth.of(132).label())
         assertTrue(Depth.of(132).incomplete)
         assertEquals(Depth(3, MoveFilter.WIDE), Depth.of(53).plain)

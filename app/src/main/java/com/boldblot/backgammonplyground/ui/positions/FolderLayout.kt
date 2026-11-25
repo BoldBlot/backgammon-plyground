@@ -181,10 +181,13 @@ fun ListRow(
     title: String, pill: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
     actions: (@Composable RowScope.() -> Unit)? = null,
+    /** Under the board and the lines, the row's full width (a position's tags). */
+    footer: (@Composable () -> Unit)? = null,
     lines: @Composable ColumnScope.() -> Unit,
 ) {
     val showActions = actions != null && selected == null
     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).combinedClickable(onLongClick = onLongClick, onClick = onClick)) {
+        Column(Modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth()) {
             Row(Modifier.padding(8.dp)) {
                 if (selected != null) Checkbox(checked = selected, onCheckedChange = null, modifier = Modifier.align(Alignment.CenterVertically).padding(end = 6.dp))
@@ -201,6 +204,8 @@ fun ListRow(
                 trailing?.let { Box(Modifier.align(Alignment.CenterVertically)) { it() } }
             }
             if (showActions) Row(Modifier.align(Alignment.BottomEnd).padding(end = 4.dp, bottom = 4.dp), content = actions!!)
+        }
+        footer?.let { Box(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp)) { it() } }
         }
     }
 }

@@ -335,7 +335,7 @@ private fun ResignDialog(m: MatchState, onDismiss: () -> Unit, onResign: (WinTyp
 }
 
 private fun title(m: MatchState): String =
-    if (m.rules.isMoney) "Money game" else "${m.rules.length}-point match"
+    if (m.rules.isMoney) "Unlimited game" else "${m.rules.length}-point match"
 
 private fun subtitle(m: MatchState, inStats: Boolean): String =
     "vs ${m.opponentLabel} · game ${m.gameNumber}" + (if (m.game.crawford) " · Crawford" else "") +
@@ -1578,7 +1578,7 @@ private fun GameOverDialog(
                     HorizontalDivider(Modifier.padding(vertical = 6.dp))
                     if (report != null && showMatch) {
                         SummaryRow(
-                            if (info.matchLength > 0) "${info.matchLength}-point match" else "Money session",
+                            if (info.matchLength > 0) "${info.matchLength}-point match" else "Unlimited session",
                             "You", "Computer", header = true,
                         )
                         SummaryRow("Games won", report.gamesWon[0].toString(), report.gamesWon[1].toString(), strong = true)

@@ -1,5 +1,6 @@
 package com.boldblot.backgammonplyground
 
+import com.boldblot.backgammonplyground.data.gpuSetting
 import com.boldblot.backgammonplyground.core.NewErrors
 import com.boldblot.backgammonplyground.ui.positions.libraryAverageError
 import android.app.Application
@@ -107,6 +108,7 @@ class PlyGroundApp : Application() {
                 engine.backgroundThreads = it.backgroundThreads.takeIf { n -> n > 0 } ?: EngineService.defaultBackgroundThreads(engine.cores)
                 engine.backgroundLow = it.backgroundPriority == BackgroundPriority.LOW
                 engine.net = it.puretdNet
+                engine.gpuWanted = if (it.gpuGames) it.gpuSetting() else null
                 engine.cubefulCheckers = it.cubefulCheckers
                 engine.analysisLimitMs = it.analysisLimit * 1000L
                 engine.playLimitMs = it.playLimit * 1000L
@@ -134,6 +136,19 @@ class PlyGroundApp : Application() {
     private suspend fun trimNewErrors(keep: Int) {
         val ids = repository.blunders(com.boldblot.backgammonplyground.data.BlunderSort.NEWEST).map { it.entity.id }
         NewErrors.overflow(ids, keep).takeIf { it.isNotEmpty() }?.let { repository.removeBlunders(it) }
+    }
+
+    /** The GPU check's last full report (Advanced engine settings), kept for the error report. */
+    val gpuCheckFile: java.io.File get() = java.io.File(filesDir, "gpu-check.txt")
+
+    /** The GPU games' state for the error report: the phone, whether the GPU path is on, the last GPU check and its report. */
+    fun gpuReport(): String = buildString {
+        append("Phone: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+        if (android.os.Build.VERSION.SDK_INT >= 31) append(", SoC ${android.os.Build.SOC_MANUFACTURER} ${android.os.Build.SOC_MODEL}")
+        append(", Android ${android.os.Build.VERSION.RELEASE} (${android.os.Build.VERSION.INCREMENTAL})\n")
+        append("GPU path: ${engine.gpuState}\n")
+        com.boldblot.backgammonplyground.engine.VkGamesNative.loadError?.let { append("Library: $it\n") }
+        append("Last GPU check: ").append(gpuCheckFile.takeIf { it.exists() }?.let { "\n" + it.readText().takeLast(6000) } ?: "never run").append('\n')
     }
 }
 

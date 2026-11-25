@@ -29,6 +29,8 @@ object PureTdNative {
      * won at every node (level 1 first), then 7 floats per leaf (on-roll probabilities, race, average pips).
      */
     @JvmStatic external fun nativeCubeTree(handle: Long, state: IntArray, levels: Int, matchWeights: FloatArray?): FloatArray?
+    /** [nativeCubeTree], and in [statesOut] (int[29 x 21^levels]) the position at each live leaf (30B). */
+    @JvmStatic external fun nativeCubeTreeStates(handle: Long, state: IntArray, levels: Int, matchWeights: FloatArray?, statesOut: IntArray): FloatArray?
     /**
      * One rollout turn: the side to move in [io] (int[29]) plays roll ([d1], [d2]) as inside the search (1-ply
      * best, by [matchWeights] in matches); [io] becomes the position after it. [out] gets the mover's 5

@@ -145,7 +145,7 @@ fun gameQuizCards(m: MatchEntity, picks: List<GameQuizPick>): Pair<List<SavedPos
 }
 
 internal fun matchTitle(m: MatchEntity): String =
-    "${if (m.length == 0) "Money" else "${m.length}-pt match"} vs ${Opponent.name(m.cpuLevel)}"
+    "${if (m.length == 0) "Unlimited" else "${m.length}-pt match"} vs ${Opponent.name(m.cpuLevel)}"
 
 /**
  * The game quiz's menu: a saved match ([matchId], or picked from the library's list here), which of its decisions

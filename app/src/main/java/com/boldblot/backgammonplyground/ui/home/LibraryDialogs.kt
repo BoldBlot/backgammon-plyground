@@ -63,7 +63,7 @@ fun MatchImportDialog(
             Column {
                 fileName?.let { Text(it, style = MaterialTheme.typography.titleSmall) }
                 Text(
-                    (if (r.isMoney) "Money session" else "${r.length}-point match") +
+                    (if (r.isMoney) "Unlimited session" else "${r.length}-point match") +
                         " · ${match.games.size} game${if (match.games.size == 1) "" else "s"}",
                     style = MaterialTheme.typography.bodyMedium,
                 )

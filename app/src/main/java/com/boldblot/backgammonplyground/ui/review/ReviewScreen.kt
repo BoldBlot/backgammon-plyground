@@ -423,6 +423,31 @@ class ReviewViewModel(
 
     fun stopReanalysis() { reanalysis?.cancel() }
 
+    /** A long press on play [i] of the decision shown: that play searched to the analysis's full depth, kept with the game. */
+    fun deepenCandidate(i: Int) {
+        val s = _state.value
+        val match = s.match ?: return
+        val (idx, d) = s.decisions.getOrNull(s.position) ?: return
+        val gi = s.gameIndex
+        val ch = d.checker ?: return
+        val c = ch.candidates.getOrNull(i) ?: return
+        val dice = d.dice ?: return
+        if (c.plies == ch.candidates.first().plies) { _state.update { it.copy(message = "That play is already searched to full depth.") }; return }
+        viewModelScope.launch {
+            _state.update { it.copy(message = "Searching the play to full depth…") }
+            val ctx = com.boldblot.backgammonplyground.core.CubeContext(match.length, d.score, d.crawford, match.jacoby, d.cube, d.player)
+            val new = runCatching { com.boldblot.backgammonplyground.ui.positions.deepenMove(app, null, d.board, d.player, ctx, dice, ch, c.move, s.settings.cubeDepth(match.length > 0).code) }
+                .getOrElse { e -> com.boldblot.backgammonplyground.AppLog.error("Review: deepening a play failed", e); _state.update { it.copy(message = "Analysis failed: ${e.message}") }; return@launch }
+            // The error of the play made, by the analysis as it is now (the best may have changed).
+            val played = d.move?.let { m -> d.board.applyMove(d.player, m) }?.let { t -> new.candidates.firstOrNull { d.board.applyMove(d.player, it.move) == t } }
+            val d2 = d.copy(checker = new, error = played?.let { (new.candidates.first().equity - it.equity).coerceAtLeast(0f) } ?: d.error)
+            val (e, g) = _state.value.games[gi]
+            val g2 = g.copy(decisions = g.decisions.toMutableList().also { it[idx] = d2 })
+            val e2 = app.repository.saveReanalyzedGame(e, g2, match.length)
+            _state.update { st -> st.copy(games = st.games.toMutableList().also { it[gi] = e2 to g2 }, message = null) }
+        }
+    }
+
     /** Puts back the analysis the match came with from its .xg file, in every game analyzed again since. */
     fun restoreOriginal() {
         val s = _state.value
@@ -472,7 +497,7 @@ fun ReviewScreen(
 
 private fun title(m: MatchEntity?): String = when {
     m == null -> "Review"
-    m.length == 0 -> "Money session"
+    m.length == 0 -> "Unlimited session"
     else -> "${m.length}-point match"
 }
 
@@ -759,7 +784,7 @@ private fun ReviewTools(st: ReviewState, vm: ReviewViewModel, modifier: Modifier
         else -> null
     }
     val dive = if (study != null && tracked != null) {
-        { vm.app.pendingDeepDive.value = com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest(study, tracked, candidates = d.checker?.candidates?.map { it.move }.orEmpty()) }
+        { vm.app.pendingDeepDive.value = com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest(study, tracked, candidates = d.checker?.candidates?.map { it.move }.orEmpty(), analysis = com.boldblot.backgammonplyground.core.PositionAnalysis(checker = d.checker, cube = d.cubeEval)) }
     } else null
     ReviewViewChips(st.view, d.move != null, vm::setView, { saving = true }.takeIf { study != null }, modifier, onDeepDive = dive)
 }
@@ -844,6 +869,7 @@ private fun DecisionList(st: ReviewState, vm: ReviewViewModel, modifier: Modifie
             }
         }
         itemsIndexed(st.decisions) { pos, (_, d) ->
+            val luck = remember(st.game) { st.game?.luckOf().orEmpty() }
             val sev = st.severityOf(d)
             val selected = pos == st.position
             Column(Modifier.background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent)) {
@@ -867,6 +893,8 @@ private fun DecisionList(st: ReviewState, vm: ReviewViewModel, modifier: Modifie
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                     )
+                    // The roll's luck: horseshoes for lucky, 💩 for unlucky (either player's roll).
+                    com.boldblot.backgammonplyground.ui.components.LuckMarker(luck.getOrNull(st.decisions[pos].index), Modifier.padding(horizontal = 2.dp))
                     if (st.hasMarks && st.decisions[pos].index in st.game?.marked.orEmpty()) {
                         Icon(com.boldblot.backgammonplyground.ui.components.BlotIcon, "Marked", Modifier.padding(horizontal = 4.dp).size(16.dp))
                     }
@@ -953,6 +981,7 @@ private fun DecisionAnalysis(st: ReviewState, vm: ReviewViewModel, d: DecisionRe
                 opponentRim = if (d.player == Player.HUMAN) colors.cpuRim else colors.humanRim,
                 opponentColor = if (d.player == Player.HUMAN) colors.cpu else colors.human,
                 onSelect = { i, _ -> vm.selectCandidate(if (st.candidate == i) null else i) },
+                onDeepen = { i, _ -> vm.deepenCandidate(i) },
             )
             d.cubeEval != null -> CubeTable(d.cubeEval, d.kind, st.factor, d.beavers, colors = colors, rollerHuman = (d.player == Player.HUMAN) != d.kind.isResponse)
             d.kind == DecisionKind.CHECKER && d.checker != null -> Text("No legal move.")

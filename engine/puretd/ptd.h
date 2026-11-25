@@ -95,6 +95,10 @@ int ptd_cube(const ptd_engine *e, const BoardState *s, int plies, int owner, int
  */
 void ptd_cube_tree(const ptd_engine *e, const BoardState *s, int levels, int *pts, float *leaf);
 
+/* ptd_cube_tree, and in states (one per leaf, NULL for none) the position at each live leaf (the side on roll there
+ * to move; leaves below a finished game are left as they were). For the leaf cube life (30B). */
+void ptd_cube_tree_states(const ptd_engine *e, const BoardState *s, int levels, int *pts, float *leaf, BoardState *states);
+
 /*
  * One turn of a played-out game: s->turn plays roll (d1, d2) as inside the search (its 1-ply best move, by
  * match_w in matches). next gets the position after it; out the mover's 5 probabilities there, 1 if it is a

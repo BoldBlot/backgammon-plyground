@@ -364,6 +364,7 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
         }
         app.pendingDeepDive.value = com.boldblot.backgammonplyground.ui.deepdive.DeepDiveRequest(
             p, tracked, candidates = st.checker?.candidates?.map { it.move }.orEmpty(), engine = st.engine, checker = st.checkerDepth, cube = st.cubeDepth,
+            analysis = com.boldblot.backgammonplyground.core.PositionAnalysis(checker = st.checker, cube = st.cubeEval),
         )
     }
 
@@ -450,6 +451,24 @@ class PositionViewModel(val app: PlyGroundApp) : ViewModel() {
     fun setLevel(checker: Depth, cube: Depth) = _state.update { it.copy(level = checker to cube) }
 
     /** Analyzes the position; returns the analysis job (null when it cannot start). */
+    /** A long press on play [i] of the analysis: that play searched to the analysis's full depth. */
+    fun deepen(i: Int) {
+        val st = _state.value
+        val ch = st.checker ?: return
+        val c = ch.candidates.getOrNull(i) ?: return
+        if (st.analyzing || !st.hasDice) return
+        if (c.plies == ch.candidates.first().plies) { _state.update { it.copy(message = "That play is already searched to full depth.") }; return }
+        _state.update { it.copy(analyzing = true, message = null) }
+        viewModelScope.launch {
+            val r = runCatching {
+                com.boldblot.backgammonplyground.ui.positions.deepenMove(app, st.engine, st.board, st.onRoll, st.ctx(), Dice(st.dice[0]!!, st.dice[1]!!), ch, c.move, st.cubeDepth.code)
+            }
+            _state.update { s ->
+                r.fold({ a -> s.copy(analyzing = false, checker = a) }, { e -> s.copy(analyzing = false, message = "Analysis failed: ${e.message}") })
+            }
+        }
+    }
+
     fun analyze(): Job? {
         val st = _state.value
         if (st.analyzing) return null

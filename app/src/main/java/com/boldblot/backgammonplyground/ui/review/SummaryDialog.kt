@@ -80,7 +80,7 @@ fun SavedSummaryDialog(
     var showMatch by remember(games) { mutableStateOf(startWithMatch && games.size > 1) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (m == null) "Summary" else if (m.length == 0) "Money session" else "${m.length}-point match") },
+        title = { Text(if (m == null) "Summary" else if (m.length == 0) "Unlimited session" else "${m.length}-point match") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 if (m == null || game == null) {
@@ -120,7 +120,7 @@ fun SavedSummaryDialog(
                 }
                 HorizontalDivider(Modifier.padding(vertical = 6.dp))
                 if (showMatch && r != null) {
-                    SummaryRow(if (m.length > 0) "${m.length}-point match" else "Money session", "You", "Computer", header = true)
+                    SummaryRow(if (m.length > 0) "${m.length}-point match" else "Unlimited session", "You", "Computer", header = true)
                     SummaryRow("Games won", r.gamesWon[0].toString(), r.gamesWon[1].toString(), strong = true)
                     PerformanceRows(r.human, r.cpu)
                     val before = r.eloBefore

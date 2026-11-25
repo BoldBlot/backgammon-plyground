@@ -16,7 +16,7 @@ enum class LibrarySort(val label: String) {
 enum class LibraryOutcome(val label: String) { WON("Won"), LOST("Lost") }
 
 /** Matches or money sessions, for the library's filter. */
-enum class LibraryKind(val label: String) { MATCH("Matches"), MONEY("Money games") }
+enum class LibraryKind(val label: String) { MATCH("Matches"), MONEY("Unlimited games") }
 
 /** When a match was played, for the library's filter. */
 enum class LibraryPeriod(val label: String, val days: Int) {

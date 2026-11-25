@@ -36,16 +36,6 @@ import com.boldblot.backgammonplyground.PlyGroundApp
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/** A starting depth by how long the player will wait: checker play and cube decisions (4-ply checker play is research only). */
-private data class WaitChoice(val title: String, val note: String, val checkerPlies: Int, val cubePlies: Int)
-
-private val WAIT_CHOICES = listOf(
-    WaitChoice("Zero wait", "1-ply: the network alone. Instant, the least accurate.", 1, 1),
-    WaitChoice("Almost zero wait", "2-ply: looks one roll ahead.", 2, 2),
-    WaitChoice("Minimum wait", "3-ply: two rolls ahead. Strong, with a short wait on most phones.", 3, 3),
-    WaitChoice("Put me on hold", "4-ply cube decisions, 3-ply checker play: the most accurate. A cube decision can take several seconds.", 3, 4),
-)
-
 /**
  * Shown once: when it has never been shown (a new install, or the app's data cleared); updates go
  * straight to the home screen. About opens it any time. What a ply is, and a starting
@@ -55,18 +45,12 @@ private val WAIT_CHOICES = listOf(
 @Composable
 fun WelcomeScreen(app: PlyGroundApp, newInstall: Boolean, onSpeedTest: () -> Unit, onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
-    var chosen by remember { mutableStateOf<WaitChoice?>(null) }
-    LaunchedEffect(Unit) {
-        // The current depths (a new install's defaults) are shown as chosen when they match a card.
-        val s = app.settings.settings.first()
-        chosen = WAIT_CHOICES.firstOrNull { it.checkerPlies == s.checkerPlies && it.cubePlies == s.cubePlies }
-    }
+    var chosen by remember { mutableStateOf<AnalysisBudget?>(null) }
+    LaunchedEffect(Unit) { chosen = AnalysisBudget.of(app.settings.settings.first().analysisBudget) }
     fun finish(then: () -> Unit) = scope.launch {
-        app.settings.update {
-            val s = it.copy(welcomeSeen = BuildConfig.VERSION_NAME)
-            val age = chosen
-            if (age != null) s.copy(checkerPlies = age.checkerPlies, cubePlies = age.cubePlies) else s
-        }
+        val b = chosen
+        app.settings.update { it.copy(welcomeSeen = BuildConfig.VERSION_NAME, analysisBudget = b?.ms ?: it.analysisBudget, budgetAsked = true) }
+        com.boldblot.backgammonplyground.AppLog.i("Welcome: analysis budget ${b?.ms} ms")
         then()
     }
     Scaffold { padding ->
@@ -89,9 +73,9 @@ fun WelcomeScreen(app: PlyGroundApp, newInstall: Boolean, onSpeedTest: () -> Uni
                     "best reply; each further ply looks one more roll ahead. Deeper analysis is stronger but much " +
                     "slower.",
             )
-            Text("Do you want to wait for analysis during the game?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text("Longer analysis is more accurate.")
-            for (age in WAIT_CHOICES) {
+            Text("How long may an analysis take?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Longer analysis is more accurate. After this, a speed test (a few minutes) finds the best analysis that fits on this phone.")
+            for (age in AnalysisBudget.entries) {
                 val selected = chosen == age
                 OutlinedCard(
                     onClick = { chosen = age },
@@ -113,12 +97,8 @@ fun WelcomeScreen(app: PlyGroundApp, newInstall: Boolean, onSpeedTest: () -> Uni
                 }
             }
             Text(
-                if (chosen != null) "Continue uses the one selected." else "If you don't choose, your analysis settings stay as they are.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Text(
-                "You'll see this screen once. To read it again or run the speed test (about a minute), go to " +
-                    "About. You can change the depths any time in Settings → Analysis.",
+                "You'll see this screen once. To read it again or run the speed test, go to About. Deeper and longer analyses " +
+                    "are in Settings → Analysis.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             val settings by app.settings.settings.collectAsState(initial = null)
@@ -126,8 +106,8 @@ fun WelcomeScreen(app: PlyGroundApp, newInstall: Boolean, onSpeedTest: () -> Uni
             if (done != null) Text(done, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { finish(onDone) }) { Text("Continue") }
-                OutlinedButton(onClick = { finish(onSpeedTest) }) { Text(if (done != null) "Run the speed test again" else "Run the speed test") }
+                Button(onClick = { finish(onSpeedTest) }) { Text("Continue to the speed test") }
+                OutlinedButton(onClick = { finish(onDone) }) { Text("Skip") }
             }
         }
     }

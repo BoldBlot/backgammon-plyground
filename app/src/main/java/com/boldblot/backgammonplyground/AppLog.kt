@@ -17,7 +17,10 @@ import java.util.Locale
  * the log attached and the support address filled in.
  */
 object AppLog {
-    private const val MAX_BYTES = 256 * 1024
+    /** The log's size: past it, the newest half is kept (about a few weeks of play). */
+    private const val MAX_BYTES = 1024 * 1024
+    /** One entry at most (a crash's stack trace excepted): a runaway line cannot push the history out. */
+    private const val MAX_ENTRY = 4000
     const val SUPPORT_EMAIL = "support@boldblot.com"
 
     private var dir: File? = null
@@ -36,7 +39,7 @@ object AppLog {
         i("App started: ${BuildConfig.VERSION_NAME} (build ${BuildConfig.BUILD_LABEL}, Play code ${BuildConfig.VERSION_CODE})")
     }
 
-    fun i(message: String) = write("I", message)
+    fun i(message: String) = write("I", if (message.length > MAX_ENTRY) message.take(MAX_ENTRY) + " [cut]" else message)
 
     fun error(message: String, e: Throwable? = null) {
         val trace = e?.let { StringWriter().also { w -> it.printStackTrace(PrintWriter(w)) }.toString() }
@@ -69,7 +72,8 @@ object AppLog {
                 kotlinx.coroutines.withTimeoutOrNull(2000) { (context.applicationContext as PlyGroundApp).settings.reportText() }
             }
         }.getOrNull() ?: "(not available)\n"
-        val header = "Settings\n$settings\n--- Log ---\n"
+        val gpu = runCatching { (context.applicationContext as PlyGroundApp).gpuReport() }.getOrElse { "(not available: $it)\n" }
+        val header = "Settings\n$settings\n--- GPU ---\n$gpu\n--- Log ---\n"
         synchronized(this) { copy.writeText(header + (file?.takeIf { it.exists() }?.readText() ?: "(empty log)\n")) }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", copy)
         val body = """

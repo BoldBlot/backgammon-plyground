@@ -31,6 +31,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,16 +52,10 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Targets for the recommendation: average seconds per decision. */
-private const val CHECKER_TARGET_MS = 1000.0
-private const val DOUBLES_TARGET_MS = 3000.0
-private const val CUBE_TARGET_MS = 1500.0
 
 /** Longest time spent on one measurement; it then reports the positions done so far. */
 private const val BUDGET_MS = 20_000.0
 
-/** Checker play timed with pruning off, then on. */
-private val FILTERS = listOf(MoveFilter.ALL, MoveFilter.WIDE)
 
 /** One timed search of the match part: a checker play (dice set) or a cube decision. */
 private class MatchSample(val board: com.boldblot.backgammonplyground.core.Board, val ctx: com.boldblot.backgammonplyground.core.CubeContext, val d1: Int, val d2: Int)
@@ -109,32 +105,117 @@ fun speedTestLine(s: com.boldblot.backgammonplyground.data.Settings): String? {
 
 private fun fmt(ms: Double) = if (ms >= 1000) "%.2f s".format(ms / 1000) else "%.0f ms".format(ms)
 
+/** The analysis budgets the welcome screen and the speed test offer (ms per decision on average). */
+enum class AnalysisBudget(val ms: Int, val title: String, val note: String) {
+    INSTANT(100, "Instant", "The fastest: about a tenth of a second."),
+    VISIBLE(500, "Minimum visible", "Up to about half a second."),
+    QUIET(1000, "Non-intrusive", "Up to about a second."),
+    TWO(2000, "2 seconds", "Up to about two seconds: stronger, you will notice the wait."),
+    ;
+    companion object { fun of(ms: Int) = entries.firstOrNull { it.ms == ms } ?: QUIET }
+}
+
+/** The options timed, weakest first: checker play and cube decisions; [match] only: T-Roller. */
+private fun checkerLadder(match: Boolean): List<Depth> = listOf(
+    Depth(1), Depth(2, MoveFilter.FAST), Depth(3, MoveFilter.FAST), Depth(3, MoveFilter.WIDE), Depth(4, MoveFilter.FAST),
+) + if (match) GameSearch.T_GAMES.map { Depth(4, MoveFilter.WIDE, GameSearch.tRoller(it, cube = false)) } else emptyList()
+
+private fun cubeLadder(match: Boolean): List<Depth> = listOf(
+    Depth(1), Depth(2), Depth(3, MoveFilter.FAST), Depth(3), Depth(4, MoveFilter.FAST), Depth(4),
+) + if (match) GameSearch.T_GAMES.map { Depth(3, MoveFilter.WIDE, GameSearch.tRoller(it, cube = true)) } else emptyList()
+
 /**
- * Times the engine on this phone at every analysis depth (all cores, the network the app uses), on
- * positions from a fixed self-play game, and recommends the deepest settings that stay within
- * about 1 s per checker play (3 s on doubles) and 1.5 s per cube decision. Checker play is timed
- * up to 3-ply (4-ply is research only); each measurement stops after [BUDGET_MS], and Stop (or
- * leaving the screen) ends the test after the current decision.
+ * Times the searches on this phone (all cores, the network the app uses) on positions from a fixed self-play game, for unlimited
+ * games and matches, and recommends the strongest whose average time stays within the analysis budget (welcome screen; chips
+ * here). Each measurement stops after [BUDGET_MS]; Stop (or leaving the screen) ends the test after the current decision.
+ * [autoStart]: run at once (from the welcome screen).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SpeedTestScreen(app: PlyGroundApp, onBack: () -> Unit) {
+fun SpeedTestScreen(app: PlyGroundApp, onBack: () -> Unit, autoStart: Boolean = false) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lines = remember { mutableStateListOf<String>() }
     var running by remember { mutableStateOf(false) }
-    var checker by remember { mutableStateOf<Depth?>(null) }
-    var cube by remember { mutableStateOf<Int?>(null) }
-    var matchChecker by remember { mutableStateOf<Depth?>(null) }
-    var matchCube by remember { mutableStateOf<Depth?>(null) }
-    /** The match part's running search, for Stop. */
+    /** The recommendation: unlimited checker and cube, match checker and cube. */
+    var rec by remember { mutableStateOf<List<Depth>?>(null) }
     var monitor by remember { mutableStateOf<SearchMonitor?>(null) }
     var applied by remember { mutableStateOf(false) }
     var stopping by remember { mutableStateOf(false) }
+    val settings by app.settings.settings.collectAsState(initial = null)
+    val budget = AnalysisBudget.of(settings?.analysisBudget ?: 1000)
     val cores = Runtime.getRuntime().availableProcessors()
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose { if (running) PureTdNative.nativeBenchCancel() }
+    fun run() {
+        running = true; stopping = false; applied = false; rec = null
+        lines.clear()
+        lines += "${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}, $cores cores; budget ${budget.title} (${fmt(budget.ms.toDouble())})"
+        scope.launch {
+            val s = app.settings.settings.first()
+            val net = s.puretdNet
+            val dir = withContext(Dispatchers.IO) { PureTdNative.load(); PureTdNative.files(context) }
+            val h = withContext(Dispatchers.Default) {
+                PureTdNative.nativeOpen(File(dir, net.cubeless).path, File(dir, net.cubeful).path, File(context.filesDir, "puretd-bearoff.bin").path, cores)
+            }
+            if (h == 0L) { lines += "Could not load the network."; running = false; return@launch }
+            com.boldblot.backgammonplyground.AppLog.i("Speed test started: budget ${budget.ms} ms, net ${net.name}, $cores cores")
+            try {
+                val mon = SearchMonitor()
+                monitor = mon
+                val e = PureTdEngine(h, MatchEquityTable(), netName = net.engineName).also { it.gameThreads = cores; it.monitor = mon }
+                val (plays, cubes) = withContext(Dispatchers.Default) { matchSamples(e, 6, 4) }
+                /** Average milliseconds of [code] over the samples (unlimited games: the same positions as money), stopping after [BUDGET_MS]. */
+                suspend fun time(samples: List<MatchSample>, code: Int, match: Boolean): Pair<Double, String> = withContext(Dispatchers.Default) {
+                    var total = 0.0; var done = 0
+                    for (x in samples) {
+                        val ctx = if (match) x.ctx else x.ctx.copy(matchLength = 0, score = listOf(0, 0), crawford = false)
+                        e.rankMoves(x.board, ctx, 1, 2, 0, null)   // a different roll: no cached ranking
+                        val t0 = System.nanoTime()
+                        if (x.d1 > 0) e.rankMoves(x.board, ctx, x.d1, x.d2, code, null) else { e.cubeDecision(x.board, ctx, Depth(1).code); e.cubeDecision(x.board, ctx, code) }
+                        if (mon.stop) break
+                        total += (System.nanoTime() - t0) / 1e6
+                        done++
+                        if (total > BUDGET_MS) break
+                    }
+                    (if (done > 0) total / done else 0.0) to if (done < samples.size && !stopping) " (time limit, $done of ${samples.size})" else ""
+                }
+                /** The strongest of [ladder] within the budget (the first one at least). */
+                suspend fun best(title: String, ladder: List<Depth>, samples: List<MatchSample>, match: Boolean, cube: Boolean): Depth? {
+                    lines += title
+                    var pick = ladder.first()
+                    for (d in ladder) {
+                        val (ms, note) = time(samples, d.code, match)
+                        if (stopping) return null
+                        lines += "  ${d.label(cube)}: ${fmt(ms)}$note"
+                        com.boldblot.backgammonplyground.AppLog.i("Speed test: $title ${d.label(cube)} ${"%.0f".format(java.util.Locale.ROOT, ms)} ms$note")
+                        if (ms <= budget.ms) pick = d
+                        if (ms > 2 * budget.ms) break
+                    }
+                    return pick
+                }
+                val r = listOfNotNull(
+                    best("Unlimited games, checker play", checkerLadder(false), plays, false, false),
+                    best("Unlimited games, cube decisions", cubeLadder(false), cubes, false, true),
+                    best("Matches, checker play", checkerLadder(true), plays, true, false),
+                    best("Matches, close cube decisions", cubeLadder(true), cubes, true, true),
+                )
+                e.monitor = null
+                if (stopping || r.size < 4) { lines += "Stopped."; return@launch }
+                rec = r
+                val money = "checker play ${r[0].label()}, cube decisions ${r[1].label(cube = true)}"
+                val match = "checker play ${r[2].label()}, cube decisions ${r[3].label(cube = true)}"
+                lines += "Recommended for unlimited games: $money"
+                lines += "Recommended for matches: $match"
+                com.boldblot.backgammonplyground.AppLog.i("Speed test done: unlimited $money; matches $match")
+                app.settings.update { it.copy(speedTestAt = System.currentTimeMillis(), speedTestResult = "$money; in matches $match") }
+            } finally {
+                monitor = null
+                withContext(NonCancellable + Dispatchers.Default) { PureTdNative.nativeClose(h) }
+                running = false
+                stopping = false
+            }
+        }
     }
+    LaunchedEffect(autoStart, settings != null) { if (autoStart && settings != null && !running && lines.isEmpty()) run() }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -148,148 +229,20 @@ fun SpeedTestScreen(app: PlyGroundApp, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                "Times each analysis depth on this phone and recommends the deepest settings that stay " +
-                    "within about 1 s per checker play (3 s on doubles) and 1.5 s per cube decision. " +
-                    "For matches it also times the searches by played-out games, and recommends the deepest " +
-                    "whose average stays within half the time an analysis may take before it offers to stop " +
-                    "(Settings → Analysis). It takes several minutes (each measurement at most 20 s) and keeps " +
-                    "all cores busy; the phone may get warm. Plain 4-ply checker play is not timed (research only).",
+                "Times the analysis on this phone and recommends the strongest search whose average time per decision fits your " +
+                    "budget, for unlimited games and for matches. It takes a few minutes (each measurement at most 20 s) and keeps " +
+                    "all cores busy; the phone may get warm.",
             )
+            Text("Budget", style = MaterialTheme.typography.bodySmall)
+            com.boldblot.backgammonplyground.ui.components.EqualChips(AnalysisBudget.entries, budget, { it.title }, { b ->
+                scope.launch { app.settings.update { it.copy(analysisBudget = b.ms) } }
+            })
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (running) OutlinedButton(enabled = !stopping, onClick = {
                     stopping = true
-                    PureTdNative.nativeBenchCancel()
                     monitor?.requestStop()
                 }) { Text(if (stopping) "Stopping…" else "Stop") }
-                Button(enabled = !running, onClick = {
-                    running = true
-                    stopping = false
-                    applied = false
-                    checker = null
-                    cube = null
-                    matchChecker = null
-                    matchCube = null
-                    lines.clear()
-                    lines += "${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}, $cores cores"
-                    scope.launch {
-                        val dir = withContext(Dispatchers.IO) { PureTdNative.load(); PureTdNative.files(context) }
-                        val h = withContext(Dispatchers.Default) {
-                            PureTdNative.nativeOpen(
-                                File(dir, "prob5_wide.ptw").path, File(dir, "cubeful_wide.ptw").path,
-                                File(context.filesDir, "puretd-bearoff.bin").path, cores,
-                            )
-                        }
-                        if (h == 0L) {
-                            lines += "Could not load the network."
-                            running = false
-                            return@launch
-                        }
-                        /** Milliseconds per decision, with a note when the time limit cut it short. */
-                        suspend fun time(kind: Int, plies: Int, filter: MoveFilter): Pair<Double, String> = withContext(Dispatchers.Default) {
-                            val within = if (filter == MoveFilter.ALL) -1f else filter.within
-                            val n = if (kind == 2) maxOf(3, samples(plies) / 2) else samples(plies)
-                            val r = PureTdNative.nativeBench(h, kind, plies, within, n, cores, BUDGET_MS) ?: doubleArrayOf(0.0, 0.0)
-                            val done = r[1].toInt()
-                            r[0] to if (done < n && !stopping) " (time limit, $done of $n)" else ""
-                        }
-                        try {
-                            lines += "Checker play (average / doubles)"
-                            var bestChecker: Depth? = null
-                            checker@ for (filter in FILTERS) {
-                                // 4-ply checker play is research only (FOUR_PLY_CHECKER_NOTE): not timed.
-                                for (plies in 1..3) {
-                                    if (plies == 1 && filter != MoveFilter.ALL) continue
-                                    val (avg, n1) = time(0, plies, filter)
-                                    if (stopping) break@checker
-                                    val (dbl, n2) = time(2, plies, filter)
-                                    if (stopping) break@checker
-                                    val d = Depth(plies, filter)
-                                    lines += "  ${d.label()}: ${fmt(avg)}$n1 / ${fmt(dbl)}$n2"
-                                    val fits = avg <= CHECKER_TARGET_MS && dbl <= DOUBLES_TARGET_MS
-                                    if (fits && (bestChecker == null || plies > bestChecker.plies)) bestChecker = d
-                                    // Much too slow already: deeper with this filter only gets slower.
-                                    if (avg > 4 * CHECKER_TARGET_MS || dbl > 4 * DOUBLES_TARGET_MS) break
-                                }
-                            }
-                            var bestCube = 1
-                            if (!stopping) {
-                                lines += "Cube decisions"
-                                for (plies in 1..Depth.MAX_SEARCH_PLIES) {
-                                    val (ms, note) = time(1, plies, MoveFilter.ALL)
-                                    if (stopping) break
-                                    lines += "  $plies-ply: ${fmt(ms)}$note"
-                                    if (ms <= CUBE_TARGET_MS) bestCube = plies
-                                    if (ms > 4 * CUBE_TARGET_MS) break
-                                }
-                            }
-                            // Match play: the searches by played-out games, timed on the same engine. The deepest
-                            // whose average stays within half the time an analysis may take before it offers to stop.
-                            var bestMatchChecker: Depth = bestChecker ?: Depth(1)
-                            var bestMatchCube: Depth = Depth(bestCube)
-                            if (!stopping) {
-                                val limitMs = app.settings.settings.first().analysisLimit * 1000.0
-                                val target = limitMs / 2
-                                val mon = SearchMonitor()
-                                monitor = mon
-                                val e = PureTdEngine(h, MatchEquityTable()).also { it.gameThreads = cores; it.monitor = mon }
-                                /** Average milliseconds of [search] over the samples, stopping once [BUDGET_MS] is spent. */
-                                suspend fun timeMatch(samples: List<MatchSample>, code: Int): Pair<Double, String> = withContext(Dispatchers.Default) {
-                                    var total = 0.0
-                                    var done = 0
-                                    for (x in samples) {
-                                        val t0 = System.nanoTime()
-                                        if (x.d1 > 0) e.rankMoves(x.board, x.ctx, x.d1, x.d2, code, null) else e.cubeDecision(x.board, x.ctx, code)
-                                        if (mon.stop) break
-                                        total += (System.nanoTime() - t0) / 1e6
-                                        done++
-                                        if (total > BUDGET_MS) break
-                                    }
-                                    (if (done > 0) total / done else 0.0) to if (done < samples.size && !stopping) " (time limit, $done of ${samples.size})" else ""
-                                }
-                                val (plays, cubes) = withContext(Dispatchers.Default) { matchSamples(e, 6, 4) }
-                                lines += "Match play, played-out games (X/YY/Z)"
-                                lines += "  checker play"
-                                for (g in GameSearch.checker) {
-                                    val (ms, note) = timeMatch(plays, g.code)
-                                    if (stopping) break
-                                    lines += "    ${g.label}: ${fmt(ms)}$note"
-                                    if (g.games > 0 && ms <= target) bestMatchChecker = Depth(g.plies, MoveFilter.WIDE, g)
-                                    if (g.games > 0 && ms > 2 * target) break
-                                }
-                                if (!stopping) lines += "  close cube decisions"
-                                if (!stopping) for (g in GameSearch.cubes) {
-                                    val (ms, note) = timeMatch(cubes, g.code)
-                                    if (stopping) break
-                                    lines += "    ${g.label}: ${fmt(ms)}$note"
-                                    if (ms <= target) bestMatchCube = Depth(g.plies, MoveFilter.WIDE, g)
-                                    if (ms > 2 * target) break
-                                }
-                                e.monitor = null
-                            }
-                            if (stopping) {
-                                lines += "Stopped."
-                            } else {
-                                checker = bestChecker ?: Depth(1)
-                                cube = bestCube
-                                matchChecker = bestMatchChecker
-                                matchCube = bestMatchCube
-                                val money = "checker play ${checker!!.label()}, cube decisions $bestCube-ply"
-                                val match = "checker play ${bestMatchChecker.label()}, cube decisions ${bestMatchCube.label(cube = true)}"
-                                lines += "Recommended for money games: $money"
-                                lines += "Recommended for matches: $match"
-                                // Kept, so that the welcome screen, Settings and About can say it was run.
-                                val result = if (money == match) money else "$money; in matches $match"
-                                app.settings.update { it.copy(speedTestAt = System.currentTimeMillis(), speedTestResult = result) }
-                            }
-                        } finally {
-                            // Also when the screen is left (the coroutine is cancelled): free the test's engine.
-                            monitor = null
-                            withContext(NonCancellable + Dispatchers.Default) { PureTdNative.nativeClose(h) }
-                            running = false
-                            stopping = false
-                        }
-                    }
-                }) { Text(if (running) "Running…" else "Run speed test") }
+                Button(enabled = !running, onClick = { run() }) { Text(if (running) "Running…" else "Run speed test") }
                 OutlinedButton(enabled = lines.isNotEmpty() && !running, onClick = {
                     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     cm.setPrimaryClip(ClipData.newPlainText("Speed test", lines.joinToString("\n")))
@@ -297,20 +250,25 @@ fun SpeedTestScreen(app: PlyGroundApp, onBack: () -> Unit) {
             }
             if (running) LinearProgressIndicator(Modifier.padding(vertical = 4.dp))
             for (l in lines) Text(l, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
-            val c = checker
-            val k = cube
-            if (c != null && k != null && !running) {
+            val r = rec
+            if (r != null && !running) {
                 Button(enabled = !applied, onClick = {
                     applied = true
                     scope.launch {
                         app.settings.update {
                             it.copy(
-                                checkerPlies = c.plies, moveFilter = c.filter, cubePlies = k,
-                                matchChecker = matchChecker?.code ?: -1, matchCube = matchCube?.code ?: -1,
+                                checkerPlies = r[0].plies, moveFilter = if (r[0].plies > 1) r[0].filter else it.moveFilter,
+                                cubePlies = r[1].plies, cubeFast = r[1].filter == MoveFilter.FAST,
+                                matchChecker = r[2].code, matchCube = r[3].code,
                             )
                         }
+                        com.boldblot.backgammonplyground.AppLog.i("Speed test recommendation applied")
                     }
                 }) { Text(if (applied) "Applied" else "Use the recommendation") }
+                Text(
+                    "Deeper and longer analyses (standard plies, T-Roller with more games) are in Settings → Analysis.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }

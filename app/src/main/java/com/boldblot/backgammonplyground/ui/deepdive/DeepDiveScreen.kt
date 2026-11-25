@@ -81,6 +81,7 @@ import com.boldblot.backgammonplyground.core.DecisionKind
 import com.boldblot.backgammonplyground.core.DeepDive
 import com.boldblot.backgammonplyground.core.DeepDive.Tracked
 import com.boldblot.backgammonplyground.core.Player
+import com.boldblot.backgammonplyground.core.MoveNotation
 import com.boldblot.backgammonplyground.data.ErrorUnit
 import com.boldblot.backgammonplyground.data.Settings
 import com.boldblot.backgammonplyground.ui.board.BoardColors
@@ -206,10 +207,10 @@ private fun Legend(st: DeepDiveState, vm: DeepDiveViewModel, modifier: Modifier 
             var open by remember { mutableStateOf(false) }
             Box {
                 Row(
-                    Modifier.border(2.dp, TrackColors[k], RoundedCornerShape(10.dp)).clickable { open = true }.padding(horizontal = 8.dp, vertical = 5.dp),
+                    Modifier.border(2.dp, st.colorOf(k), RoundedCornerShape(10.dp)).clickable { open = true }.padding(horizontal = 8.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Box(Modifier.size(12.dp).background(TrackColors[k], CircleShape))
+                    Box(Modifier.size(12.dp).background(st.colorOf(k), CircleShape))
                     Text(
                         t?.let { st.text(it) } ?: "+ Add",
                         style = MaterialTheme.typography.bodyMedium.copy(fontFamily = if (t is Tracked.Play) FontFamily.Monospace else FontFamily.Default),
@@ -218,17 +219,39 @@ private fun Legend(st: DeepDiveState, vm: DeepDiveViewModel, modifier: Modifier 
                     if (t != null && st.hasResults) {
                         val l = st.losses.getOrNull(st.selected)?.getOrNull(k)
                         Text(lossText(l, unit), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else if (t != null) st.baseLoss(t)?.let { x ->
+                        // Before the run: its loss by the position's last analysis.
+                        Text(lossText(Loss.Value(x), unit), style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 DropdownMenu(open, onDismissRequest = { open = false }) {
                     for (o in st.options) DropdownMenuItem(
-                        text = { Text(st.text(o), fontFamily = if (o is Tracked.Play) FontFamily.Monospace else FontFamily.Default) },
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(st.text(o), fontFamily = if (o is Tracked.Play) FontFamily.Monospace else FontFamily.Default, modifier = Modifier.weight(1f, fill = false))
+                                // The last analysis's verdict on each choice.
+                                st.baseLoss(o)?.let { x ->
+                                    Text("  " + lossText(Loss.Value(x), unit), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        },
                         onClick = { open = false; vm.setTracked(k, o) },
                     )
                     if (k > 0 && t != null) DropdownMenuItem(text = { Text("Remove") }, onClick = { open = false; vm.setTracked(k, null) })
                 }
             }
         }
+    }
+    // Best plays of the versions that no slot follows: a tap follows one (in the next free slot).
+    val missing = if (st.hasResults && !st.running) st.missingBest() else emptyList()
+    val free = st.tracked.indexOfFirst { it == null }
+    if (missing.isNotEmpty()) FlowRow(modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text("Best elsewhere:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
+        for ((m, n) in missing.take(4)) androidx.compose.material3.AssistChip(
+            enabled = free >= 0,
+            onClick = { if (free >= 0) vm.setTracked(free, Tracked.Play(m)) },
+            label = { Text("${runCatching { MoveNotation.format(st.base.board, Player.HUMAN, m) }.getOrDefault("?")} ($n)", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelMedium) },
+        )
     }
 }
 
@@ -261,7 +284,7 @@ private fun DiveBoard(st: DeepDiveState, vm: DeepDiveViewModel, colors: BoardCol
     }
     // The followed plays as arrows in their colours, where they can be played.
     val arrows = st.tracked.withIndex().flatMap { (k, t) ->
-        if (t is Tracked.Play && DeepDive.isLegal(p, t)) arrowsFor(Player.HUMAN, t.move, TrackColors[k]) else emptyList()
+        if (t is Tracked.Play && DeepDive.isLegal(p, t)) arrowsFor(Player.HUMAN, t.move, st.colorOf(k)) else emptyList()
     }
     BoardView(
         board = p.board, modifier = modifier, colors = colors, mirrored = mirrored,
@@ -338,7 +361,9 @@ private fun Setup(st: DeepDiveState, vm: DeepDiveViewModel) {
             if (d == 1) IconButton(onClick = vm::removeDim) { Icon(Icons.Default.Close, "Remove the second change") }
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (m in DiveMode.entries) FilterChip(selected = dim.mode == m, onClick = { vm.setMode(d, m) }, label = { Text(m.label) })
+            for (m in DiveMode.offered) FilterChip(selected = dim.mode == m || (m == DiveMode.CHECKERS && dim.checkers), onClick = { vm.setMode(d, m) }, label = { Text(m.label) })
+            // One tap: your score along one change, the opponent's along the other.
+            if (d == 0 && st.base.setup.matchLength > 0) androidx.compose.material3.AssistChip(onClick = vm::bothScores, label = { Text("Your score × opponent's") })
         }
         when (dim.mode) {
             DiveMode.CHECKER, DiveMode.CHECKERS -> SlotsEditor(st, vm, d)
@@ -399,7 +424,7 @@ private fun ScoreRange(st: DeepDiveState, vm: DeepDiveViewModel, d: Int) {
         FilterChip(selected = dim.post, enabled = to == 1, onClick = { vm.setScoreKinds(d, dim.pre, dim.crawford, !dim.post) }, label = { Text("Post-Crawford") })
     }
     if (!twoScores) Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("And a money game", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text("And an unlimited game", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
         androidx.compose.material3.Switch(checked = dim.money, onCheckedChange = { vm.setScoreRange(d, from, to, it) })
     }
     Text(
@@ -413,7 +438,7 @@ private fun ScoreRange(st: DeepDiveState, vm: DeepDiveViewModel, d: Int) {
 @Composable
 private fun SlotsEditor(st: DeepDiveState, vm: DeepDiveViewModel, d: Int) {
     val dim = st.dims[d]
-    val several = dim.mode == DiveMode.CHECKERS
+    val several = dim.slots.size > 1
     val editingHere = st.editDim == d
     dim.slots.forEachIndexed { i, s ->
         val who = if (s.player == Player.HUMAN) "Your" else "Opponent's"
@@ -444,11 +469,15 @@ private fun SlotsEditor(st: DeepDiveState, vm: DeepDiveViewModel, d: Int) {
             modifier = Modifier.clickable { vm.addSlot(d) },
         )
         current != null -> {
-            Text("Tap the points the checkers may stand on; − and + set how many move together.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Tap the points the checkers may stand on. A tap on the stack moves one more checker with it (with all of them, back " +
+                    "to one); − and + do the same.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = vm::allOpenPoints) { Text("All open points") }
                 TextButton(onClick = vm::clearPoints) { Text("Clear") }
-                if (several && dim.slots.size < 3) TextButton(onClick = { vm.addSlot(d) }) { Text("Add checkers") }
+                if (dim.slots.size < 3) TextButton(onClick = { vm.addSlot(d) }) { Text("Add other checkers") }
             }
         }
         else -> TextButton(onClick = { vm.editSlotAt(d, maxOf(0, dim.slots.lastIndex)) }) { Text("Edit on the board") }
@@ -548,11 +577,12 @@ private fun VersionDetails(st: DeepDiveState, vm: DeepDiveViewModel, i: Int, uni
             if (best.isEmpty()) Text("Not analyzed yet", style = MaterialTheme.typography.bodySmall)
             else line(null, "Best: $best", st.equityOf(i, -1), null)
             st.tracked.forEachIndexed { k, t ->
-                if (t != null) line(TrackColors[k], st.text(t), st.equityOf(i, k), st.losses.getOrNull(i)?.getOrNull(k), k)
+                if (t != null) line(st.colorOf(k), st.text(t), st.equityOf(i, k), st.losses.getOrNull(i)?.getOrNull(k), k)
             }
             st.results.getOrNull(i)?.analysis?.cube?.let { CubeRows(st, it, v) }
             Row {
                 Spacer(Modifier.weight(1f))
+                TextButton(onClick = { vm.reanalyzeVersion(i) }, enabled = !st.running) { Text("Analyze again") }
                 TextButton(onClick = { vm.openInAnalysis(i) }) { Text("Open in analysis") }
             }
         }
@@ -563,18 +593,21 @@ private fun VersionDetails(st: DeepDiveState, vm: DeepDiveViewModel, i: Int, uni
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TrackedPills(st: DeepDiveState, i: Int, unit: ErrorUnit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        st.tracked.forEachIndexed { k, t ->
-            if (t == null) return@forEachIndexed
-            val l = st.losses.getOrNull(i)?.getOrNull(k)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(8.dp).background(TrackColors[k], CircleShape))
-                Spacer(Modifier.width(3.dp))
-                Surface(shape = RoundedCornerShape(50), color = fillOf(l)) {
-                    Text(
-                        lossText(l, unit), color = inkOf(l), modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp),
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                    )
+    // Two per line (a 2 x 2 block for four), so that the row's name keeps its room.
+    val ks = st.tracked.indices.filter { st.tracked[it] != null }
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        for (pair in ks.chunked(2)) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (k in pair) {
+                val l = st.losses.getOrNull(i)?.getOrNull(k)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(8.dp).background(st.colorOf(k), CircleShape))
+                    Spacer(Modifier.width(3.dp))
+                    Surface(shape = RoundedCornerShape(50), color = fillOf(l)) {
+                        Text(
+                            lossText(l, unit) + if (st.shallow(i, k)) "*" else "", color = inkOf(l), modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp),
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace), maxLines = 1,
+                        )
+                    }
                 }
             }
         }
@@ -596,7 +629,7 @@ private fun CubeRows(st: DeepDiveState, e: CubeEval, v: com.boldblot.backgammonp
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         for ((label, value, kinds) in rows) {
             val k = st.tracked.indexOfFirst { it is Tracked.Cube && it.kind in kinds }
-            val c = if (k >= 0) TrackColors[k] else Color.Transparent
+            val c = if (k >= 0) st.colorOf(k) else Color.Transparent
             Row(
                 Modifier.fillMaxWidth().background(c.copy(alpha = if (k >= 0) 0.18f else 0f), RoundedCornerShape(6.dp))
                     .border(if (k >= 0) 2.dp else 0.dp, c, RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
@@ -678,7 +711,7 @@ private fun LossChart(st: DeepDiveState, onSelect: (Int) -> Unit, unit: ErrorUni
         }
         if (selJ >= 0) drawLine(muted.copy(alpha = 0.6f), Offset(x(selJ), top), Offset(x(selJ), bottom), strokeWidth = 1.5f)
         for ((slot, k) in ks.withIndex()) {
-            val c = if (ks.size == 1) ink.copy(alpha = 0.8f) else TrackColors[k]
+            val c = if (ks.size == 1) ink.copy(alpha = 0.8f) else st.colorOf(k)
             for (j in 0 until n - 1) {
                 val a = (loss(j, k) as? Loss.Value)?.v ?: continue
                 val b = (loss(j + 1, k) as? Loss.Value)?.v ?: continue
@@ -687,12 +720,17 @@ private fun LossChart(st: DeepDiveState, onSelect: (Int) -> Unit, unit: ErrorUni
             for (j in 0 until n) {
                 when (val l = loss(j, k)) {
                     Loss.Illegal -> {
-                        val t = measurer.measure("[!]", TextStyle(color = if (ks.size == 1) ErrorRed else TrackColors[k], fontSize = 11.sp, fontWeight = FontWeight.Bold))
+                        val t = measurer.measure("[!]", TextStyle(color = if (ks.size == 1) ErrorRed else st.colorOf(k), fontSize = 11.sp, fontWeight = FontWeight.Bold))
                         drawText(t, topLeft = Offset(x(j) - t.size.width / 2, top + 2.dp.toPx() + slot * 13.dp.toPx()))
                     }
                     is Loss.Value -> {
                         val r = (if (row[j] == st.selected) 5f else 3.5f).dp.toPx()
-                        drawCircle(if (ks.size == 1) fillOf(l) else TrackColors[k], r, Offset(x(j), y(l.v)))
+                        drawCircle(if (ks.size == 1) fillOf(l) else st.colorOf(k), r, Offset(x(j), y(l.v)))
+                        // [•]: this play was searched less deeply than the best there (outside the search's range).
+                        if (row[j]?.let { st.shallow(it, k) } == true) {
+                            val br = measurer.measure("[   ]", TextStyle(color = if (ks.size == 1) ink else st.colorOf(k), fontSize = 11.sp, fontWeight = FontWeight.Bold))
+                            drawText(br, topLeft = Offset(x(j) - br.size.width / 2, y(l.v) - br.size.height / 2))
+                        }
                         if (row[j] == st.selected) drawCircle(accent, r + 2.dp.toPx(), Offset(x(j), y(l.v)), style = Stroke(width = 1.5f.dp.toPx()))
                     }
                     else -> {}
@@ -743,7 +781,7 @@ private fun BestGrid(st: DeepDiveState, onSelect: (Int) -> Unit) {
                             val ls = st.losses.getOrNull(i).orEmpty()
                             val k = ls.indices.firstOrNull { st.tracked[it] != null && (ls[it] as? Loss.Value)?.best == true }
                             when {
-                                k != null -> TrackColors[k]
+                                k != null -> st.colorOf(k)
                                 ls.indices.any { st.tracked[it] != null && ls[it] == Loss.Pending } -> MaterialTheme.colorScheme.surfaceVariant
                                 else -> GreyFill
                             }

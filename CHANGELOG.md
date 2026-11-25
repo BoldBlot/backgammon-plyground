@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.9.21 — 2026-11-25 (build 102, internal test)
+
+- Analysis depths: 1 to 4 plies, each from 2-ply in three versions: Standard (every move), Pruned and Fast (a funnel: each
+  deeper stage on fewer moves; 4-ply fast is what "4-ply, fast" was). Cube decisions: Standard or Fast (the shallower depth
+  first, the full depth only when the decision is close; unlimited games at 4-ply start at 3-ply). Fast is the default of a
+  new installation. The 3-ply match cube now decides double / no double with a cube life worked out at each position of the
+  search (the take keeps the plain values); every saved analysis is marked obsolete once.
+- T-Roller (Truncated Roller) replaces the X/YY/Z searches in matches: checker play at 4-ply fast, then short played-out games
+  for the closest plays, valued half and half; cube decisions at 3-ply, then games when close. Number of games 48, 144 or 288;
+  for checker play a T-gate (Off: the top 3 within 0.04; T3: within 0.02; T2: the top 2 within 0.02). In every game the first
+  reply is chosen at 2-ply. Settings that used an X/YY/Z search (a new installation's default for matches: 5 to 15 s a move on
+  a phone) move to 3-ply fast, and after the update the welcome screen asks once how long an analysis may take and runs the
+  speed test; saved analyses keep their labels.
+- GPU games (experimental, Advanced engine settings): T-Roller's games can run the network on the GPU, with the same values as
+  the processor. Only after the GPU check (run by hand: every setting against the processor, bit for bit, and its speed)
+  finds an exact setting faster than the processor; tested only on a Samsung Galaxy S25 so far. The error report includes
+  the phone, the GPU path's state and the last check's report.
+- Welcome screen: how long may an analysis take (Instant, Minimum visible, Non-intrusive, 2 seconds); the speed test then
+  recommends the best analysis that fits, for unlimited games and matches. The speed test has the same budget chips.
+- Deep dive: "Checkers" (one checker, a stack or several; a tap on the stack moves one more checker with it, with all of them
+  back to one); the slots and the play list show each play's loss by the position's last analysis; "Best elsewhere" lists the
+  best plays nobody follows (a tap follows one), and Settings → Deep dive can follow them automatically; a play searched less
+  deeply than the best is searched again by itself, and shows as [•] on the chart (and * on its pill); "Analyze again" under a
+  version; "Your score × opponent's" in one tap; cube decisions always follow No double, Double/take and Double/pass (Take and
+  Pass when doubled), always in the same colours; the pills of a row two by two. New icon.
+- Long press on a play in the analysis (Analyze Position, the review, My positions, the quiz): that play searched to full depth.
+- Review: lucky rolls get a yellow horseshoe (two when very lucky), unlucky ones 💩 (two when very unlucky): 0.10 and 0.25
+  from an average roll. New labels Lucky and Unlucky (the roll played, for the player who rolled it).
+- New errors and New Marked: Deep dive. My positions: the tags run across the row under the board, the quiz lines beside it;
+  a tap on "Played in the game" or "Last quiz answer" shows that play on the board.
+- "Money" is now "unlimited" (games, sessions, labels).
+- The log keeps more (1 MB) and cuts very long entries; it records each deep dive run, each deepened play, the GPU games and
+  the speed test.
+
 ## 0.9.20 — 2026-11-23 (build 101)
 
 - Sets: a position opens on the same page as a position of My positions (board, played move and its cost, last quiz

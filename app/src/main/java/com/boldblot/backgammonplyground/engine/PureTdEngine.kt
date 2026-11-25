@@ -40,6 +40,28 @@ class PureTdEngine(
 
     private val games by lazy { GamesSearch(handle) }
 
+    /** T-Roller's games on the GPU (experimental): set by EngineService when the GPU check passed and the user turned it on. */
+    @Volatile internal var gpu: GpuGames? = null
+    /** Called (once) when the GPU path fails: the engine goes back to the CPU for good, and the reason goes to the log. */
+    @Volatile internal var onGpuFailure: ((String) -> Unit)? = null
+    internal val nativeHandle: Long get() = handle
+
+    private fun gpuFailed(why: String) {
+        gpu = null
+        com.boldblot.backgammonplyground.AppLog.error("GPU games failed, back to the CPU: $why")
+        onGpuFailure?.invoke(why)
+    }
+
+    /** [block] on the GPU path; null when it is off, stopped (see [monitor]) or failed (then it is turned off). */
+    private fun <T> onGpu(what: String, block: (GpuGames) -> T?): T? {
+        val g = gpu ?: return null
+        val t0 = System.nanoTime()
+        val r = try { block(g) } catch (e: Throwable) { gpuFailed("$what: $e"); return null }
+        if (r == null && monitor?.stop != true) { gpuFailed("$what: no values from the GPU"); return null }
+        if (r != null) com.boldblot.backgammonplyground.AppLog.i("GPU games: $what in ${(System.nanoTime() - t0) / 1_000_000} ms (${g.takeStats()})")
+        return r
+    }
+
     override fun requestStop() = PureTdNative.nativeSetStop(handle, true)
     override fun clearStop() = PureTdNative.nativeSetStop(handle, false)
 
@@ -50,9 +72,17 @@ class PureTdEngine(
 
     override fun gameValues(ctx: CubeContext, posts: List<Board>, search: GameSearch): Pair<List<Float>, Int>? {
         val me = ctx.onRoll
+        if (search.d && gpu != null) {
+            val states = posts.map { state(it, me, 1) }
+            val (a, b) = away(ctx, me) to away(ctx, Player.other(me))
+            val firsts = games.postFirsts(states, a, b, ctx.crawford, cubeOwner(ctx, me), ctx.cube.value, gameThreads)
+            onGpu("${search.label}, ${posts.size} plays") { it.posts(states, a, b, ctx.crawford, cubeOwner(ctx, me), ctx.cube.value, search.games, search.turns, firsts, monitor) }
+                ?.let { r -> return r.first.map { it.toFloat() } to r.second }
+            if (monitor?.stop == true) return null
+        }
         val r = games.posts(
             posts.map { state(it, me, 1) }, away(ctx, me), away(ctx, Player.other(me)), ctx.crawford, cubeOwner(ctx, me), ctx.cube.value,
-            search.games, search.turns, gameThreads, monitor, workerInit,
+            search.games, search.turns, gameThreads, monitor, workerInit, search.d,
         ) ?: return null
         return r.first.map { it.toFloat() } to r.second
     }
@@ -71,9 +101,16 @@ class PureTdEngine(
         val margin = minOf(kotlin.math.abs(base.afterDouble - base.noDouble), kotlin.math.abs(base.doubleTake - base.doublePass))
         if (margin > GameSearch.CUBE_CLEAR) return null
         val me = ctx.onRoll
-        val r = games.cube(
+        val gpuR = if (search.d && gpu != null) {
+            val s0 = state(board, me, 0)
+            val (a, b) = away(ctx, me) to away(ctx, Player.other(me))
+            val firsts = games.cubeFirsts(s0, a, b, ctx.crawford, cubeOwner(ctx, me), ctx.cube.value, gameThreads)
+            onGpu("${search.label}, cube") { it.cube(s0, a, b, ctx.crawford, cubeOwner(ctx, me), ctx.cube.value, search.games, search.turns, firsts, monitor) }
+        } else null
+        if (gpuR == null && monitor?.stop == true && search.d && gpu != null) return null
+        val r = gpuR ?: games.cube(
             state(board, me, 0), away(ctx, me), away(ctx, Player.other(me)), ctx.crawford, cubeOwner(ctx, me), ctx.cube.value,
-            search.games, search.turns, gameThreads, monitor, workerInit,
+            search.games, search.turns, gameThreads, monitor, workerInit, search.d,
         ) ?: return null
         return evalOf(freeDoubleCap(ctx, r.nd, r.dt), r.dt, base.doublePass.toDouble(), true, base.probs).copy(spread = r.spread.toFloat()) to (r.played == r.games)
     }
@@ -245,10 +282,16 @@ class PureTdEngine(
             available = owner != CubeView.THEIRS
         } else {
             // Deeper than 1-ply: the cube-aware search, with cube decisions at every node of the tree.
-            val search = if (depth >= 2) matchSearch(board, ctx, depth) else null
-            probs = search?.probs() ?: preProbs(board, me, depth, matchWeights(ctx, me))
+            val b30 = leafLife && depth == 3
+            val search = if (depth >= 2) matchSearch(board, ctx, depth, b30) else null
+            probs = search?.first?.probs() ?: preProbs(board, me, depth, matchWeights(ctx, me))
             val mc = MatchCube(met, probs, away(ctx, me), away(ctx, Player.other(me)), ctx.crawford, cubeLife(board))
-            val (a, b, c) = search?.root(owner, v) ?: mc.decision(owner, v)
+            val plain = search?.first?.root(owner, v) ?: mc.decision(owner, v)
+            // 30B: double / no double by the leaf cube lives, take / pass by the plain values. No double is moved so that its
+            // distance to min(DT, DP) is 30B's, while DT and DP stay plain.
+            val (a, b, c) = search?.second?.root(owner, v)?.let { bb ->
+                Triple(bb.first + (minOf(plain.second, plain.third) - minOf(bb.second, bb.third)), plain.second, plain.third)
+            } ?: plain
             dt = mc.toEmg(b, v); dp = mc.toEmg(c, v)
             available = mc.canDoubleNow(owner, v)
             nd = mc.toEmg(a, v).let { if (available) freeDoubleCap(ctx, it, dt) else it }
@@ -256,12 +299,51 @@ class PureTdEngine(
         return evalOf(nd, dt, dp, available, probs)
     }
 
-    /** The match cube search for the player on roll, [depth] XG plies (depth - 1 rolls deep). */
-    private fun matchSearch(board: Board, ctx: CubeContext, depth: Int): MatchCubeSearch {
+    /**
+     * The match cube search for the player on roll, [depth] XG plies (depth - 1 rolls deep); with [b30] also the same tree with
+     * the 30B leaf cube lives ([leafLives]).
+     */
+    private fun matchSearch(board: Board, ctx: CubeContext, depth: Int, b30: Boolean = false): Pair<MatchCubeSearch, MatchCubeSearch?> {
         val me = ctx.onRoll
         val levels = depth - 1
-        val tree = PureTdNative.nativeCubeTree(handle, state(board, me, 0), levels, matchWeights(ctx, me)) ?: error("PureTD cube search failed")
-        return MatchCubeSearch(met, tree, levels, away(ctx, me), away(ctx, Player.other(me)), ctx.crawford)
+        val root = state(board, me, 0)
+        val w = matchWeights(ctx, me)
+        val n = MatchCubeSearch.pow21(levels).toInt()
+        val states = if (b30) IntArray(29 * n) else null
+        val tree = (if (states != null) PureTdNative.nativeCubeTreeStates(handle, root, levels, w, states) else PureTdNative.nativeCubeTree(handle, root, levels, w))
+            ?: error("PureTD cube search failed")
+        val plain = MatchCubeSearch(met, tree, levels, away(ctx, me), away(ctx, Player.other(me)), ctx.crawford)
+        val b = states?.let { MatchCubeSearch(met, tree, levels, away(ctx, me), away(ctx, Player.other(me)), ctx.crawford, leafLives(tree, levels, it)) }
+        return plain to b
+    }
+
+    /**
+     * 30B (adopted 2026-11-25 for the 3-ply match cube): per live contact leaf of the tree, the cube life of each cube state
+     * (centred, mine, theirs) of the side on roll there, x = clamp(0.68 + 0.6 (implied - 0.68), 0.6, 0.9), the implied life from
+     * the money cubeful network at the leaf, (E - dead) / (live - dead) by money Janowski (Jacoby off); 0.68 where live and dead
+     * are within 0.05. Races keep the pip rule (null).
+     */
+    private fun leafLives(tree: FloatArray, levels: Int, states: IntArray): Array<DoubleArray?> {
+        val n = MatchCubeSearch.pow21(levels).toInt()
+        var start = 0L; var k = 1L
+        repeat(levels) { k *= 21; start += k }
+        val leafStart = start.toInt()
+        val views = arrayOf(CubeView.CENTRED, CubeView.MINE, CubeView.THEIRS)
+        return Array(n) { i ->
+            val o = leafStart + 7 * i
+            if (tree[o + 5] != 0f) return@Array null
+            val st = states.copyOfRange(29 * i, 29 * i + 29)
+            if (st[26] == 0 && st[27] == 0 && (0 until 26).all { st[it] == 0 }) return@Array null
+            val q = List(5) { tree[o + it] }
+            val r0 = PureTdNative.nativeCube(handle, st, 1, 0, false) ?: return@Array null
+            val r1 = PureTdNative.nativeCube(handle, st, 1, 1, false) ?: return@Array null
+            val e = doubleArrayOf(r0[0].toDouble(), r1[0].toDouble(), r0[1] / 2.0)
+            DoubleArray(3) { s ->
+                val dead = moneyJanowski(q, 0.0, views[s], false)
+                val d = moneyJanowski(q, 1.0, views[s], false) - dead
+                if (kotlin.math.abs(d) <= 0.05) 0.68 else (0.68 + B30_BETA * ((e[s] - dead) / d - 0.68)).coerceIn(B30_LO, B30_HI)
+            }
+        }
     }
 
     /** PureTD's own move generator, as resulting boards (used to cross-check the Kotlin one in tests). */
@@ -281,6 +363,10 @@ class PureTdEngine(
     }
 
     companion object {
+        /** 30B's rule: x = clamp(0.68 + beta (implied - 0.68), lo, hi). */
+        const val B30_BETA = 0.6
+        const val B30_LO = 0.6
+        const val B30_HI = 0.9
         /** How far (normalized equity) No double is kept below Double/take when the double is free. */
         const val FREE_DOUBLE_EDGE = 0.001
     }

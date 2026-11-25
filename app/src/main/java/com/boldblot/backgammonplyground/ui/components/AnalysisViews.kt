@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -257,7 +258,7 @@ fun odds(probs: List<Float>): Pair<String, String> {
  * each row also shows win / gammon / backgammon chances for both sides (dots in the
  * players' checker colours).
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun CandidateList(
     board: Board,
@@ -281,6 +282,8 @@ fun CandidateList(
     /** "Try again": plays tried and taken back (a yellow "tried" marker) and the play made at last (a green ✓). */
     triedIndices: Set<Int> = emptySet(),
     finalIndex: Int? = null,
+    /** A long press on a play searched less deeply than the best: search it to the analysis's full depth. */
+    onDeepen: ((Int, Candidate) -> Unit)? = null,
 ) {
     val best = analysis.bestEquity
     Column(Modifier.fillMaxWidth()) {
@@ -306,7 +309,10 @@ fun CandidateList(
                     .background(bg, RoundedCornerShape(8.dp))
                     .let { if (isPlayed) it.border(1.5.dp, MaterialTheme.colorScheme.onSurface, RoundedCornerShape(8.dp)) else it }
                     .let { if (i == selectedIndex) it.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp)) else it }
-                    .let { if (onSelect != null) it.clickable { onSelect(i, c) } else it }
+                    .let {
+                        if (onDeepen != null) it.combinedClickable(onClick = { onSelect?.invoke(i, c) }, onLongClick = { onDeepen(i, c) })
+                        else if (onSelect != null) it.clickable { onSelect(i, c) } else it
+                    }
                     .padding(horizontal = 8.dp, vertical = 6.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

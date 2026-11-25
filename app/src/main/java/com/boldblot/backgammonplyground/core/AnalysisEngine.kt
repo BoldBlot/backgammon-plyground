@@ -117,6 +117,12 @@ enum class MoveFilter(val within: Float, val label: String) {
     NORMAL(0.08f, "±0.08"),
     WIDE(0.16f, "pruned"),
     ALL(Float.POSITIVE_INFINITY, "all moves"),
+    /**
+     * A funnel, each deeper stage on fewer plays (2-ply: 8 within 0.08; 3-ply: 2-ply on 16 within 0.16, then 3-ply on 8 within
+     * 0.08; 4-ply: then 4-ply on 3 within 0.04, what code 50 stored). Cube decisions: the shallow stages first, deeper only
+     * when close. Codes 24, 34, 44.
+     */
+    FAST(0.16f, "fast"),
 }
 
 /**
@@ -127,7 +133,13 @@ enum class MoveFilter(val within: Float, val label: String) {
  * the decision closer than [CUBE_CLEAR]. [FAST4] has no games: 2-ply, 3-ply (8 plays within 0.08), then 4-ply
  * for the 3 best within 0.04. [code] is what analyses store (see [Depth]); never change one.
  */
-enum class GameSearch(val code: Int, val label: String, val cube: Boolean, val plies: Int, val games: Int, val turns: Int, val plays: Int = 0, val within: Float = 0f) {
+enum class GameSearch(
+    val code: Int, val label: String, val cube: Boolean, val plies: Int, val games: Int, val turns: Int, val plays: Int = 0, val within: Float = 0f,
+    /** T-Roller checker play: the value is (1 - blend) x 4-ply + blend x games. */
+    val blend: Float = 0f,
+    /** D: in each game the first move after the root is chosen at 2-ply, not 1-ply. */
+    val d: Boolean = false,
+) {
     FAST4(50, "4-ply, fast", false, 4, 0, 0, 3, 0.04f),
     G36(51, "3/36/7", false, 3, 36, 7, 3, 0.04f),
     G108(52, "3/108/7", false, 3, 108, 7, 4, 0.06f),
@@ -135,7 +147,30 @@ enum class GameSearch(val code: Int, val label: String, val cube: Boolean, val p
     G288(54, "3/288/7", false, 3, 288, 7, 5, 0.08f),
     C44(61, "3/44/7", true, 3, 44, 7),
     C48(62, "3/48/11", true, 3, 48, 11),
-    C288(63, "3/288/11", true, 3, 288, 11);
+    C288(63, "3/288/11", true, 3, 288, 11),
+
+    // T-Roller (Truncated Roller, 0.9.21). Checker play: 4-ply fast, then games of 7 turns on the plays 4-ply searched within the
+    // T-gate (off: top 3 within 0.04; T3: top 3 within 0.02; T2: top 2 within 0.02), half 4-ply, half games. Cube: a 3-ply check,
+    // then games of 11 turns when 3-ply leaves the decision closer than CUBE_CLEAR. D always on.
+    T48(70, "T-Roller 48", false, 4, 48, 7, 3, 0.04f, 0.5f, true),
+    T144(71, "T-Roller 144", false, 4, 144, 7, 3, 0.04f, 0.5f, true),
+    T288(72, "T-Roller 288", false, 4, 288, 7, 3, 0.04f, 0.5f, true),
+    T48G3(73, "T-Roller 48, T3", false, 4, 48, 7, 3, 0.02f, 0.5f, true),
+    T144G3(74, "T-Roller 144, T3", false, 4, 144, 7, 3, 0.02f, 0.5f, true),
+    T288G3(75, "T-Roller 288, T3", false, 4, 288, 7, 3, 0.02f, 0.5f, true),
+    T48G2(76, "T-Roller 48, T2", false, 4, 48, 7, 2, 0.02f, 0.5f, true),
+    T144G2(77, "T-Roller 144, T2", false, 4, 144, 7, 2, 0.02f, 0.5f, true),
+    T288G2(78, "T-Roller 288, T2", false, 4, 288, 7, 2, 0.02f, 0.5f, true),
+    TC48(80, "T-Roller 48", true, 3, 48, 11, d = true),
+    TC144(81, "T-Roller 144", true, 3, 144, 11, d = true),
+    TC288(82, "T-Roller 288", true, 3, 288, 11, d = true);
+
+    /** The T-Roller options offered: game counts, and the T-gates of checker play. */
+    enum class TGate(val label: String, val note: String) {
+        OFF("Off", "Games on the top 3 plays within 0.04"),
+        T3("T3", "Games on the top 3 within 0.02"),
+        T2("T2", "Games on the top 2 within 0.02"),
+    }
 
     companion object {
         /** A cube decision [plies] settles by this much (normalized equity) is not played out. */
@@ -143,6 +178,31 @@ enum class GameSearch(val code: Int, val label: String, val cube: Boolean, val p
         val checker: List<GameSearch> get() = entries.filter { !it.cube }
         val cubes: List<GameSearch> get() = entries.filter { it.cube }
         fun of(code: Int): GameSearch? = entries.firstOrNull { it.code == code }
+
+        /** The game counts T-Roller offers. */
+        val T_GAMES = listOf(48, 144, 288)
+
+        /** The T-Roller search for [games] games ([cube] decisions, or checker play with [gate]). */
+        fun tRoller(games: Int, cube: Boolean, gate: TGate = TGate.OFF): GameSearch {
+            val i = T_GAMES.indexOf(games).coerceAtLeast(0)
+            return if (cube) listOf(TC48, TC144, TC288)[i] else listOf(T48, T144, T288, T48G3, T144G3, T288G3, T48G2, T144G2, T288G2)[3 * gate.ordinal + i]
+        }
+
+        /** Whether [s] is a T-Roller search, and its gate (checker play). */
+        fun isTRoller(s: GameSearch) = s.code in 70..89
+        fun gateOf(s: GameSearch): TGate = if (s.cube || s.code !in 70..78) TGate.OFF else TGate.entries[(s.code - 70) / 3]
+
+        /**
+         * The T-Roller search that replaces a games search of 0.9.20 and earlier in the settings (3/36/7 to 3/288/7 and
+         * 3/44/7 to 3/288/11): the nearest game count. Analyses keep their old codes and labels.
+         */
+        fun successor(s: GameSearch): GameSearch? = when (s) {
+            G36, C44, C48 -> if (s.cube) TC48 else T48
+            G108, G144 -> T144
+            G288 -> T288
+            C288 -> TC288
+            else -> null
+        }
     }
 }
 
@@ -163,13 +223,19 @@ data class Depth(val plies: Int, val filter: MoveFilter = MoveFilter.ALL, val se
     /** "1-ply", "3-ply, pruned", "4-ply, all moves", "3-ply ±0.04", "3/144/7"; [cube] leaves the filter out. */
     fun label(cube: Boolean = false): String = when {
         search != null -> search.label
-        plies <= 1 || cube -> "$plies-ply"
+        plies <= 1 -> "$plies-ply"
+        filter == MoveFilter.FAST -> "$plies-ply, fast"
+        cube -> "$plies-ply"
         filter == MoveFilter.ALL || filter == MoveFilter.WIDE -> "$plies-ply, ${filter.label}"
         else -> "$plies-ply ${filter.label}"
     } + (if (incomplete) ", incomplete" else "")
 
     /** The depth without its played-out games: what a money game or another engine searches instead. */
-    val plain: Depth get() = if (search == null) this else Depth(search.plies, MoveFilter.WIDE, incomplete = incomplete)
+    val plain: Depth get() = when {
+        search == null -> this
+        search.blend > 0f -> Depth(4, MoveFilter.FAST, incomplete = incomplete)
+        else -> Depth(search.plies, MoveFilter.WIDE, incomplete = incomplete)
+    }
 
     /**
      * Whether this search is at least as thorough as [other] (for the same kind of decision): played-out games
@@ -196,8 +262,11 @@ data class Depth(val plies: Int, val filter: MoveFilter = MoveFilter.ALL, val se
         fun of(code: Int): Depth = when {
             code >= DUAL -> of(code % DUAL)
             code >= INCOMPLETE -> of(code - INCOMPLETE).copy(incomplete = true)
+            // Code 50 (4-ply, fast, 0.8.10 to 0.9.20) is 44 now.
+            code == GameSearch.FAST4.code -> Depth(4, MoveFilter.FAST)
             code >= 50 -> GameSearch.of(code)?.let { Depth(it.plies, MoveFilter.WIDE, it) } ?: Depth(MAX_SEARCH_PLIES, MoveFilter.WIDE)
-            code >= 10 -> Depth((code / 10).coerceIn(1, MAX_SEARCH_PLIES), MoveFilter.entries[(code % 10).coerceAtMost(MoveFilter.ALL.ordinal)])
+            code >= 10 -> Depth((code / 10).coerceIn(1, MAX_SEARCH_PLIES), MoveFilter.entries[(code % 10).coerceAtMost(MoveFilter.FAST.ordinal)])
+                .let { if (it.plies == 1 && it.filter == MoveFilter.FAST) it.copy(filter = MoveFilter.ALL) else it }
             code <= 0 -> Depth(1)
             code >= MAX_PLIES -> Depth(3, MoveFilter.ALL)
             else -> Depth(3, MoveFilter.entries[code - 1])
@@ -240,7 +309,7 @@ const val UNKNOWN_ENGINE = "Engine unknown"
  * The version of the searches. Raise it whenever a change makes an existing search give other results: at the next
  * start the app marks every analysis in My positions, New errors and New Marked obsolete (once).
  */
-const val SEARCH_VERSION = 1
+const val SEARCH_VERSION = 2
 
 /** After the label of an obsolete analysis. */
 const val OBSOLETE = " (obsolete)"

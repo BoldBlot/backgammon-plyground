@@ -51,6 +51,8 @@ data class DeepDiveRequest(
     val cube: Depth? = null,
     /** More decisions for the other colour slots, in order (from My positions and the quiz). */
     val preset: List<Tracked> = emptyList(),
+    /** The position's last analysis: the slots show their losses by it before the run. */
+    val analysis: PositionAnalysis? = null,
     val id: Long = System.nanoTime(),
 ) {
     companion object {
@@ -71,7 +73,7 @@ data class DeepDiveRequest(
             val best = of(p, a)?.tracked
             val list = listOfNotNull(tracked(played), tracked(last), best)
             val first = list.firstOrNull() ?: return null
-            return DeepDiveRequest(p, first, a?.checker?.candidates?.map { it.move }.orEmpty(), preset = list.drop(1))
+            return DeepDiveRequest(p, first, a?.checker?.candidates?.map { it.move }.orEmpty(), preset = list.drop(1), analysis = a)
         }
 
         /**
@@ -90,13 +92,22 @@ data class DeepDiveRequest(
                 p.doubled -> Tracked.Cube(DecisionKind.TAKE)
                 else -> Tracked.Cube(DecisionKind.NO_DOUBLE)
             }
-            return DeepDiveRequest(p, tracked, moves)
+            return DeepDiveRequest(p, tracked, moves, analysis = a)
         }
     }
 }
 
 /** What to change, as the chips name it. */
-enum class DiveMode(val label: String) { CHECKER("One checker"), CHECKERS("Several checkers"), SCORE("Score"), CUBE("Cube") }
+enum class DiveMode(val label: String) {
+    /** One checker (0.9.14 to 0.9.20); now part of [CHECKERS]. */
+    CHECKER("One checker"),
+    CHECKERS("Checkers"), SCORE("Score"), CUBE("Cube");
+
+    companion object {
+        /** The choices offered ("Checkers" moves one checker, a stack or several). */
+        val offered = listOf(CHECKERS, SCORE, CUBE)
+    }
+}
 
 /** One change being set up: its kind, its checker slots, and for the score whose score moves. */
 data class DimSetup(
@@ -122,7 +133,14 @@ data class DimSetup(
 }
 
 /** A version's analysis (null while not analyzed), the plays it was asked to keep, and whether it failed. */
-data class VersionResult(val analysis: PositionAnalysis? = null, val kept: Set<Tracked> = emptySet(), val failed: Boolean = false)
+data class VersionResult(
+    val analysis: PositionAnalysis? = null,
+    /** How many times each followed play was searched for this version (a play still shallow is tried again, [MAX_TRIES] at most). */
+    val tries: Map<Tracked, Int> = emptyMap(),
+    val failed: Boolean = false,
+) {
+    companion object { const val MAX_TRIES = 2 }
+}
 
 /** The loss of one followed decision in one version. */
 sealed interface Loss {
@@ -137,8 +155,18 @@ sealed interface Loss {
 /** The colours of the followed decisions: chart lines, arrows, highlights, legend slots. */
 val TrackColors = listOf(Color(0xFF1E88E5), Color(0xFFF4511E), Color(0xFF8E24AA), Color(0xFF00897B))
 
+/** Cube actions always in the same colours: no double blue, (double,) take orange, (double,) pass purple. */
+fun cubeColor(kind: DecisionKind): Color = when (kind) {
+    DecisionKind.NO_DOUBLE -> TrackColors[0]
+    DecisionKind.TAKE, DecisionKind.BEAVER -> TrackColors[1]
+    DecisionKind.PASS -> TrackColors[2]
+    else -> TrackColors[3]
+}
+
 data class DeepDiveState(
     val base: StudyPosition,
+    /** The base position's last analysis (from where the deep dive was opened): the slots' losses before a run. */
+    val baseAnalysis: PositionAnalysis? = null,
     /** What the colour slots offer, best first. */
     val options: List<Tracked>,
     /** The followed decisions by colour slot ([DeepDive.MAX_TRACKED]); the first is always set. */
@@ -173,6 +201,45 @@ data class DeepDiveState(
             ) "Pick two different things to change (both scores: one each)." else null
     val planned: Int get() = if (problem != null) 0 else DeepDive.planned(base, changes)
     val hasResults: Boolean get() = versions.isNotEmpty()
+
+    /** Whether followed play [k] in version [i] was searched less deeply than the best play there (out of the search's range). */
+    fun shallow(i: Int, k: Int): Boolean {
+        val t = tracked.getOrNull(k) as? Tracked.Play ?: return false
+        val c = results.getOrNull(i)?.analysis?.checker ?: return false
+        val p = versions.getOrNull(i)?.position ?: return false
+        val target = runCatching { p.board.applyMove(Player.HUMAN, t.move) }.getOrNull() ?: return false
+        val cand = c.candidates.firstOrNull { runCatching { p.board.applyMove(Player.HUMAN, it.move) }.getOrNull() == target } ?: return false
+        return cand.plies != c.candidates[0].plies
+    }
+
+    /** [t]'s loss in the base position by its last analysis, or null (not in it, or no analysis). */
+    fun baseLoss(t: Tracked): Float? {
+        val a = baseAnalysis ?: return null
+        return when (t) {
+            is Tracked.Play -> a.checker?.let { DeepDive.playLoss(it, base.board, t.move) }
+            is Tracked.Cube -> a.cube?.let { DeepDive.cubeLoss(it, t.kind, base.beavers, base.doubled) }
+        }
+    }
+
+    /**
+     * Best plays of the versions that no slot follows, with the number of versions where each is best, most often first
+     * (the same play: the same move notation).
+     */
+    fun missingBest(): List<Pair<Move, Int>> {
+        if (!base.isChecker) return emptyList()
+        val followed = tracked.filterIsInstance<Tracked.Play>()
+        val count = LinkedHashMap<String, Pair<Move, Int>>()
+        versions.indices.forEach { i ->
+            val best = results.getOrNull(i)?.analysis?.checker?.candidates?.firstOrNull()?.move ?: return@forEach
+            if (best.isEmpty) return@forEach
+            val board = versions[i].position.board
+            val target = runCatching { board.applyMove(Player.HUMAN, best) }.getOrNull()
+            if (followed.any { runCatching { board.applyMove(Player.HUMAN, it.move) }.getOrNull() == target }) return@forEach
+            val key = MoveNotation.format(board, Player.HUMAN, best)
+            count[key] = best to ((count[key]?.second ?: 0) + 1)
+        }
+        return count.values.sortedByDescending { it.second }
+    }
     val secondary: Int? get() = if (dims.size == 2) 1 - primary else null
 
     /** The chart ranks bars (several checkers along it: no natural order) instead of drawing lines. */
@@ -193,8 +260,15 @@ data class DeepDiveState(
 
     fun text(t: Tracked): String = when (t) {
         is Tracked.Play -> MoveNotation.format(base.board, Player.HUMAN, t.move)
-        is Tracked.Cube -> describeAction(t.kind, base.board, Player.HUMAN, null)
+        is Tracked.Cube -> when {
+            !base.doubled && t.kind == DecisionKind.TAKE -> "Double, take"
+            !base.doubled && t.kind == DecisionKind.PASS -> "Double, pass"
+            else -> describeAction(t.kind, base.board, Player.HUMAN, null)
+        }
     }
+
+    /** Slot [k]'s colour: cube actions by kind (the same colour every time), plays by slot. */
+    fun colorOf(k: Int): Color = (tracked.getOrNull(k) as? Tracked.Cube)?.let { cubeColor(it.kind) } ?: TrackColors[k.coerceIn(0, TrackColors.lastIndex)]
 
     val firstText: String get() = text(tracked[0]!!)
 
@@ -228,6 +302,8 @@ data class DeepDiveState(
             kind == null -> if (e.cubeAvailable) maxOf(e.noDouble, after) else e.noDouble
             kind == DecisionKind.NO_DOUBLE -> e.noDouble
             kind == DecisionKind.DOUBLE -> if (e.cubeAvailable) after else null
+            kind == DecisionKind.TAKE -> if (e.cubeAvailable) e.doubleTake else null
+            kind == DecisionKind.PASS -> if (e.cubeAvailable) e.doublePass else null
             else -> null
         }
     }
@@ -257,13 +333,14 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
             val all = (listOfNotNull((request.tracked as? Tracked.Play)?.move) + moves).filter { !it.isEmpty }
             all.distinctBy { runCatching { p.board.applyMove(Player.HUMAN, it) }.getOrNull() }.map { Tracked.Play(it) }
         } else if (p.doubled) listOf(Tracked.Cube(DecisionKind.TAKE), Tracked.Cube(DecisionKind.PASS))
-        else listOf(Tracked.Cube(DecisionKind.NO_DOUBLE), Tracked.Cube(DecisionKind.DOUBLE))
-        val wanted = (listOf(request.tracked) + request.preset).map { t -> options.firstOrNull { same(p, it, t) } ?: t }
+        else listOf(Tracked.Cube(DecisionKind.NO_DOUBLE), Tracked.Cube(DecisionKind.TAKE), Tracked.Cube(DecisionKind.PASS))
+        // Cube decisions: every action followed, always in the same order and colours.
+        val wanted = if (!p.isChecker) options else (listOf(request.tracked) + request.preset).map { t -> options.firstOrNull { same(p, it, t) } ?: t }
         val slots = wanted.fold(emptyList<Tracked>()) { acc, t -> if (acc.any { same(p, it, t) }) acc else acc + t }.take(DeepDive.MAX_TRACKED)
         return DeepDiveState(
             base = p, options = (options + slots.filter { t -> options.none { same(p, it, t) } }), tracked = slots + List(DeepDive.MAX_TRACKED - slots.size) { null },
-            engine = request.engine, checkerDepth = request.checker, cubeDepth = request.cube,
-            dims = listOf(DimSetup(if (p.isChecker) DiveMode.CHECKER else DiveMode.CUBE)),
+            engine = request.engine, checkerDepth = request.checker, cubeDepth = request.cube, baseAnalysis = request.analysis,
+            dims = listOf(DimSetup(if (p.isChecker) DiveMode.CHECKERS else DiveMode.CUBE)),
         )
     }
 
@@ -336,6 +413,21 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
 
     fun setScorePlayer(d: Int, p: Int) = updateDim(d) { it.copy(scorePlayer = p) }
 
+    /** The two-score shortcut: your score along the first change, the opponent's along the second (full ranges). */
+    fun bothScores() = _state.update { st ->
+        if (st.base.setup.matchLength == 0) return@update st
+        st.copy(dims = listOf(DimSetup(DiveMode.SCORE, scorePlayer = Player.HUMAN), DimSetup(DiveMode.SCORE, scorePlayer = Player.CPU)), editDim = 0, editing = 0, primary = 0)
+    }
+
+    /** "Analyze again" under a version: its analysis is made again from scratch, with the followed plays. */
+    fun reanalyzeVersion(i: Int) {
+        val st = _state.value
+        if (st.running || i !in st.versions.indices) return
+        AppLog.i("Deep dive: analyze again version ${st.versions[i].label}, ${PositionIds.toXgid(st.versions[i].position.setup)}")
+        _state.update { s -> withLosses(s.copy(results = s.results.toMutableList().also { l -> if (i < l.size) l[i] = VersionResult() })) }
+        ensure()
+    }
+
     /** A second change: the first kind the first change is not. */
     fun addDim() = _state.update { st ->
         if (st.dims.size >= 2) return@update st
@@ -343,7 +435,7 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
         val mode = when {
             used != DiveMode.SCORE && st.base.setup.matchLength > 0 -> DiveMode.SCORE
             used != DiveMode.CUBE -> DiveMode.CUBE
-            else -> DiveMode.CHECKER
+            else -> DiveMode.CHECKERS
         }
         st.copy(dims = st.dims + DimSetup(mode), primary = 0)
     }
@@ -379,7 +471,12 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
                 return@update st.copy(dims = dims, editing = dim.slots.size)
             }
             val i = if (slot.player == Player.HUMAN) t else 23 - t
-            if (i == slot.from) return@update st
+            if (i == slot.from) {
+                // A tap on the stack: one more checker moves with it; with all of them, back to one.
+                val max = b.count(slot.player, slot.from) - used(st, slot.player, slot.from, except = d to st.editing)
+                val n = if (slot.count >= max) 1 else slot.count + 1
+                return@update st.copy(dims = st.dims.toMutableList().also { it[d] = dim.copy(slots = dim.slots.toMutableList().also { l -> l[st.editing] = slot.copy(count = n) }) })
+            }
             if (b.count(Player.other(slot.player), 23 - i) > 0) {
                 return@update st.copy(message = if (slot.player == Player.HUMAN) "Your opponent has checkers there." else "You have checkers there.")
             }
@@ -427,6 +524,11 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
         st.problem?.let { msg -> _state.update { it.copy(message = msg) }; return }
         val (versions, axes) = DeepDive.plan(st.base, st.changes)
         if (versions.size < 2) { _state.update { it.copy(message = "That makes fewer than two versions to compare.") }; return }
+        AppLog.i(
+            "Deep dive started: ${PositionIds.toXgid(st.base.setup)}, ${versions.size} versions, changes " +
+                st.dims.joinToString { it.mode.name + (if (it.mode == DiveMode.SCORE) "(${it.scorePlayer},${it.from}-${it.to},money ${it.money})" else "") + (if (it.checkers) it.slots.joinToString(prefix = "(", postfix = ")") { s -> "${s.player}:${s.from}x${s.count}->${s.targets}" } else "") } +
+                ", following ${st.tracked.filterNotNull().joinToString { st.text(it) }}, analysis ${st.engine ?: "default"} ${st.checkerDepth?.label() ?: ""} / ${st.cubeDepth?.label(cube = true) ?: ""}",
+        )
         val first = versions.indexOfFirst { it.isBase }.coerceAtLeast(0)
         _state.update { withLosses(it.copy(versions = versions, axes = axes, results = List(versions.size) { null }, selected = first, primary = 0, saved = false)) }
         ensure()
@@ -445,7 +547,7 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
         val c = a.checker ?: return false
         // A followed play missing from the analysis, or in it from a shallower pass than the best (it came up among the
         // first pass's plays before it was followed), is searched as deeply as the best; each once.
-        return legal.any { t -> t is Tracked.Play && t !in r.kept && !searchedDeeply(st.versions[i].position, c, t.move) }
+        return legal.any { t -> t is Tracked.Play && (r.tries[t] ?: 0) < VersionResult.MAX_TRIES && !searchedDeeply(st.versions[i].position, c, t.move) }
     }
 
     /** Analyzes, one by one, what the versions still need (a play added to the legend later is filled in). */
@@ -469,7 +571,12 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
                     // Analyzed already: only the followed plays not searched deeply are searched again.
                     val a = if (had?.analysis?.checker != null) app.engine.run(engine, null, deepenPlays(v.position, had.analysis, checker, cube, keep))
                     else app.engine.run(engine, null, positionAnalysis(v.position, engine, checker, cube, keep))
-                    VersionResult(a, legal.toSet() + (had?.kept ?: emptySet()))
+                    val tries = (had?.tries ?: emptyMap()).toMutableMap().also { m -> legal.forEach { t -> m[t] = (m[t] ?: 0) + 1 } }
+                    a.checker?.let { c ->
+                        val still = legal.filterIsInstance<Tracked.Play>().filter { !searchedDeeply(v.position, c, it.move) }
+                        if (still.isNotEmpty()) AppLog.i("Deep dive: version ${v.label} still shallow after ${tries[still[0]]} tries: ${still.joinToString { MoveNotation.format(v.position.board, Player.HUMAN, it.move) }} (${PositionIds.toXgid(v.position.setup)}, ${a.label})")
+                    }
+                    VersionResult(a, tries)
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     AppLog.error("Deep dive: version ${v.label} failed", e)
@@ -478,6 +585,19 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
                 _state.update { withLosses(it.copy(results = it.results.toMutableList().also { l -> if (i < l.size) l[i] = r })) }
             }
             AppLog.i("Deep dive: ${_state.value.versions.size} versions done")
+            // Settings → Deep dive: the best plays nobody follows go into the free slots (then analyzed where needed).
+            if (app.settings.settings.first().deepDiveAutoBest) {
+                val add = _state.value.missingBest()
+                val free = _state.value.tracked.indices.filter { _state.value.tracked[it] == null }
+                if (add.isNotEmpty() && free.isNotEmpty()) {
+                    AppLog.i("Deep dive: following the best plays not followed: ${add.take(free.size).joinToString { "${MoveNotation.format(_state.value.base.board, Player.HUMAN, it.first)} (${it.second})" }}")
+                    _state.update { st -> withLosses(st.copy(tracked = st.tracked.toMutableList().also { l -> free.zip(add).forEach { (k, m) -> l[k] = Tracked.Play(m.first) } })) }
+                    _state.update { it.copy(running = false) }
+                    job = null
+                    ensure()
+                    return@launch
+                }
+            }
             _state.update { it.copy(running = false) }
         }
     }
@@ -493,7 +613,7 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
                     !DeepDive.isLegal(v.position, t) -> Loss.Illegal
                     r == null || r.analysis == null -> if (r?.failed == true) Loss.Illegal else Loss.Pending
                     t is Tracked.Play -> r.analysis.checker?.let { DeepDive.playLoss(it, v.position.board, t.move) }?.let { Loss.Value(it) } ?: Loss.Pending
-                    t is Tracked.Cube -> r.analysis.cube?.let { e -> DeepDive.cubeLoss(e, t.kind, v.position.beavers)?.let { Loss.Value(it) } ?: Loss.Illegal } ?: Loss.Pending
+                    t is Tracked.Cube -> r.analysis.cube?.let { e -> DeepDive.cubeLoss(e, t.kind, v.position.beavers, v.position.doubled)?.let { Loss.Value(it) } ?: Loss.Illegal } ?: Loss.Pending
                     else -> Loss.Pending
                 }
             }
@@ -515,7 +635,7 @@ class DeepDiveViewModel(val app: PlyGroundApp, private val request: DeepDiveRequ
     fun deepen(i: Int, k: Int) {
         val t = _state.value.tracked.getOrNull(k) ?: return
         _state.update { st ->
-            st.copy(results = st.results.toMutableList().also { l -> l.getOrNull(i)?.let { r -> l[i] = r.copy(kept = r.kept - t) } })
+            st.copy(results = st.results.toMutableList().also { l -> l.getOrNull(i)?.let { r -> l[i] = r.copy(tries = r.tries - t) } })
         }
         ensure()
     }
