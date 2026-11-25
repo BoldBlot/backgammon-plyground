@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.25 — 2026-11-25 (build 106, internal test)
+
+- Quiz look-ahead: outside a game it now runs with the main analysis (all cores and the GPU) instead of the background
+  analysis's threads without the GPU; during a game it stays in the background. It starts no new card while an answer is
+  being judged.
+- Settings → Quiz: Analyze ahead, how many cards after the one shown are analyzed ahead (Off, 1, 2, 3, 5, 10; default 2).
+- Settings → Quiz: My answer goes first (on by default): when judging an answer needs a search, the card being analyzed
+  ahead stops at once and is analyzed again afterwards.
+
 ## 0.9.24 — 2026-11-25 (build 105, internal test)
 
 - GPU games: a passing GPU check now stays valid across app updates that leave the GPU code alone (it was tied to the build

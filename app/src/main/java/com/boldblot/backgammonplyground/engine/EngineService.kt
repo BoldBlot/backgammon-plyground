@@ -40,13 +40,22 @@ class EngineActivity(
     val what: String,
     /** Shown in Data and help as part of a [WorkItem] (with its own Stop), not on a line of its own. */
     val owned: Boolean,
+    val label: EngineLabel? = null,
 ) {
     /** The engine searching for it once it runs (null while it waits its turn). */
     @Volatile var engine: SearchEngine? = null
 }
 
 /** The name of the engine calls made under it ([kotlinx.coroutines.withContext]), and whether a [WorkItem] stands for them. */
-class EngineLabel(val what: String, val owned: Boolean = false) : kotlin.coroutines.AbstractCoroutineContextElement(EngineLabel) {
+class EngineLabel(
+    val what: String, val owned: Boolean = false,
+    /** Work ahead (the quiz's look-ahead): stopped at once when someone waits for the main slot ([preempted] is then set). */
+    val preemptible: Boolean = false,
+    /** Someone waits for this one (like a watched search): it stops a [preemptible] search running in the main slot. */
+    val preempts: Boolean = false,
+) : kotlin.coroutines.AbstractCoroutineContextElement(EngineLabel) {
+    /** Stopped to let a waiting search go first: its result is incomplete and should be thrown away. */
+    @Volatile var preempted: Boolean = false
     companion object Key : kotlin.coroutines.CoroutineContext.Key<EngineLabel>
 }
 
@@ -241,7 +250,7 @@ class EngineService(private val context: Context) {
     private suspend fun <T> tracked(kind: ActivityKind, block: suspend () -> T): T {
         val label = kotlinx.coroutines.currentCoroutineContext()[EngineLabel]
         val what = label?.what ?: when (kind) { ActivityKind.PLAY -> "The computer's move"; ActivityKind.ANALYSIS -> "Analysis"; ActivityKind.BACKGROUND -> "Background search" }
-        val a = synchronized(this) { EngineActivity(++activityId, kind, what, label?.owned == true) }
+        val a = synchronized(this) { EngineActivity(++activityId, kind, what, label?.owned == true, label) }
         _activity.update { it + a }
         try { return withContext(ActivityElement(a)) { block() } } finally { _activity.update { it - a } }
     }
@@ -376,10 +385,22 @@ class EngineService(private val context: Context) {
      * (someone waits for the result) the search is watched: it shows in [progress], can be stopped
      * ([stopSearch]) and stops when the caller is cancelled.
      */
-    suspend fun <T> run(kind: EngineKind? = null, waiting: Waiting? = null, block: SearchEngine.() -> T): T =
-        tracked(when (waiting) { Waiting.PLAY -> ActivityKind.PLAY; Waiting.ANALYSIS -> ActivityKind.ANALYSIS; null -> ActivityKind.BACKGROUND }) {
+    suspend fun <T> run(kind: EngineKind? = null, waiting: Waiting? = null, block: SearchEngine.() -> T): T {
+        // Someone waits: work ahead running in the main slot (the quiz's look-ahead) makes way at once.
+        if (waiting != null || kotlinx.coroutines.currentCoroutineContext()[EngineLabel]?.preempts == true) {
+            mainRunning?.takeIf { it.label?.preemptible == true }?.let { r ->
+                r.label?.preempted = true
+                r.engine?.stopNow()
+                AppLog.i("\"${r.what}\" stopped: a search someone waits for goes first")
+            }
+        }
+        return tracked(when (waiting) { Waiting.PLAY -> ActivityKind.PLAY; Waiting.ANALYSIS -> ActivityKind.ANALYSIS; null -> ActivityKind.BACKGROUND }) {
             runTracked(kind, waiting, block)
         }
+    }
+
+    /** The call searching in the main slot now. */
+    @Volatile private var mainRunning: EngineActivity? = null
 
     private suspend fun <T> runTracked(kind: EngineKind?, waiting: Waiting?, block: SearchEngine.() -> T): T {
         start()
@@ -390,7 +411,9 @@ class EngineService(private val context: Context) {
             PureTdNative.nativeSetThreads(ptdHandle, threads)
             runCatching { applyGpu() }.onFailure { AppLog.error("GPU games could not be set up", it) }
             enterSlot(main = true)
-            try { onEngineThread(kind, waiting, threads, block) } finally { exitSlot(main = true) }
+            val act = kotlinx.coroutines.currentCoroutineContext()[ActivityElement]?.a
+            mainRunning = act
+            try { onEngineThread(kind, waiting, threads, block) } finally { mainRunning = null; exitSlot(main = true) }
         }
     }
 

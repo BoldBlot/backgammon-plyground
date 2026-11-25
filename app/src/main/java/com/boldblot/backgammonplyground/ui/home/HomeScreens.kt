@@ -1349,6 +1349,25 @@ private fun QuizSettings(app: PlyGroundApp, s: Settings, update: (f: (Settings) 
     }
     Toggle("Keep analyses from other programs", s.quizKeepForeign, enabled = s.quizReanalyze) { v -> update { it.copy(quizKeepForeign = v) } }
     Note("On: an analysis read from an XG or GNU file is never replaced. Off: it counts as below the standard.")
+    Chips("Analyze ahead", listOf(0, 1, 2, 3, 5, 10), s.quizLookAhead, { if (it == 0) "Off" else "$it" }) { v ->
+        com.boldblot.backgammonplyground.AppLog.i("Setting: quiz look-ahead = $v cards")
+        update { it.copy(quizLookAhead = v) }
+    }
+    Note(
+        "While you answer, the next cards that need it (no analysis, or one below the standard) are analyzed, so their answers " +
+            "rarely wait. Outside a game this uses all cores and the GPU; during a game, the background analysis's threads. " +
+            "More cards ahead means more searches you may never reach. Default: 2.",
+    )
+    if (s.quizLookAhead > 0) {
+        Toggle("My answer goes first", s.quizAnswerFirst) { v ->
+            com.boldblot.backgammonplyground.AppLog.i("Setting: quiz answer goes first = $v")
+            update { it.copy(quizAnswerFirst = v) }
+        }
+        Note(
+            "On: when judging your answer needs a search (a play the analysis did not include), the card being analyzed ahead " +
+                "stops at once and is analyzed again afterwards. Off: your answer waits for that card to finish.",
+        )
+    }
     Header("Quick quiz")
     Chips("Button beside My positions", listOf(false, true), s.quickQuizRight, { if (it) "Right" else "Left" }) { v -> update { it.copy(quickQuizRight = v) } }
     Note("The ⚡ button on the main screen starts the quick quiz: all positions, 10, random, or what you saved with \"Save as quick quiz\" in the quiz menu.")

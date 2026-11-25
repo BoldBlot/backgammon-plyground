@@ -270,6 +270,10 @@ data class Settings(
     val gamesGap: Float = 0.005f,
     /** The quiz analyzes a position again, when it comes up, if its analysis is below the standard of Settings → Analysis (build 86). */
     val quizReanalyze: Boolean = false,
+    /** Quiz: how many cards after the one shown are analyzed ahead (0 = none; 0.9.25). */
+    val quizLookAhead: Int = 2,
+    /** Quiz: an answer that needs a search stops the look-ahead's card in progress (analyzed again afterwards; 0.9.25). */
+    val quizAnswerFirst: Boolean = true,
     /** Analyze Position: a swipe on the board changes the checkers on the opposite point of the board (build 86). */
     val oppositeSwipe: Boolean = false,
     /** Debug: a spinner in the top left corner for each call into the engine, with the analysis queue (build 86). */
@@ -642,6 +646,8 @@ class SettingsStore(private val context: Context) {
         val gamesOnErrorsOnly = booleanPreferencesKey("games_on_errors_only")
         val gamesGap = floatPreferencesKey("games_gap")
         val quizReanalyze = booleanPreferencesKey("quiz_reanalyze")
+        val quizLookAhead = intPreferencesKey("quiz_look_ahead")
+        val quizAnswerFirst = booleanPreferencesKey("quiz_answer_first")
         val oppositeSwipe = booleanPreferencesKey("opposite_swipe")
         val analysisIndicator = booleanPreferencesKey("analysis_indicator")
         val quizKeepForeign = booleanPreferencesKey("quiz_keep_foreign")
@@ -793,6 +799,8 @@ class SettingsStore(private val context: Context) {
             gamesOnErrorsOnly = p[Keys.gamesOnErrorsOnly] ?: d.gamesOnErrorsOnly,
             gamesGap = p[Keys.gamesGap] ?: d.gamesGap,
             quizReanalyze = p[Keys.quizReanalyze] ?: d.quizReanalyze,
+            quizLookAhead = p[Keys.quizLookAhead] ?: d.quizLookAhead,
+            quizAnswerFirst = p[Keys.quizAnswerFirst] ?: d.quizAnswerFirst,
             oppositeSwipe = p[Keys.oppositeSwipe] ?: d.oppositeSwipe,
             analysisIndicator = p[Keys.analysisIndicator] ?: d.analysisIndicator,
             quizKeepForeign = p[Keys.quizKeepForeign] ?: d.quizKeepForeign,
@@ -940,6 +948,8 @@ class SettingsStore(private val context: Context) {
             p[Keys.gamesOnErrorsOnly] = s.gamesOnErrorsOnly
             p[Keys.gamesGap] = s.gamesGap
             p[Keys.quizReanalyze] = s.quizReanalyze
+            p[Keys.quizLookAhead] = s.quizLookAhead
+            p[Keys.quizAnswerFirst] = s.quizAnswerFirst
             p[Keys.oppositeSwipe] = s.oppositeSwipe
             p[Keys.analysisIndicator] = s.analysisIndicator
             p[Keys.quizKeepForeign] = s.quizKeepForeign
