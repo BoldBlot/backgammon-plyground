@@ -16,6 +16,7 @@ class GpuCheckKeyTest {
     @Test fun buildNumberKeysOf102To104CarryOverWhileTheGpuCodeIsTheSame() {
         assertTrue(gpuCheckValid("103/$rest", net))
         assertTrue(gpuCheckValid("104/$rest", net))
+        assertTrue(gpuCheckValid("g699d23e2258d/$rest", net))   // builds 105-106
         assertFalse(gpuCheckValid("101/$rest", net))
         assertFalse(gpuCheckValid("103/OTHER/x/y", net))
     }

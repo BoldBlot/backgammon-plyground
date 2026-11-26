@@ -279,8 +279,9 @@ static jfloatArray cube_tree(JNIEnv *env, jlong ptr, jintArray state, jint level
     to_state(v, &s);
     long nodes = 0, leaves = 1;
     for (int k = 0; k < levels; k++) { leaves *= 21; nodes += leaves; }
-    int *pts = malloc(sizeof(int) * (size_t)nodes);
-    float *leaf = malloc(sizeof(float) * 7 * (size_t)leaves);
+    /* Zeroed: a stopped search leaves parts of the tree unfilled, which must read as "no game over, no value", not garbage. */
+    int *pts = calloc((size_t)nodes, sizeof(int));
+    float *leaf = calloc(7 * (size_t)leaves, sizeof(float));
     BoardState *states = NULL;
     if (statesOut) {
         if ((*env)->GetArrayLength(env, statesOut) != STATE_INTS * leaves) { free(pts); free(leaf); return NULL; }

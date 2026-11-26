@@ -9,13 +9,15 @@ plugins {
 }
 
 /**
- * A fingerprint of the code the GPU games depend on (the shaders and Vulkan code, PureTD's C engine and its JNI bridge, the
+ * A fingerprint of the code the GPU games depend on (the shaders and Vulkan code, PureTD's C engine, the
  * games search): a passing GPU check stays valid until it changes, across app updates.
  */
 val gpuCode: String = run {
     val root = rootProject.projectDir
     val src = "app/src/main/java/com/boldblot/backgammonplyground/engine"
-    val files = listOf("engine/vkgames", "engine/puretd", "app/src/main/cpp").flatMap { d ->
+    // The C engine the shaders mirror and the games search; not the app's JNI bridge (app/src/main/cpp), which the GPU path
+    // does not use (since 0.9.26: a bridge fix must not turn every phone's GPU off).
+    val files = listOf("engine/vkgames", "engine/puretd").flatMap { d ->
         File(root, d).walkTopDown().filter { f -> f.isFile && "/out/" !in f.path && !f.name.endsWith(".md") && f.name != ".gitignore" }.toList()
     } + listOf("GpuGames.kt", "VkGamesNative.kt", "GamesSearch.kt").map { File(root, "$src/$it") }
     val md = MessageDigest.getInstance("SHA-256")
@@ -43,8 +45,8 @@ android {
         targetSdk = 36
         // Play's upload code: one more for every bundle uploaded to Play (internal or closed). It is
         // also the build number the app shows, and each upload moves the version's last digit on.
-        versionCode = 106
-        versionName = "0.9.25"
+        versionCode = 107
+        versionName = "0.9.26"
         buildConfigField("String", "BUILD_LABEL", "\"$versionCode\"")
         buildConfigField("String", "GPU_CODE", "\"$gpuCode\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

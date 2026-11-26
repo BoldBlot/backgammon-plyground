@@ -563,15 +563,20 @@ val NEW_INSTALL = Settings(
 fun gpuCheckKey(net: PureTdNet): String =
     "g${com.boldblot.backgammonplyground.BuildConfig.GPU_CODE}/${net.name}/${android.os.Build.VERSION.INCREMENTAL}/${android.os.Build.MODEL}"
 
-/** The GPU code of builds 102 to 104, whose checks were keyed by the build number: still valid while the code is the same. */
-private const val GPU_CODE_102_104 = "699d23e2258d"
+/**
+ * The GPU code of builds 102 to 106 (the fingerprint without the JNI bridge, 0.9.26). Their checks were keyed by the build
+ * number (102-104) or by the older fingerprint that included the bridge (g699d23e2258d, 105-106): still valid while the GPU
+ * code is this one.
+ */
+private const val GPU_CODE_102_106 = "17056f7bc687"
 
-/** Whether a stored check [key] is valid now ([gpuCheckKey], or a build 102-104 key while the GPU code is unchanged). */
+/** Whether a stored check [key] is valid now ([gpuCheckKey], or a key of builds 102-106 while the GPU code is unchanged). */
 fun gpuCheckValid(key: String, net: PureTdNet): Boolean {
     if (key == gpuCheckKey(net)) return true
-    val build = key.substringBefore('/').toIntOrNull() ?: return false
-    return build in 102..104 && com.boldblot.backgammonplyground.BuildConfig.GPU_CODE == GPU_CODE_102_104 &&
-        key.substringAfter('/') == gpuCheckKey(net).substringAfter('/')
+    if (com.boldblot.backgammonplyground.BuildConfig.GPU_CODE != GPU_CODE_102_106) return false
+    if (key.substringAfter('/') != gpuCheckKey(net).substringAfter('/')) return false
+    val first = key.substringBefore('/')
+    return first == "g699d23e2258d" || first.toIntOrNull() in 102..104
 }
 
 /** Why the GPU games are off although they are switched on: null when they can run ([gpuSetting] not null) or are off. */

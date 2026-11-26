@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.26 — 2026-11-26 (build 107, internal test)
+
+- Engine speed test rewritten: it times six reference positions from real matches (an easy, an average and a hard checker
+  play and cube decision) as an analysis runs (all cores, the GPU for T-Roller), judges each level by the hard position,
+  starts at the level predicted to fit the budget and steps one level at a time, so it no longer times every level or
+  heats the phone. Each position stops at three times the budget; each result shows as soon as it is measured; the test
+  pauses while the phone is warm.
+- Speed test: a custom test, any reference position (or a pasted XGID) at any level, as in its match or as an unlimited
+  game, with its time, threads and whether the GPU played the games.
+- Fixed: a 3-ply match cube decision stopped part way (Stop, leaving the screen, the quiz's answer going first) could
+  crash the app (since 0.9.21).
+- GPU games: the GPU check now depends only on the GPU code and PureTD's engine, not the app's bridge to it, so fixes there
+  no longer turn the GPU off; checks from builds 102 to 106 stay valid.
+
 ## 0.9.25 — 2026-11-25 (build 106, internal test)
 
 - Quiz look-ahead: outside a game it now runs with the main analysis (all cores and the GPU) instead of the background

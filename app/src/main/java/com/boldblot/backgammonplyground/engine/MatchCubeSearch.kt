@@ -26,7 +26,8 @@ class MatchCubeSearch(
     private val leaves = arrayOfNulls<MatchCube>(pow21(levels).toInt())
     private val memo = HashMap<Long, Double>()
 
-    private fun pts(level: Int, idx: Long): Int = tree[(offsets[level] + idx).toInt()].toInt()
+    /** Points the roll at [idx] won (1-3), or 0; anything else (a tree a stopped search left unfilled) reads as 0. */
+    private fun pts(level: Int, idx: Long): Int = tree[(offsets[level] + idx).toInt()].toInt().takeIf { it in 0..3 } ?: 0
 
     /** Needs (side on roll, opponent) at a node of [level]: the root's side is on roll at even levels. */
     private fun needs(level: Int) = if (level % 2 == 0) a to b else b to a
